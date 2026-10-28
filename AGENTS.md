@@ -22,6 +22,7 @@ npm run preview   # 预览构建产物
 
 - **不能用 `file://` 直接打开 `dist/index.html`**：ES Module 与音频权限会被浏览器拦截，必须走 HTTP。
 - 构建产物由 `vite.config.js` 的 `base: './'` 支持子路径部署。
+- 部署：推送到 `main` 后由 `.github/workflows/deploy.yml` 自动构建 `dist/` 并发布到 GitHub Pages（https://studyzy.github.io/pvz-shoot/）；Pages Source 使用 GitHub Actions，不要提交 `dist/`。
 - 项目没有测试框架；验收方式见第 7 节。
 
 ---
