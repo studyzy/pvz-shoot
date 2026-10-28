@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="theme-color" content="#5c9c2a" />
+  <meta name="description" content="戴夫的后院 — 植物大战僵尸风格的第一人称射击小游戏，iPhone / iPad 可直接游玩。" />
+  <title>戴夫的后院 · 植物射手</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='14' cy='14' r='10' fill='%237ed321'/%3E%3Crect x='21' y='11' width='9' height='6' rx='3' fill='%238ede2a'/%3E%3C/svg%3E" />
+  <link rel="stylesheet" href="/src/style.css" />
+</head>
+<body>
+  <div id="app">
+    <canvas id="game"></canvas>
+    <div id="vignette"></div>
+
+    <div id="hud" class="hidden">
+      <div class="hud-top-left">
+        <div class="hp-row">
+          <svg class="heart" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M12 21s-8-5.2-8-11a4.7 4.7 0 0 1 8-3.3A4.7 4.7 0 0 1 20 10c0 5.8-8 11-8 11z" fill="#ff6b5a" stroke="#5b1c14" stroke-width="1.6" stroke-linejoin="round"/>
+          </svg>
+          <div class="hp-bar"><div id="hpFill"></div></div>
+          <span id="hpText" class="hp-text">100</span>
+        </div>
+        <div class="meta-row">
+          <span class="chip">积分 <b id="scoreLabel">0</b></span>
+          <span class="chip kills">击杀 <b id="killLabel">0</b></span>
+        </div>
+      </div>
+
+      <div class="wave-chip"><span id="waveLabel">第 1 波</span></div>
+
+      <div class="hud-top-right">
+        <div class="sun-pill" id="sunPill">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <circle cx="12" cy="12" r="7" fill="#ffd23f" stroke="#8a5b00" stroke-width="1.6"/>
+            <g stroke="#ffd23f" stroke-width="2.4" stroke-linecap="round">
+              <path d="M12 1.6V4M12 20v2.4M1.6 12H4M20 12h2.4M4.6 4.6l1.7 1.7M17.7 17.7l1.7 1.7M19.4 4.6l-1.7 1.7M6.3 17.7l-1.7 1.7"/>
+            </g>
+          </svg>
+          <b id="sunValue">70</b>
+        </div>
+        <button id="muteBtn" class="icon-btn" aria-label="声音">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9h4l5-4v14l-5-4H4z" fill="#fff"/><path class="mute-wave" d="M16 8.5a5 5 0 0 1 0 7" stroke="#fff" stroke-width="1.8" fill="none" stroke-linecap="round"/><path class="mute-slash" d="M16 9l5 6M21 9l-5 6" stroke="#ff7a68" stroke-width="2" fill="none" stroke-linecap="round"/></svg>
+        </button>
+        <button id="pauseBtn" class="icon-btn" aria-label="暂停">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="5" width="4.2" height="14" rx="1.4" fill="#fff"/><rect x="13.8" y="5" width="4.2" height="14" rx="1.4" fill="#fff"/></svg>
+        </button>
+      </div>
+
+      <div id="bossBar" class="boss-bar hidden">
+        <div class="boss-name">巨人僵尸</div>
+        <div class="boss-track"><div id="bossFill"></div></div>
+      </div>
+
+      <div id="crosshair">
+        <i class="ch l"></i><i class="ch r"></i><i class="ch t"></i><i class="ch b"></i>
+        <i class="ch dot"></i>
+      </div>
+      <div id="hitmarker"><i></i><i></i><i></i><i></i></div>
+      <div id="banner" class="banner"></div>
+      <div id="damageVignette"></div>
+      <div id="tutorial" class="tutorial">
+        <div><b>左摇杆</b> 移动 · <b>右侧拖动</b> 瞄准</div>
+        <div><b>开火</b> 键射击 · 点击下方植物切换</div>
+      </div>
+
+      <div id="joyBase" class="joy-base hidden">
+        <span class="joy-dir up">▲</span>
+        <span class="joy-dir down">▼</span>
+        <span class="joy-dir left">◀</span>
+        <span class="joy-dir right">▶</span>
+        <div id="joyKnob" class="joy-knob"></div>
+      </div>
+
+      <div id="desktopHint" class="desktop-hint">
+        <div class="keys-row"><b>W</b><b>A</b><b>S</b><b>D</b><span>移动</span></div>
+        <div class="kbd-line">鼠标 瞄准 · 左键 射击 · 空格 跳跃 · 1-4 换植物</div>
+      </div>
+
+      <div class="dock">
+        <div id="weaponDock" class="weapon-dock"></div>
+        <div class="action-row">
+          <button id="jumpBtn" class="jump-btn" aria-label="跳跃">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 18V7M12 7l-4.5 4.5M12 7l4.5 4.5" stroke="#fff" stroke-width="2.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <span>跳</span>
+          </button>
+          <button id="fireBtn" class="fire-btn"><span>开火</span></button>
+        </div>
+      </div>
+    </div>
+
+    <div class="screen" id="startScreen">
+      <div class="screen-inner">
+        <div class="kicker">PLANTS VS ZOMBIES · 第一人称</div>
+        <h1>戴夫的后院</h1>
+        <p class="tagline">拿起植物，把僵尸轰回土里</p>
+        <button class="big-btn" id="startBtn">开始保卫后院</button>
+        <div class="hint-row touch-only">
+          <div class="hint"><b>左摇杆</b><span>移动</span></div>
+          <div class="hint"><b>右侧拖动</b><span>瞄准</span></div>
+          <div class="hint"><b>开火</b><span>射击</span></div>
+          <div class="hint"><b>跳</b><span>跳跃</span></div>
+        </div>
+        <div class="hint-row desktop-only">
+          <div class="hint"><b>W A S D</b><span>移动</span></div>
+          <div class="hint"><b>鼠标</b><span>瞄准</span></div>
+          <div class="hint"><b>左键</b><span>射击</span></div>
+          <div class="hint"><b>1 - 4</b><span>换植物</span></div>
+        </div>
+        <div class="device-note touch-only">iPhone / iPad 网页直接开玩 · 建议横屏 · 击杀僵尸收集阳光</div>
+        <div class="device-note desktop-only">电脑端点击开始后锁定鼠标 · 按 Esc 暂停 · 击杀僵尸收集阳光</div>
+      </div>
+    </div>
+
+    <div class="screen hidden" id="pauseScreen">
+      <div class="screen-inner panel">
+        <div class="kicker">PAUSED</div>
+        <h2>暂停中</h2>
+        <button class="big-btn small" id="resumeBtn">继续战斗</button>
+        <button class="ghost-btn" id="restartBtn">重新开始</button>
+      </div>
+    </div>
+
+    <div class="screen hidden" id="overScreen">
+      <div class="screen-inner panel">
+        <div class="kicker over">GAME OVER</div>
+        <h2>你被僵尸吃掉了</h2>
+        <div class="stats">
+          <div><span id="finalScore">0</span><em>积分</em></div>
+          <div><span id="finalWave">1</span><em>坚持波数</em></div>
+          <div><span id="finalKills">0</span><em>击杀</em></div>
+        </div>
+        <button class="big-btn small" id="againBtn">再来一局</button>
+      </div>
+    </div>
+
+    <div id="rotateHint" class="rotate-hint hidden">横过来玩，视野更开阔</div>
+  </div>
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>

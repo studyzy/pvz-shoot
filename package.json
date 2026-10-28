@@ -1,0 +1,18 @@
+{
+  "name": "pvz-backyard-fps",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "戴夫的后院 - 植物大战僵尸风格的第一人称射击网页游戏",
+  "scripts": {
+    "dev": "vite --host",
+    "build": "vite build",
+    "preview": "vite preview --host"
+  },
+  "dependencies": {
+    "three": "^0.169.0"
+  },
+  "devDependencies": {
+    "vite": "^5.4.8"
+  }
+}
