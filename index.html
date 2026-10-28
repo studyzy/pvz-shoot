@@ -61,6 +61,7 @@
         <i class="ch l"></i><i class="ch r"></i><i class="ch t"></i><i class="ch b"></i>
         <i class="ch dot"></i>
       </div>
+      <div id="ammoChip" class="ammo-chip hidden"><b id="ammoNow">0</b><span>/</span><i id="ammoMax">0</i></div>
       <div id="hitmarker"><i></i><i></i><i></i><i></i></div>
       <div id="banner" class="banner"></div>
       <div id="damageVignette"></div>
@@ -79,7 +80,7 @@
 
       <div id="desktopHint" class="desktop-hint">
         <div class="keys-row"><b>W</b><b>A</b><b>S</b><b>D</b><span>移动</span></div>
-        <div class="kbd-line">鼠标 瞄准 · 左键 射击 · 空格 跳跃 · 1-4 换植物</div>
+        <div class="kbd-line">鼠标 瞄准 · 左键 射击 · 空格 跳跃 · 1-4 换植物 · 5 战利品</div>
       </div>
 
       <div class="dock">
@@ -99,6 +100,7 @@
         <div class="kicker">PLANTS VS ZOMBIES · 第一人称</div>
         <h1>戴夫的后院</h1>
         <p class="tagline">拿起植物，把僵尸轰回土里</p>
+        <div class="map-select" id="mapSelect" aria-label="选择地图"></div>
         <button class="big-btn" id="startBtn">开始保卫后院</button>
         <div class="hint-row touch-only">
           <div class="hint"><b>左摇杆</b><span>移动</span></div>
@@ -110,7 +112,7 @@
           <div class="hint"><b>W A S D</b><span>移动</span></div>
           <div class="hint"><b>鼠标</b><span>瞄准</span></div>
           <div class="hint"><b>左键</b><span>射击</span></div>
-          <div class="hint"><b>1 - 4</b><span>换植物</span></div>
+          <div class="hint"><b>1 - 5</b><span>换植物</span></div>
         </div>
         <div class="device-note touch-only">iPhone / iPad 网页直接开玩 · 建议横屏 · 击杀僵尸收集阳光</div>
         <div class="device-note desktop-only">电脑端点击开始后锁定鼠标 · 按 Esc 暂停 · 击杀僵尸收集阳光</div>
@@ -135,7 +137,10 @@
           <div><span id="finalWave">1</span><em>坚持波数</em></div>
           <div><span id="finalKills">0</span><em>击杀</em></div>
         </div>
-        <button class="big-btn small" id="againBtn">再来一局</button>
+        <div class="panel-actions">
+          <button class="big-btn small" id="againBtn">再来一局</button>
+          <button class="ghost-btn" id="mapBtn">换地图</button>
+        </div>
       </div>
     </div>
 

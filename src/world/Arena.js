@@ -12,19 +12,46 @@ const tmpEuler = new THREE.Euler();
 export class Arena {
   constructor(scene) {
     this.scene = scene;
+    this.id = 'backyard';
+    this.name = '戴夫的后院';
+    this.root = new THREE.Group();
+    this.root.name = 'backyard';
+    this.root.visible = false;
+    scene.add(this.root);
     this.colliders = [];
+    this.bounds = { x: 23, z: 23 };
+    this.spawn = { x: 0, z: 13, yaw: 0 };
+    this.pickupSpots = [
+      [-17.5, 12.5],
+      [16.5, 11.5],
+      [-16, -14.5],
+      [15.5, -16.5],
+      [1.5, -1],
+    ];
     this.build();
   }
+
+  activate(scene) {
+    scene.background = skyTexture();
+    scene.fog = new THREE.Fog(0xdff1ff, 58, 140);
+    this.root.visible = true;
+  }
+
+  menuCamera(camera, time) {
+    const t = time * 0.06;
+    const x = Math.sin(t) * 8;
+    const z = -16 + Math.cos(t) * 3.5;
+    camera.position.set(x, 5.4 + Math.sin(time * 0.21) * 0.12, z);
+    camera.lookAt(x * 0.2, 2.3, 12);
+  }
+
+  update() {}
 
   addCollider(x, z, r) {
     this.colliders.push({ x, z, r });
   }
 
   build() {
-    const scene = this.scene;
-    scene.background = skyTexture();
-    scene.fog = new THREE.Fog(0xdff1ff, 58, 140);
-
     this.buildLights();
     this.buildGround();
     this.buildFence();
@@ -41,7 +68,7 @@ export class Arena {
 
   buildLights() {
     const hemi = new THREE.HemisphereLight(0xcdeaff, 0x5f8a34, 1.12);
-    this.scene.add(hemi);
+    this.root.add(hemi);
 
     const sun = new THREE.DirectionalLight(0xfff3d2, 2.55);
     sun.position.set(24, 32, 16);
@@ -57,13 +84,13 @@ export class Arena {
     sun.shadow.bias = -0.0006;
     sun.shadow.normalBias = 0.035;
     sun.shadow.camera.updateProjectionMatrix();
-    this.scene.add(sun);
-    this.scene.add(sun.target);
+    this.root.add(sun);
+    this.root.add(sun.target);
     this.sunLight = sun;
 
     const fill = new THREE.DirectionalLight(0xbcd8ff, 0.45);
     fill.position.set(-20, 14, -24);
-    this.scene.add(fill);
+    this.root.add(fill);
   }
 
   buildGround() {
@@ -72,7 +99,7 @@ export class Arena {
     const ground = new THREE.Mesh(geo, mat);
     ground.rotation.x = -Math.PI / 2;
     ground.receiveShadow = true;
-    this.scene.add(ground);
+    this.root.add(ground);
 
     // stone path from the house toward the yard
     const pathMat = new THREE.MeshLambertMaterial({ color: 0xc9bda0 });
@@ -85,7 +112,7 @@ export class Arena {
       s.receiveShadow = true;
       stones.add(s);
     }
-    this.scene.add(stones);
+    this.root.add(stones);
   }
 
   buildFence() {
@@ -129,8 +156,8 @@ export class Arena {
     }
     bodies.instanceMatrix.needsUpdate = true;
     tips.instanceMatrix.needsUpdate = true;
-    this.scene.add(bodies);
-    this.scene.add(tips);
+    this.root.add(bodies);
+    this.root.add(tips);
 
     const railMat = toon(0xe9e2cf);
     const railGeoLong = new THREE.BoxGeometry(half * 2, 0.1, 0.06);
@@ -139,16 +166,16 @@ export class Arena {
       const y = 0.36 + i * 0.42;
       let rail = new THREE.Mesh(railGeoLong, railMat);
       rail.position.set(0, y, -half + 0.1);
-      this.scene.add(rail);
+      this.root.add(rail);
       rail = new THREE.Mesh(railGeoLong, railMat);
       rail.position.set(0, y, half - 0.1);
-      this.scene.add(rail);
+      this.root.add(rail);
       rail = new THREE.Mesh(railGeoShort, railMat);
       rail.position.set(-half + 0.1, y, 0);
-      this.scene.add(rail);
+      this.root.add(rail);
       rail = new THREE.Mesh(railGeoShort, railMat);
       rail.position.set(half - 0.1, y, 0);
-      this.scene.add(rail);
+      this.root.add(rail);
     }
   }
 
@@ -216,7 +243,7 @@ export class Arena {
     step.position.set(0, 0.18, 26.2);
     group.add(step);
 
-    this.scene.add(group);
+    this.root.add(group);
   }
 
   makeTree(x, z, scale) {
@@ -243,7 +270,7 @@ export class Arena {
     }
     g.position.set(x, 0, z);
     g.scale.setScalar(scale);
-    this.scene.add(g);
+    this.root.add(g);
     this.addCollider(x, z, 0.55 * scale + 0.25);
   }
 
@@ -292,7 +319,7 @@ export class Arena {
       g.add(engrave2);
       g.position.set(s[0], 0, s[1]);
       g.rotation.y = s[2];
-      this.scene.add(g);
+      this.root.add(g);
       this.addCollider(s[0], s[1], 0.55);
     }
   }
@@ -323,7 +350,7 @@ export class Arena {
       }
       g.position.set(-7 + i * 7, 0, 20.6);
       g.rotation.y = rand(-0.15, 0.15);
-      this.scene.add(g);
+      this.root.add(g);
       this.addCollider(g.position.x, g.position.z, 0.55);
     }
   }
@@ -359,7 +386,7 @@ export class Arena {
       g.add(center);
       g.position.set(spots[i][0], 0, spots[i][1]);
       g.rotation.y = rand(0, TAU);
-      this.scene.add(g);
+      this.root.add(g);
       this.addCollider(spots[i][0], spots[i][1], 0.4);
     }
   }
@@ -382,7 +409,7 @@ export class Arena {
     }
     mesh.instanceMatrix.needsUpdate = true;
     mesh.receiveShadow = true;
-    this.scene.add(mesh);
+    this.root.add(mesh);
   }
 
   buildFlowers() {
@@ -410,7 +437,7 @@ export class Arena {
     }
     mesh.instanceMatrix.needsUpdate = true;
     if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
-    this.scene.add(mesh);
+    this.root.add(mesh);
   }
 
   buildSkyProps() {
@@ -428,7 +455,7 @@ export class Arena {
       s.position.set(Math.cos(a) * dist, rand(38, 62), Math.sin(a) * dist);
       s.scale.set(rand(26, 44), rand(12, 18), 1);
       s.material = s.material;
-      this.scene.add(s);
+      this.root.add(s);
     }
 
     const sunSprite = new THREE.Sprite(new THREE.SpriteMaterial({
@@ -441,7 +468,7 @@ export class Arena {
     }));
     sunSprite.position.set(74, 88, 42);
     sunSprite.scale.set(21, 21, 1);
-    this.scene.add(sunSprite);
+    this.root.add(sunSprite);
   }
 
   buildSign() {
@@ -480,7 +507,7 @@ export class Arena {
     g.add(post);
     g.position.set(-8.5, 0, 16.5);
     g.rotation.y = Math.PI + 0.32;
-    this.scene.add(g);
+    this.root.add(g);
     this.addCollider(-8.5, 16.5, 0.4);
   }
 }

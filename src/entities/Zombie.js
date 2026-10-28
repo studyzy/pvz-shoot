@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { blobShadowTexture, zombieGrimeTexture } from '../world/materials.js';
 import { ZOMBIES } from '../config.js';
 import { getZombieRig, zombieVariantCount } from './ZombieModel.js';
-import { zombieAtlas } from './ZombieTexture.js';
+import { zombieAtlas, zombieOrmTexture } from './ZombieTexture.js';
 import { clamp, rand, TAU } from '../utils.js';
 
 const ICE = new THREE.Color(0x9fe4ff);
@@ -28,6 +28,7 @@ export class Zombie {
     this.type = type;
     this.def = ZOMBIES[type];
     this.ctx = ctx;
+    this.map = ctx.map || null;
     this.wave = wave;
     this.scaleFactor = this.def.scale;
     this.maxHp = Math.round(this.def.hp * hpMul);
@@ -48,6 +49,13 @@ export class Zombie {
     this.stagger = 0;
     this.pushX = 0;
     this.pushZ = 0;
+    this.stuckT = 0;
+    this.detourT = 0;
+    this.detourX = 0;
+    this.detourZ = 0;
+    this.detourFlip = 1;
+    this.flow = { x: 0, z: 0 };
+    this.flowActive = false;
     this.rotY = rand(0, TAU);
     this.animSpeed = 0;
 
@@ -55,9 +63,18 @@ export class Zombie {
     this.rig = getZombieRig(type, this.variant);
 
     this.baseTint = new THREE.Color(0xffffff).offsetHSL(0, 0, rand(-0.035, 0.03));
-    this.mat = new THREE.MeshLambertMaterial({
+    const orm = zombieOrmTexture();
+    this.mat = new THREE.MeshStandardMaterial({
       vertexColors: true,
       map: zombieAtlas.map || zombieGrimeTexture(),
+      roughnessMap: orm,
+      metalnessMap: orm,
+      normalMap: zombieAtlas.normal || null,
+      normalScale: new THREE.Vector2(0.35, 0.35),
+      roughness: 1,
+      metalness: 1,
+      envMap: ctx.env || null,
+      envMapIntensity: 0.5,
       emissive: 0xffffff,
       emissiveIntensity: 0,
     });
@@ -191,6 +208,7 @@ export class Zombie {
 
     if (!this.mapApplied && zombieAtlas.map) {
       this.mat.map = zombieAtlas.map;
+      this.mat.normalMap = zombieAtlas.normal;
       this.mat.needsUpdate = true;
       this.mapApplied = true;
     }
@@ -251,11 +269,29 @@ export class Zombie {
     let moving = false;
     let mx = 0;
     let mz = 0;
+    const prevX = this.root.position.x;
+    const prevZ = this.root.position.z;
 
     if (dist > attackRange && this.stagger <= 0) {
       const inv = dist > 0.001 ? 1 / dist : 0;
-      mx = dx * inv + this.pushX;
-      mz = dz * inv + this.pushZ;
+      let sx = dx * inv;
+      let sz = dz * inv;
+      this.flowActive = false;
+      if (this.map && this.map.flowAt && dist > attackRange + 1.2) {
+        if (this.map.flowAt(this.root.position.x, this.root.position.z, this.flow)) {
+          sx = this.flow.x;
+          sz = this.flow.z;
+          this.flowActive = true;
+        }
+      }
+      if (this.detourT > 0) {
+        this.detourT -= dt;
+        mx = this.detourX + this.pushX;
+        mz = this.detourZ + this.pushZ;
+      } else {
+        mx = sx + this.pushX;
+        mz = sz + this.pushZ;
+      }
       const ml = Math.hypot(mx, mz);
       if (ml > 0.001) {
         mx /= ml;
@@ -264,9 +300,11 @@ export class Zombie {
         const step = spd * dt;
         this.root.position.x += mx * step;
         this.root.position.z += mz * step;
-        const half = 22.6;
-        this.root.position.x = clamp(this.root.position.x, -half, half);
-        this.root.position.z = clamp(this.root.position.z, -half, half);
+        const b = this.map && this.map.bounds;
+        const halfX = (b ? b.x : 23) - 0.6;
+        const halfZ = (b ? b.z : 23) - 0.6;
+        this.root.position.x = clamp(this.root.position.x, -halfX, halfX);
+        this.root.position.z = clamp(this.root.position.z, -halfZ, halfZ);
         moving = true;
         this.animSpeed = spd;
       }
@@ -282,6 +320,31 @@ export class Zombie {
 
     if (this.stagger > 0) this.stagger -= dt;
 
+    if (dist > attackRange && !this.flowActive) {
+      const moved = Math.hypot(this.root.position.x - prevX, this.root.position.z - prevZ);
+      if (moved < this.speed * dt * 0.35) this.stuckT += dt;
+      else this.stuckT = Math.max(0, this.stuckT - dt * 1.5);
+
+      if (this.stuckT > 0.45 && this.detourT <= 0) {
+        this.stuckT = 0;
+        this.detourT = 2.4;
+        let ax = 0;
+        let az = 0;
+        if (Math.abs(dz) >= Math.abs(dx)) ax = dx >= 0 ? 1 : -1;
+        else az = dz >= 0 ? 1 : -1;
+        if (this.detourFlip < 0) {
+          ax = -ax;
+          az = -az;
+        }
+        this.detourFlip *= -1;
+        this.detourX = ax;
+        this.detourZ = az;
+      }
+    } else {
+      this.stuckT = 0;
+      this.detourT = 0;
+    }
+
     for (let i = 0; i < colliders.length; i++) {
       const c = colliders[i];
       const px = this.root.position.x - c.x;
@@ -292,6 +355,19 @@ export class Zombie {
         const push = (min - d) / d;
         this.root.position.x += px * push;
         this.root.position.z += pz * push;
+
+        // 沿障碍物切线滑动，避免僵尸顶着长墙原地卡死。
+        const nx = px / d;
+        const nz = pz / d;
+        let tx = -nz;
+        let tz = nx;
+        if (tx * dx + tz * dz < 0) {
+          tx = -tx;
+          tz = -tz;
+        }
+        const slide = this.speed * speedMul * 0.5 * dt;
+        this.root.position.x += tx * slide;
+        this.root.position.z += tz * slide;
       }
     }
 

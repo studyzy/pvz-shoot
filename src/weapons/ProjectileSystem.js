@@ -17,13 +17,11 @@ export class ProjectileSystem {
     this.sfx = ctx.sfx;
 
     const peaGeo = new THREE.SphereGeometry(0.125, 8, 6);
-    this.peaMats = {
-      pea: new THREE.MeshBasicMaterial({ color: 0x9bf227, toneMapped: false }),
-      snow: new THREE.MeshBasicMaterial({ color: 0xa8f0ff, toneMapped: false }),
-    };
+    this.peaMatCache = new Map();
+    const defaultPeaMat = this.peaMaterial(0x9bf227);
     this.peas = [];
     for (let i = 0; i < PEA_POOL; i++) {
-      const mesh = new THREE.Mesh(peaGeo, this.peaMats.pea);
+      const mesh = new THREE.Mesh(peaGeo, defaultPeaMat);
       mesh.visible = false;
       mesh.frustumCulled = false;
       this.scene.add(mesh);
@@ -37,6 +35,8 @@ export class ProjectileSystem {
         slow: false,
         type: 'pea',
         life: 0,
+        pierce: 0,
+        hits: new Set(),
       });
     }
 
@@ -58,6 +58,7 @@ export class ProjectileSystem {
       this.scene.add(g);
       this.cherries.push({
         group: g,
+        mat,
         active: false,
         pos: new THREE.Vector3(),
         vel: new THREE.Vector3(),
@@ -80,10 +81,22 @@ export class ProjectileSystem {
     p.slow = !!def.slow;
     p.type = def.id;
     p.life = 1.6;
-    p.mesh.material = this.peaMats[def.slow ? 'snow' : 'pea'];
+    p.pierce = def.pierce || 0;
+    p.hits.clear();
+    p.mesh.material = this.peaMaterial(def.color);
     p.mesh.position.copy(origin);
     p.mesh.visible = true;
-    p.mesh.scale.setScalar(def.slow ? 1.15 : 1);
+    p.mesh.scale.setScalar(def.pierce ? 1.05 : def.slow ? 1.15 : 1);
+  }
+
+  peaMaterial(color) {
+    const key = color || 0x9bf227;
+    let mat = this.peaMatCache.get(key);
+    if (!mat) {
+      mat = new THREE.MeshBasicMaterial({ color: key, toneMapped: false });
+      this.peaMatCache.set(key, mat);
+    }
+    return mat;
   }
 
   throwCherry(origin, target, def) {
@@ -97,6 +110,9 @@ export class ProjectileSystem {
     c.radius = def.radius;
     c.fuse = 2.6;
     c.life = 0;
+    c.mat.color.setHex(def.color || 0xe8452f);
+    c.mat.emissive.setHex(def.id === 'melon' ? 0x143d10 : 0x5a0c05);
+    c.group.scale.setScalar(def.id === 'melon' ? 1.35 : 1);
 
     const dx = target.x - origin.x;
     const dy = target.y - origin.y;
@@ -131,7 +147,7 @@ export class ProjectileSystem {
       let headshot = false;
       for (let j = 0; j < this.zombies.zombies.length; j++) {
         const z = this.zombies.zombies[j];
-        if (!z.alive || z.dying || z.spawnT < 0.5) continue;
+        if (!z.alive || z.dying || z.spawnT < 0.5 || p.hits.has(z)) continue;
         z.getChest(tmpChest);
         const tBody = segmentSphereT(p.prev, p.pos, tmpChest, 0.46 * z.scaleFactor + 0.14);
         z.getHead(tmpHead);
@@ -160,7 +176,12 @@ export class ProjectileSystem {
         else this.sfx.hit();
         if (this.ctx.onHit) this.ctx.onHit(headshot, killed);
         if (killed) this.zombies.handleKill(bestZ, headshot);
-        this.deactivatePea(p);
+        if (p.pierce > 0) {
+          p.pierce--;
+          p.hits.add(bestZ);
+        } else {
+          this.deactivatePea(p);
+        }
         continue;
       }
 

@@ -9,6 +9,7 @@ export class Controls {
     this.firePressed = false;
     this.jumpQueued = false;
     this.weaponRequest = -1;
+    this.lootRequest = false;
     this.enabled = false;
     const mq = window.matchMedia ? window.matchMedia('(pointer: coarse)').matches : false;
     const noHover = window.matchMedia ? window.matchMedia('(hover: none)').matches : false;
@@ -32,6 +33,8 @@ export class Controls {
       this.keys.clear();
       this.firing = false;
       this.firePressed = false;
+      this.weaponRequest = -1;
+      this.lootRequest = false;
       this.joyId = null;
       this.lookId = null;
       this.move.x = 0;
@@ -69,6 +72,12 @@ export class Controls {
     const w = this.weaponRequest;
     this.weaponRequest = -1;
     return w;
+  }
+
+  consumeLootRequest() {
+    const v = this.lootRequest;
+    this.lootRequest = false;
+    return v;
   }
 
   requestLock() {
@@ -218,7 +227,9 @@ export class Controls {
       if (e.code.indexOf('Digit') === 0) {
         const n = parseInt(e.code.slice(5), 10);
         if (n >= 1 && n <= 4) this.weaponRequest = n - 1;
+        if (n === 5) this.lootRequest = true;
       }
+      if (e.code === 'KeyQ') this.lootRequest = true;
       this.keys.add(e.code);
     });
     window.addEventListener('keyup', (e) => {

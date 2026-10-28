@@ -78,6 +78,177 @@ export function skyTexture() {
   return tex;
 }
 
+let _snow = null;
+export function snowTexture() {
+  if (_snow) return _snow;
+  const size = 256;
+  const c = document.createElement('canvas');
+  c.width = size;
+  c.height = size;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#f2f9ff';
+  ctx.fillRect(0, 0, size, size);
+  for (let i = 0; i < 26; i++) {
+    const x = Math.random() * size;
+    const y = Math.random() * size;
+    const r = 18 + Math.random() * 48;
+    const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+    g.addColorStop(0, 'rgba(196,226,255,0.24)');
+    g.addColorStop(0.6, 'rgba(196,226,255,0.09)');
+    g.addColorStop(1, 'rgba(196,226,255,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(x - r, y - r, r * 2, r * 2);
+  }
+  for (let i = 0; i < 1200; i++) {
+    const a = 0.08 + Math.random() * 0.2;
+    ctx.fillStyle = Math.random() < 0.65 ? 'rgba(255,255,255,' + a + ')' : 'rgba(170,206,240,' + a + ')';
+    const s = 1 + Math.random() * 2.2;
+    ctx.fillRect(Math.random() * size, Math.random() * size, s, s);
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(12, 12);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
+  _snow = tex;
+  return tex;
+}
+
+let _iceWall = null;
+export function iceWallTexture() {
+  if (_iceWall) return _iceWall;
+  const size = 512;
+  const c = document.createElement('canvas');
+  c.width = c.height = size;
+  const ctx = c.getContext('2d');
+  const grd = ctx.createLinearGradient(0, 0, 0, size);
+  grd.addColorStop(0, '#e8f5fd');
+  grd.addColorStop(0.55, '#d4ecf9');
+  grd.addColorStop(1, '#c2e2f3');
+  ctx.fillStyle = grd;
+  ctx.fillRect(0, 0, size, size);
+
+  for (let i = 0; i < 900; i++) {
+    const a = 0.05 + Math.random() * 0.12;
+    ctx.fillStyle = Math.random() < 0.6 ? 'rgba(255,255,255,' + a + ')' : 'rgba(126,182,216,' + a + ')';
+    const s = 1 + Math.random() * 2.4;
+    ctx.fillRect(Math.random() * size, Math.random() * size, s, s);
+  }
+
+  ctx.strokeStyle = 'rgba(112,172,210,0.34)';
+  ctx.lineWidth = 3;
+  for (let x = 0; x <= size; x += 128) {
+    ctx.beginPath();
+    ctx.moveTo(x + 1.5, 0);
+    ctx.lineTo(x + 1.5, size);
+    ctx.stroke();
+  }
+  for (let y = 0; y <= size; y += 170) {
+    ctx.beginPath();
+    ctx.moveTo(0, y + 1.5);
+    ctx.lineTo(size, y + 1.5);
+    ctx.stroke();
+  }
+
+  ctx.strokeStyle = 'rgba(255,255,255,0.45)';
+  ctx.lineWidth = 4;
+  for (let y = 0; y <= size; y += 170) {
+    ctx.beginPath();
+    ctx.moveTo(0, y + 6);
+    ctx.lineTo(size, y + 6);
+    ctx.stroke();
+  }
+
+  ctx.strokeStyle = 'rgba(126,182,216,0.22)';
+  ctx.lineWidth = 2;
+  for (let i = 0; i < 14; i++) {
+    const x = Math.random() * size;
+    const y = Math.random() * size;
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.lineTo(x + (Math.random() - 0.5) * 90, y + (Math.random() - 0.5) * 90);
+    ctx.stroke();
+  }
+
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(6, 4);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
+  _iceWall = tex;
+  return tex;
+}
+
+let _ice = null;
+export function iceTexture() {
+  if (_ice) return _ice;
+  const size = 256;
+  const c = document.createElement('canvas');
+  c.width = size;
+  c.height = size;
+  const ctx = c.getContext('2d');
+  const grd = ctx.createLinearGradient(0, 0, size, size);
+  grd.addColorStop(0, '#c9ecff');
+  grd.addColorStop(0.5, '#a9dcf7');
+  grd.addColorStop(1, '#d9f3ff');
+  ctx.fillStyle = grd;
+  ctx.fillRect(0, 0, size, size);
+  ctx.strokeStyle = 'rgba(255,255,255,0.72)';
+  ctx.lineWidth = 2;
+  for (let i = 0; i < 26; i++) {
+    const x = Math.random() * size;
+    const y = Math.random() * size;
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    let cx = x;
+    let cy = y;
+    for (let k = 0; k < 4; k++) {
+      cx += (Math.random() - 0.5) * 46;
+      cy += (Math.random() - 0.5) * 46;
+      ctx.lineTo(cx, cy);
+    }
+    ctx.stroke();
+  }
+  for (let i = 0; i < 18; i++) {
+    ctx.strokeStyle = 'rgba(122,178,216,' + (0.12 + Math.random() * 0.16) + ')';
+    ctx.lineWidth = 1 + Math.random() * 2;
+    const x = Math.random() * size;
+    const y = Math.random() * size;
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.lineTo(x + (Math.random() - 0.5) * 90, y + (Math.random() - 0.5) * 90);
+    ctx.stroke();
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(6, 6);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
+  _ice = tex;
+  return tex;
+}
+
+let _snowSky = null;
+export function snowSkyTexture() {
+  if (_snowSky) return _snowSky;
+  const c = document.createElement('canvas');
+  c.width = 8;
+  c.height = 512;
+  const ctx = c.getContext('2d');
+  const grd = ctx.createLinearGradient(0, 0, 0, 512);
+  grd.addColorStop(0, '#3f76b8');
+  grd.addColorStop(0.36, '#82b8e8');
+  grd.addColorStop(0.62, '#c9e7ff');
+  grd.addColorStop(0.82, '#eaf7ff');
+  grd.addColorStop(1, '#fbfdff');
+  ctx.fillStyle = grd;
+  ctx.fillRect(0, 0, 8, 512);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  _snowSky = tex;
+  return tex;
+}
+
 let _blob = null;
 export function blobShadowTexture() {
   if (_blob) return _blob;
@@ -279,5 +450,64 @@ export function zombieGrimeTexture() {
   tex.anisotropy = 2;
   _grime = tex;
   return tex;
+}
+
+
+let _envs = null;
+// 程序化户外环境贴图（PMREM）：只给 PBR 材质提供反射与高光，不参与场景雾/背景。
+export function outdoorEnvironment(renderer, mapId) {
+  const key = mapId === 'snow' ? 'snow' : 'backyard';
+  if (_envs && _envs[key]) return _envs[key];
+  if (!_envs) _envs = {};
+
+  const c = document.createElement('canvas');
+  c.width = 128;
+  c.height = 64;
+  const ctx = c.getContext('2d');
+
+  const sky = ctx.createLinearGradient(0, 0, 0, 32);
+  if (key === 'snow') {
+    sky.addColorStop(0, '#2f66ad');
+    sky.addColorStop(0.5, '#8fc0ea');
+    sky.addColorStop(0.82, '#dbeafb');
+    sky.addColorStop(1, '#ffffff');
+  } else {
+    sky.addColorStop(0, '#2b6ab8');
+    sky.addColorStop(0.45, '#8ecdf5');
+    sky.addColorStop(0.75, '#cfeaff');
+    sky.addColorStop(1, '#f2f6e6');
+  }
+  ctx.fillStyle = sky;
+  ctx.fillRect(0, 0, 128, 32);
+
+  const ground = ctx.createLinearGradient(0, 32, 0, 64);
+  if (key === 'snow') {
+    ground.addColorStop(0, '#eef7ff');
+    ground.addColorStop(1, '#c2d6e8');
+  } else {
+    ground.addColorStop(0, '#7ba24a');
+    ground.addColorStop(1, '#3d5320');
+  }
+  ctx.fillStyle = ground;
+  ctx.fillRect(0, 32, 128, 32);
+
+  const sun = ctx.createRadialGradient(22, 11, 0, 22, 11, 16);
+  sun.addColorStop(0, 'rgba(255,250,232,1)');
+  sun.addColorStop(0.35, 'rgba(255,246,214,0.55)');
+  sun.addColorStop(1, 'rgba(255,246,214,0)');
+  ctx.fillStyle = sun;
+  ctx.fillRect(0, 0, 48, 32);
+
+  const tex = new THREE.CanvasTexture(c);
+  tex.mapping = THREE.EquirectangularReflectionMapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  const target = pmrem.fromEquirectangular(tex);
+  pmrem.dispose();
+  tex.dispose();
+
+  _envs[key] = target.texture;
+  return target.texture;
 }
 

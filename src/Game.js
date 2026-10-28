@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { Arena } from './world/Arena.js';
+import { MAPS, DEFAULT_MAP, createMaps } from './world/maps.js';
 import { Player } from './entities/Player.js';
 import { ZombieManager } from './entities/ZombieManager.js';
 import { initZombieAtlas } from './entities/ZombieTexture.js';
@@ -7,16 +7,20 @@ import { ProjectileSystem } from './weapons/ProjectileSystem.js';
 import { WeaponSystem } from './weapons/WeaponSystem.js';
 import { Particles } from './fx/Particles.js';
 import { SunOrbs } from './entities/SunOrbs.js';
+import { WeaponPickups } from './entities/WeaponPickups.js';
 import { Sfx } from './audio/Sfx.js';
 import { HUD } from './ui/HUD.js';
 import { Controls } from './input/Controls.js';
 import { TUNING } from './config.js';
+import { outdoorEnvironment } from './world/materials.js';
 import { clamp, lerp } from './utils.js';
 
 export class Game {
   constructor(canvas) {
     this.canvas = canvas;
     this.state = 'menu';
+    this.mapId = DEFAULT_MAP;
+    this.map = null;
     this.stats = { score: 0, kills: 0, wave: 0 };
     this.sun = TUNING.startSun;
     this.shakeAmp = 0;
@@ -36,7 +40,8 @@ export class Game {
     });
     renderer.setPixelRatio(this.pixelRatio);
     renderer.outputColorSpace = THREE.SRGBColorSpace;
-    renderer.toneMapping = THREE.NoToneMapping;
+    renderer.toneMapping = THREE.NeutralToneMapping;
+    renderer.toneMappingExposure = 1.0;
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer = renderer;
@@ -54,9 +59,10 @@ export class Game {
     initZombieAtlas();
     this.hud = new HUD();
     this.particles = new Particles(this.scene);
-    this.arena = new Arena(this.scene);
+    this.maps = createMaps(this.scene);
     this.player = new Player(this.sfx);
     this.sunOrbs = new SunOrbs(this.scene);
+    this.pickups = new WeaponPickups(ctx);
 
     ctx.player = this.player;
     ctx.particles = this.particles;
@@ -84,6 +90,7 @@ export class Game {
     ctx.onBossDead = () => this.onBossDead();
 
     this.weapons = new WeaponSystem(ctx);
+    ctx.weapons = this.weapons;
     this.controls = new Controls(canvas, this.hud);
     ctx.touch = this.controls.isTouch;
     document.body.classList.toggle('touch', this.controls.isTouch);
@@ -112,11 +119,15 @@ export class Game {
     this.hud.onResume = () => this.resume();
     this.hud.onRestart = () => this.restart();
     this.hud.onPause = () => this.pause();
+    this.hud.onChangeMap = () => this.backToMenu();
+    this.hud.onMapSelect = (id) => this.selectMap(id);
     this.hud.onMute = (m) => this.sfx.setMuted(m);
     this.hud.onWeaponSelect = (i) => {
       if (this.state === 'playing') this.weapons.equip(i);
     };
 
+    this.hud.buildMapSelect(MAPS, this.mapId);
+    this.setMap(this.mapId);
     this.bindButtons();
     this.bindResize();
     this.resize();
@@ -181,6 +192,45 @@ export class Game {
     if (this.weapons) this.weapons.setAspect(a);
   }
 
+  setMap(id) {
+    if (this.state !== 'menu') return;
+    let map = null;
+    for (let i = 0; i < this.maps.length; i++) {
+      if (this.maps[i].id === id) map = this.maps[i];
+    }
+    if (!map) map = this.maps[0];
+    for (let i = 0; i < this.maps.length; i++) {
+      this.maps[i].root.visible = false;
+    }
+    this.map = map;
+    this.mapId = map.id;
+    this.ctx.map = map;
+    this.ctx.env = outdoorEnvironment(this.renderer, map.id);
+    map.activate(this.scene);
+    this.hud.setMapSelection(map.id);
+    this.hud.setStartLabel(map.startLabel);
+    if (this.pickups) this.pickups.setMap(map);
+  }
+
+  selectMap(id) {
+    if (this.state !== 'menu' || id === this.mapId) return;
+    this.setMap(id);
+    this.menuT = 0;
+    this.sfx.click();
+  }
+
+  backToMenu() {
+    this.state = 'menu';
+    this.hud.hideScreens();
+    this.hud.showStartScreen();
+    this.hud.showHud(false);
+    this.controls.setEnabled(false);
+    this.controls.exitLock();
+    this.resetRun();
+    this.menuT = 0;
+    this.clock.getDelta();
+  }
+
   start() {
     this.sfx.unlock();
     this.hud.hideScreens();
@@ -201,12 +251,13 @@ export class Game {
   }
 
   resetRun() {
-    this.player.reset();
+    this.player.reset(this.map.spawn);
     this.weapons.reset();
     this.zombies.reset();
     this.projectiles.clear();
     this.particles.clear();
     this.sunOrbs.clear();
+    this.pickups.reset();
     this.stats = { score: 0, kills: 0, wave: 0 };
     this.sun = TUNING.startSun;
     this.shakeAmp = 0;
@@ -341,13 +392,15 @@ export class Game {
 
   update(dt) {
     this.controls.update();
-    this.player.update(dt, this.controls, this.arena.colliders, this.zombies.zombies);
+    this.player.update(dt, this.controls, this.map, this.zombies.zombies);
     this.player.applyCamera(this.camera);
     this.applyShake(dt);
     this.weapons.update(dt, this.controls);
-    this.zombies.update(dt, this.player, this.arena.colliders);
+    if (this.map.updateNav) this.map.updateNav(this.player, dt);
+    this.zombies.update(dt, this.player, this.map.colliders);
     this.projectiles.update(dt);
     this.sunOrbs.update(dt, this.player);
+    this.pickups.update(dt, this.player);
     this.particles.update(dt);
 
     this.hud.setHealth(this.player.hp, this.player.maxHp);
@@ -372,11 +425,7 @@ export class Game {
 
   menuCamera(dt) {
     this.menuT += dt;
-    const t = this.menuT * 0.06;
-    const x = Math.sin(t) * 8;
-    const z = -16 + Math.cos(t) * 3.5;
-    this.camera.position.set(x, 5.4 + Math.sin(this.menuT * 0.21) * 0.12, z);
-    this.camera.lookAt(x * 0.2, 2.3, 12);
+    this.map.menuCamera(this.camera, this.menuT);
   }
 
   updateDeathCam(dt) {
@@ -399,10 +448,13 @@ export class Game {
 
     if (this.state === 'playing') {
       this.update(dt);
+      this.map.update(dt);
     } else if (this.state === 'menu') {
       this.menuCamera(dt);
+      this.map.update(dt);
     } else if (this.state === 'over') {
       this.updateDeathCam(dt);
+      this.map.update(dt);
     }
 
     this.weapons.root.visible = this.state === 'playing' && !this.player.dead;

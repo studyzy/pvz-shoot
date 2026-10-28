@@ -324,6 +324,27 @@ body.desktop .desktop-hint { display: flex; }
 #crosshair.lock .ch { background: #ffd23f; box-shadow: 0 0 0 1.2px rgba(0,0,0,.55), 0 0 7px rgba(255,210,63,.75); }
 #crosshair.lock { transform: scale(1.12); }
 
+.ammo-chip {
+  position: absolute;
+  left: 50%;
+  top: calc(50% + 32px);
+  transform: translateX(-50%);
+  display: flex;
+  align-items: baseline;
+  gap: 3px;
+  font-variant-numeric: tabular-nums;
+  color: #fff6d2;
+  text-shadow: 0 2px 6px rgba(0,0,0,.75);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 1px;
+  pointer-events: none;
+}
+.ammo-chip b { font-size: 17px; }
+.ammo-chip span { opacity: .45; }
+.ammo-chip i { font-style: normal; font-size: 11px; opacity: .6; }
+.ammo-chip.low b { color: #ff8b6e; }
+
 #hitmarker {
   position: absolute;
   left: 50%;
@@ -522,6 +543,35 @@ body.desktop .desktop-hint { display: flex; }
 }
 .weapon-btn.active .wname { color: #ffe9a2; }
 .weapon-btn.poor { opacity: .45; filter: grayscale(.5); }
+.weapon-btn .wammo {
+  position: absolute;
+  right: 2px;
+  top: 2px;
+  min-width: 16px;
+  height: 15px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #b9e8ff, #5eb4dd);
+  border: 1.2px solid #123b52;
+  color: #06222f;
+  font-size: 9px;
+  font-weight: 900;
+  line-height: 12px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  box-shadow: 0 1px 2px rgba(0,0,0,.4);
+}
+.weapon-btn .loot-icon svg { width: 32px; height: 32px; display: block; }
+.weapon-btn.loot-btn {
+  border-color: rgba(143,214,255,.5);
+  background: linear-gradient(180deg, rgba(18,48,66,.72), rgba(8,24,34,.8));
+}
+.weapon-btn.loot-btn.active {
+  border-color: #9fe8ff;
+  background: linear-gradient(180deg, rgba(24,84,118,.9), rgba(10,38,54,.92));
+  box-shadow: 0 0 0 2px rgba(143,214,255,.24), 0 0 18px rgba(143,214,255,.34), 0 3px 0 rgba(0,0,0,.35);
+}
+.weapon-btn.loot-btn.active .wname { color: #d6f4ff; }
 
 .action-row { display: flex; align-items: flex-end; gap: 12px; }
 
@@ -641,6 +691,49 @@ h2 {
   letter-spacing: 1px;
 }
 
+.map-select {
+  display: flex;
+  gap: 10px;
+  width: min(560px, 92vw);
+  margin: 2px 0 2px;
+}
+.map-card {
+  pointer-events: auto;
+  flex: 1 1 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 9px 12px 10px;
+  min-height: 62px;
+  border-radius: 14px;
+  border: 2px solid rgba(255,255,255,.22);
+  background: linear-gradient(180deg, rgba(14,32,8,.55), rgba(6,16,4,.65));
+  color: #e9ffd2;
+  text-align: left;
+  cursor: pointer;
+  font-family: inherit;
+  transition: border-color .15s, transform .1s, background .15s, box-shadow .15s;
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+.map-card:active { transform: translateY(2px); }
+.map-card.active {
+  border-color: var(--gold);
+  background: linear-gradient(180deg, rgba(96,74,16,.72), rgba(44,32,6,.78));
+  box-shadow: 0 0 0 2px rgba(255,210,63,.18), 0 0 16px rgba(255,210,63,.24);
+}
+.map-card .map-tag { font-size: 9px; letter-spacing: 1.6px; color: rgba(210,240,190,.62); font-weight: 800; }
+.map-card .map-name { font-size: 15px; font-weight: 900; letter-spacing: .5px; }
+.map-card .map-desc { font-size: 9.5px; line-height: 1.4; color: rgba(225,245,205,.55); }
+.map-card.map-snow { border-color: rgba(143,214,255,.28); background: linear-gradient(180deg, rgba(18,52,78,.62), rgba(6,20,32,.7)); }
+.map-card.map-snow .map-tag { color: rgba(160,220,255,.78); }
+.map-card.map-snow.active {
+  border-color: #8fd6ff;
+  background: linear-gradient(180deg, rgba(24,86,128,.8), rgba(8,30,48,.86));
+  box-shadow: 0 0 0 2px rgba(143,214,255,.2), 0 0 18px rgba(143,214,255,.3);
+}
+
 .big-btn {
   pointer-events: auto;
   cursor: pointer;
@@ -734,6 +827,14 @@ h2 {
 }
 .stats em { font-style: normal; font-size: 10.5px; letter-spacing: 1.5px; color: rgba(230,255,205,.6); }
 
+.panel-actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
 .rotate-hint {
   position: absolute;
   left: 50%;
@@ -781,6 +882,9 @@ h2 {
   .device-note { margin-top: 0; }
   h1 { font-size: clamp(38px, 12vmin, 64px); }
   .screen-inner { gap: 10px; }
+  .map-card { min-height: 48px; padding: 6px 10px; }
+  .map-card .map-desc { display: none; }
+  .tagline { margin-bottom: 0; }
 }
 
 @media (orientation: portrait) and (max-width: 520px) {

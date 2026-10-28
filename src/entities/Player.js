@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import { TUNING } from '../config.js';
 import { clamp, damp } from '../utils.js';
 
+const STEP_HEIGHT = 0.42;
+
 export class Player {
   constructor(sfx) {
     this.sfx = sfx;
@@ -27,10 +29,11 @@ export class Player {
     this.onDeath = null;
   }
 
-  reset() {
-    this.pos.set(0, 0, TUNING.startZ);
+  reset(spawn) {
+    const s = spawn || { x: 0, z: TUNING.startZ, yaw: 0 };
+    this.pos.set(s.x ?? 0, 0, s.z ?? TUNING.startZ);
     this.vel.set(0, 0, 0);
-    this.yaw = 0;
+    this.yaw = s.yaw ?? 0;
     this.pitch = 0;
     this.roll = 0;
     this.recoil = 0;
@@ -68,7 +71,7 @@ export class Player {
     this.hp = Math.min(this.maxHp, this.hp + amount);
   }
 
-  update(dt, controls, colliders, zombies) {
+  update(dt, controls, terrain, zombies) {
     if (this.dead) return;
 
     const look = controls.consumeLook();
@@ -108,25 +111,17 @@ export class Player {
     this.vel.x += (targetX - this.vel.x) * k;
     this.vel.z += (targetZ - this.vel.z) * k;
 
-    if (controls.consumeJump() && this.grounded) {
-      this.vy = TUNING.jumpSpeed;
-      this.grounded = false;
-    }
-    this.vy -= TUNING.gravity * dt;
-    this.pos.y += this.vy * dt;
-    if (this.pos.y <= 0) {
-      this.pos.y = 0;
-      this.vy = 0;
-      this.grounded = true;
-    }
-
     this.pos.x += this.vel.x * dt;
     this.pos.z += this.vel.z * dt;
 
-    const half = TUNING.arenaHalf - 0.55;
-    this.pos.x = clamp(this.pos.x, -half, half);
-    this.pos.z = clamp(this.pos.z, -half, half);
+    const platforms = terrain && terrain.platforms ? terrain.platforms : null;
+    const bounds = (terrain && terrain.bounds) || { x: TUNING.arenaHalf, z: TUNING.arenaHalf };
+    const halfX = bounds.x - 0.55;
+    const halfZ = bounds.z - 0.55;
+    this.pos.x = clamp(this.pos.x, -halfX, halfX);
+    this.pos.z = clamp(this.pos.z, -halfZ, halfZ);
 
+    const colliders = (terrain && (terrain.playerColliders || terrain.colliders)) || [];
     for (let i = 0; i < colliders.length; i++) {
       const c = colliders[i];
       const dx = this.pos.x - c.x;
@@ -137,6 +132,41 @@ export class Player {
         const push = (min - d) / d;
         this.pos.x += dx * push;
         this.pos.z += dz * push;
+      }
+    }
+    if (platforms) this.pushOutOfPlatforms(platforms);
+
+    if (platforms) {
+      const stepSupport = this.supportHeight(platforms, this.pos.x, this.pos.z, this.pos.y + STEP_HEIGHT);
+      if (this.grounded && stepSupport > this.pos.y && stepSupport - this.pos.y <= STEP_HEIGHT + 0.01) {
+        this.pos.y = stepSupport;
+      }
+      if (controls.consumeJump() && this.grounded) {
+        this.vy = TUNING.jumpSpeed;
+        this.grounded = false;
+      }
+      const support = this.supportHeight(platforms, this.pos.x, this.pos.z, this.pos.y);
+      this.vy -= TUNING.gravity * dt;
+      const nextY = this.pos.y + this.vy * dt;
+      if (nextY <= support) {
+        this.pos.y = support;
+        this.vy = 0;
+        this.grounded = true;
+      } else {
+        this.pos.y = nextY;
+        this.grounded = false;
+      }
+    } else {
+      if (controls.consumeJump() && this.grounded) {
+        this.vy = TUNING.jumpSpeed;
+        this.grounded = false;
+      }
+      this.vy -= TUNING.gravity * dt;
+      this.pos.y += this.vy * dt;
+      if (this.pos.y <= 0) {
+        this.pos.y = 0;
+        this.vy = 0;
+        this.grounded = true;
       }
     }
 
@@ -172,6 +202,42 @@ export class Player {
 
     const bobY = this.grounded ? Math.abs(Math.sin(this.bob)) * 0.045 * this.moveAmt : 0;
     this.eye.set(this.pos.x, this.pos.y + TUNING.playerHeight + bobY, this.pos.z);
+  }
+
+  supportHeight(platforms, x, z, feetY) {
+    let support = 0;
+    for (let i = 0; i < platforms.length; i++) {
+      const p = platforms[i];
+      if (p.h > feetY + 0.02) continue;
+      if (
+        x >= p.x - p.w * 0.5 &&
+        x <= p.x + p.w * 0.5 &&
+        z >= p.z - p.d * 0.5 &&
+        z <= p.z + p.d * 0.5
+      ) {
+        if (p.h > support) support = p.h;
+      }
+    }
+    return support;
+  }
+
+  pushOutOfPlatforms(platforms) {
+    const r = TUNING.playerRadius;
+    for (let i = 0; i < platforms.length; i++) {
+      const p = platforms[i];
+      const aboveTop = this.pos.y >= p.h - 0.02;
+      const canStep = this.grounded && p.h - this.pos.y <= STEP_HEIGHT;
+      if (aboveTop || canStep) continue;
+      const hw = p.w * 0.5 + r;
+      const hd = p.d * 0.5 + r;
+      const dx = this.pos.x - p.x;
+      const dz = this.pos.z - p.z;
+      if (Math.abs(dx) >= hw || Math.abs(dz) >= hd) continue;
+      const px = hw - Math.abs(dx);
+      const pz = hd - Math.abs(dz);
+      if (px < pz) this.pos.x += (dx < 0 ? -1 : 1) * px;
+      else this.pos.z += (dz < 0 ? -1 : 1) * pz;
+    }
   }
 
   applyCamera(camera) {

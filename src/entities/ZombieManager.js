@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { Zombie } from './Zombie.js';
 import { wavePlan, waveMaxAlive, waveSpawnInterval, zombieHpMul, zombieSpeedMul } from '../config.js';
-import { rand } from '../utils.js';
+import { rand, clamp } from '../utils.js';
 
 export class ZombieManager {
   constructor(ctx) {
@@ -111,17 +111,33 @@ export class ZombieManager {
     const type = this.queue.shift();
     let x = 0;
     let z = 0;
-    for (let attempt = 0; attempt < 14; attempt++) {
-      const side = Math.floor(rand(0, 4));
-      const t = rand(-21.5, 21.5);
-      if (side === 0) { x = t; z = -21.5; }
-      else if (side === 1) { x = t; z = 21.5; }
-      else if (side === 2) { x = -21.5; z = t; }
-      else { x = 21.5; z = t; }
-      if (Math.hypot(x - player.pos.x, z - player.pos.z) > 14) break;
+    const map = this.ctx.map;
+    const points = map && map.zombieSpawnPoints;
+    if (points && points.length) {
+      for (let attempt = 0; attempt < 10; attempt++) {
+        const p = points[Math.floor(rand(0, points.length))];
+        x = p[0] + rand(-1.6, 1.6);
+        z = p[1] + rand(-1.6, 1.6);
+        if (Math.hypot(x - player.pos.x, z - player.pos.z) > 12) break;
+      }
+      if (map.bounds) {
+        x = clamp(x, -map.bounds.x + 1.2, map.bounds.x - 1.2);
+        z = clamp(z, -map.bounds.z + 1.2, map.bounds.z - 1.2);
+      }
+    } else {
+      for (let attempt = 0; attempt < 14; attempt++) {
+        const side = Math.floor(rand(0, 4));
+        const t = rand(-21.5, 21.5);
+        if (side === 0) { x = t; z = -21.5; }
+        else if (side === 1) { x = t; z = 21.5; }
+        else if (side === 2) { x = -21.5; z = t; }
+        else { x = 21.5; z = t; }
+        if (Math.hypot(x - player.pos.x, z - player.pos.z) > 14) break;
+      }
     }
     const zombie = new Zombie(type, this.wave, x, z, {
       scene: this.scene,
+      map: this.ctx.map,
       particles: this.ctx.particles,
       sfx: this.ctx.sfx,
       onAttack: (z2) => this.ctx.onZombieAttack(z2),
