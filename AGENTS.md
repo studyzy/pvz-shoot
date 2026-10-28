@@ -36,7 +36,7 @@ npm run preview   # 预览构建产物
 | `src/config.js` | **所有可调数值**：`TUNING`、`WEAPONS`、`ZOMBIES`、波次公式。改平衡先改这里 |
 | `src/world/Arena.js` | 后院场景：地面、栅栏、房子、树、墓碑、割草机、光照与阴影、碰撞体列表 `colliders` |
 | `src/world/IceWorld.js` | 雪地场景：按 fy_iceworld 复刻的田字四根 3.6 米高柱、两侧 0.85 米可跳矮墙、两端基地、四角砖台、11.4 米高冰墙与雪山；`platforms` 做落脚/侧碰撞、`colliders` 给僵尸绕行 |
-| `src/world/DustYard.js` | 沙城场景：动线致敬 de_dust2（中门 / 长 A / B 长廊三线 → 北横道 → A、B 点与 CT 出生点），几何与配色全部自绘；`solid()` 统一生成盒体 + `platforms` + 僵尸用圆形 `colliders` |
+| `src/world/DustYard.js` | 沙城场景：动线致敬 de_dust2（南广场 → B 长廊 / 中路 / 长 A 三线，中段由 B 门与 A 短道互通 → 北横道 → A、B 点与 CT 出生点），几何与配色全部自绘；`solid()` 统一生成盒体 + `platforms` + 僵尸用圆形 `colliders` |
 | `src/world/FlowField.js` | 1 米网格流场（BFS）：`blockPlatforms()` 标记障碍、`update()` 按玩家位置重算、`flowAt()` 给僵尸方向；雪地与沙城共用 |
 | `src/world/maps.js` | 地图注册表 `MAPS`（菜单元数据）与 `createMaps()`；新增地图从这里挂 |
 | `src/world/materials.js` | Toon 材质、程序化草地/雪地/冰面/沙地/天空/沙漠天空/云/光晕/污渍贴图、PMREM 户外环境贴图（`outdoorEnvironment`，支持 backyard/snow/dust） |
@@ -287,7 +287,8 @@ __game.renderer.info.render     // draw call / 三角面
 ## 8. 已知限制（是设计取舍，不要当 bug 修）
 
 - 只有后院 / 雪地 / 沙城三张无尽地图，没有关卡章节/剧情。
-- 没有通用地形/斜坡系统：地图只有轴对齐的平顶平台（雪地的田字四柱/矮墙/砖台、沙城的 A/B 点高台），靠 `platforms` 采样支撑；没有斜坡、楼梯、可破坏物。沙城的高台用 0.4 米台阶拼成可走上坡，僵尸上不去。
+- 没有通用地形/斜坡系统：地图只有轴对齐的平顶平台（雪地的田字四柱/矮墙/砖台、沙城的 A/B 点观景台），靠 `platforms` 采样支撑；没有斜坡、楼梯、可破坏物。
+- **僵尸不会跳**：能站上去的高台必须给僵尸留活路——沙城观景台只有 0.4 米且不挂 `colliders`，`FlowField.blockPlatforms` 默认也跳过 ≤0.6 米的平台，否则玩家站上去就无敌。
 - 没有弹药与换弹；豌豆无限，特殊植物靠阳光。
 - 僵尸全是近战，没有远程/投掷单位。
 - Boss 只有高血量/高伤害/大攻击距离，没有专属技能。

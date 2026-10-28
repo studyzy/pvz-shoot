@@ -20,19 +20,20 @@ export class DustYard {
     this.root.visible = false;
     scene.add(this.root);
     this.bounds = { x: HALF_X, z: HALF_Z };
-    this.spawn = { x: 0, z: 23.5, yaw: 0 };
+    this.spawn = { x: 0, z: 20.5, yaw: 0 };
     this.colliders = [];
     this.playerColliders = [];
     this.platforms = [];
     this.pickupSpots = [
       [-4.5, 19], [4.5, 19],
       [-3.2, 12.5], [-22.5, 9], [21, 12],
-      [0, -9], [19, -16], [-19, -16],
+      [0, -9], [16, -16], [-16, -16],
     ];
     this.zombieSpawnPoints = [
       [-5, -21], [0, -24], [5, -21], [0, -17],
-      [18, -24], [23, -14],
-      [-18, -24], [-23, -14],
+      [18, -24], [12, -14],
+      [-18, -24], [-12, -14],
+      [-23, 15.5], [22, 15.5],
     ];
     this.time = 0;
 
@@ -275,15 +276,23 @@ export class DustYard {
     }
   }
 
-  // 南半场的两栋楼，把地图切成 B 长廊 / 中路 / 长 A 三条通道。
+  // 两栋楼各被一条 4 米通道切开：西侧 B 门、东侧 A 短道。
+  // 三条线在中段就能互通，玩家不用每次都绕到北横道才转得了点。
   buildBuildings() {
-    this.solid(-13.25, 4, 13.5, 20, 4.6, { base: true, mat: this.matWall });
-    this.solid(11.25, 4, 9.5, 20, 4.6, { base: true, mat: this.matWall });
+    this.solid(-13.25, -2, 13.5, 8, 4.6, { base: true, mat: this.matWall });
+    this.solid(-13.25, 10.5, 13.5, 7, 4.6, { base: true, mat: this.matWall });
+    this.solid(11.25, -4, 9.5, 4, 4.6, { base: true, mat: this.matWall });
+    this.solid(11.25, 8.5, 9.5, 11, 4.6, { base: true, mat: this.matWall });
+
+    // 两条侧道的洞口做成门框，让玩家一眼看出这里能穿过去。
+    this.lintel(-6.5, 4.5, 0.8, 5.2, 3.2, 1.4);
+    this.lintel(6.5, 0.5, 0.8, 5.2, 3.2, 1.4);
 
     // 屋顶挑檐：从场内就能看到一点红瓦，和沙墙拉开层次。
     const roofs = [
-      [-13.25, 4, 14.4, 21],
-      [11.25, 4, 10.4, 21],
+      [-13.25, -2, 14.4, 9],
+      [-13.25, 10.5, 14.4, 8],
+      [11.25, 8.5, 10.4, 12],
     ];
     for (let i = 0; i < roofs.length; i++) {
       const r = roofs[i];
@@ -295,60 +304,70 @@ export class DustYard {
   }
 
   buildMid() {
-    // 中门：两段墙夹出 3.8 米的门洞。
-    this.solid(-4.2, 6, 4.6, 0.8, 3.6, { base: true, mat: this.matWall });
-    this.solid(4.2, 6, 4.6, 0.8, 3.6, { base: true, mat: this.matWall });
-    this.lintel(0, 6, 3.9, 0.8, 3.6, 0.9);
+    // 中门：两段墙夹出 3.8 米的门洞，是中路进出的闸口。
+    this.solid(-4.35, 9.5, 4.3, 0.8, 3.6, { base: true, mat: this.matWall });
+    this.solid(4.35, 9.5, 4.3, 0.8, 3.6, { base: true, mat: this.matWall });
+    this.lintel(0, 9.5, 4.5, 0.8, 3.6, 0.9);
 
-    this.crate(0, 10.5, 1.8, 0.9);
-    this.barrel(-5.5, 3.4, 1.0);
-    this.barrel(5.5, 3.4, 1.0);
-    this.awning(-6.42, 3.6, 3.4, this.matShutter, false);
-    this.awning(6.42, 8.4, 3.4, this.matRoof, true);
-    this.solid(0, 0.5, 4.4, 0.8, 0.9, { mat: this.matWallDark, cap: false });
-    this.crate(-4.9, -2.4, 1.6, 1.3);
-    this.groundText(0, 13.5, 3.2, 'MID', 'rgba(120,88,44,0.55)');
+    // 门前的矮箱：刚过闸口时有一个可以借的掩体。
+    this.crate(0, 12.6, 1.8, 0.9);
+
+    // 十字路口正中的矮墙：把中路拆成左右两条绕行线，正好对上两个侧门。
+    this.solid(0, 0, 4.4, 0.8, 0.9, { mat: this.matWallDark, cap: false });
+
+    this.barrel(-5.6, 7.4, 1.0);
+    this.barrel(5.6, 7.4, 1.0);
+    this.crate(-4.9, -4.4, 1.6, 1.3);
+    this.awning(-6.42, 11.5, 3.4, this.matShutter, false);
+    this.awning(6.42, 11, 3.4, this.matRoof, true);
+    this.groundText(0, 16.5, 3.2, 'MID', 'rgba(120,88,44,0.5)');
   }
 
   buildLongA() {
-    // 长 A 门：门洞 3 米，进门后是一段直通 A 点的开阔长走廊。
+    // 长 A 门：门洞 3.6 米，进门后是一段直通 A 点的开阔长走廊。
     this.solid(17.6, 8, 3.2, 0.8, 3.6, { base: true, mat: this.matWall });
-    this.solid(24.65, 8, 3.7, 0.8, 3.6, { base: true, mat: this.matWall });
-    this.lintel(21, 8, 3.6, 0.8, 3.6, 0.9);
+    this.solid(24.95, 8, 3.1, 0.8, 3.6, { base: true, mat: this.matWall });
+    this.lintel(21.3, 8, 4.3, 0.8, 3.6, 0.9);
 
     this.crate(24, 1.5, 2, 0.9);
-    this.crate(18.2, -2.5, 1.6, 1.2);
+    this.crate(19.6, -4.6, 1.6, 1.2);
     this.groundText(21.2, 12.5, 3.4, 'LONG', 'rgba(120,88,44,0.55)');
   }
 
   buildBLane() {
     // B 洞：西侧只留 3.5 米通道，是全场最窄的口子。
-    this.solid(-25, 6, 3, 0.8, 3.6, { base: true, mat: this.matWall });
-    this.lintel(-21.75, 6, 3.4, 0.8, 3.6, 0.9);
+    this.solid(-25.3, 9, 2.4, 0.8, 3.6, { base: true, mat: this.matWall });
+    this.lintel(-22.05, 9, 4.2, 0.8, 3.6, 0.9);
 
-    this.crate(-21.5, 0.5, 1.8, 0.95);
-    this.crate(-25, 11, 1.6, 1.2);
-    this.groundText(-22.5, 12.5, 3.0, 'B', 'rgba(120,88,44,0.55)');
+    this.crate(-21.3, -2, 1.8, 0.95);
+    this.crate(-25, 11.6, 1.6, 1.2);
+    this.groundText(-22.5, 13, 3.0, 'B', 'rgba(120,88,44,0.55)');
   }
 
   buildSites() {
-    // A 点：东北角平台 + 台阶，玩家可以站上去换视角，僵尸只能从地面绕。
-    this.solid(22.5, -21.5, 7, 7, 0.8, { mat: this.matDeck, cap: false });
-    this.solid(22.5, -17.6, 7, 1.4, 0.4, { mat: this.matDeckTop, cap: false });
+    // A 点：贴着东墙的 0.4 米矮台。抬一点视角，但没有碰撞体，僵尸能直接压上来。
+    this.solid(22.5, -17.5, 7, 6, 0.4, { mat: this.matDeck, cap: false, collide: false });
+    const deckA = new THREE.Mesh(new THREE.BoxGeometry(7.08, 0.08, 6.08), this.matDeckTop);
+    deckA.position.set(22.5, 0.44, -17.5);
+    deckA.receiveShadow = true;
+    this.root.add(deckA);
     this.crate(13.5, -18, 2.4, 1.5);
     this.crate(18.2, -22.5, 2, 0.95);
     this.barrel(12.8, -15.2, 1.0);
     this.barrel(25.4, -16.2, 0.9);
-    this.groundText(17.5, -16.5, 3.0, 'A', 'rgba(176,72,44,0.5)');
+    this.groundText(15.5, -17.5, 3.0, 'A', 'rgba(176,72,44,0.5)');
 
     // B 点：镜像布局。
-    this.solid(-22.5, -21.5, 7, 7, 0.8, { mat: this.matDeck, cap: false });
-    this.solid(-22.5, -17.6, 7, 1.4, 0.4, { mat: this.matDeckTop, cap: false });
+    this.solid(-22.5, -17.5, 7, 6, 0.4, { mat: this.matDeck, cap: false, collide: false });
+    const deckB = new THREE.Mesh(new THREE.BoxGeometry(7.08, 0.08, 6.08), this.matDeckTop);
+    deckB.position.set(-22.5, 0.44, -17.5);
+    deckB.receiveShadow = true;
+    this.root.add(deckB);
     this.crate(-13.5, -18, 2.4, 1.5);
     this.crate(-18.2, -22.5, 2, 0.95);
     this.barrel(-12.8, -15.2, 1.0);
     this.barrel(-25.4, -16.2, 0.9);
-    this.groundText(-17.5, -16.5, 3.0, 'B', 'rgba(176,72,44,0.5)');
+    this.groundText(-15.5, -17.5, 3.0, 'B', 'rgba(176,72,44,0.5)');
 
     // A / B 点与 CT 出生点之间的隔墙。
     this.solid(10, -19.25, 0.8, 14.5, 4, { mat: this.matWall });
@@ -360,10 +379,12 @@ export class DustYard {
     this.groundText(0, -20, 3.0, 'CT', 'rgba(120,88,44,0.5)');
   }
 
-  // 北横道：三条线在这里汇合，是全场唯一的转点通道。
+  // 北横道：三条线在这里汇合，是全场最深的一条转点通道。
   buildNorthBand() {
     this.crate(-8, -9, 1.8, 1.0);
     this.crate(8, -9, 1.8, 1.0);
+    this.crate(-16.5, -8.6, 1.6, 1.2);
+    this.crate(16.5, -8.6, 1.6, 1.2);
   }
 
   buildPlaza() {
@@ -372,7 +393,7 @@ export class DustYard {
     this.barrel(-12.5, 22, 1.0);
     this.barrel(-11.4, 22.6, 0.9);
     this.barrel(12.5, 21.4, 1.0);
-    this.groundText(0, 22, 3.4, 'T', 'rgba(120,88,44,0.45)');
+    this.groundText(0, 24, 3.4, 'T', 'rgba(120,88,44,0.45)');
   }
 
   buildDistant() {
@@ -437,8 +458,8 @@ export class DustYard {
 
   menuCamera(camera, time) {
     const a = time * 0.05;
-    camera.position.set(Math.cos(a) * 31, 27 + Math.sin(time * 0.17) * 0.3, Math.sin(a) * 31);
-    camera.lookAt(0, 0.4, 0);
+    camera.position.set(Math.cos(a) * 30, 41 + Math.sin(time * 0.17) * 0.3, Math.sin(a) * 30);
+    camera.lookAt(0, 0, -2);
   }
 
   update(dt) {

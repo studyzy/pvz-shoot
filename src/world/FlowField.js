@@ -21,7 +21,8 @@ export class FlowField {
   }
 
   // 0.55 米的 padding 让僵尸提前绕开障碍，避免贴脸卡住。
-  blockPlatforms(platforms) {
+  // 低于 minHeight 的矮台（0.4 米的观景台）不挡路：僵尸可以走上区域，只是视觉上会陷进去一点。
+  blockPlatforms(platforms, minHeight = 0.6) {
     const cols = this.cols;
     const rows = this.rows;
     const cell = this.cell;
@@ -30,6 +31,7 @@ export class FlowField {
     const halfZ = this.halfZ;
     for (let i = 0; i < platforms.length; i++) {
       const p = platforms[i];
+      if (p.h <= minHeight) continue;
       const x0 = Math.floor((p.x - p.w * 0.5 - 0.55 + halfX) / cell);
       const x1 = Math.floor((p.x + p.w * 0.5 + 0.55 + halfX) / cell);
       const z0 = Math.floor((p.z - p.d * 0.5 - 0.55 + halfZ) / cell);
