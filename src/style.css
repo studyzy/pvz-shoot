@@ -734,6 +734,15 @@ h2 {
   box-shadow: 0 0 0 2px rgba(143,214,255,.2), 0 0 18px rgba(143,214,255,.3);
 }
 
+.map-card.map-dust { border-color: rgba(240,205,140,.3); background: linear-gradient(180deg, rgba(96,66,26,.72), rgba(38,26,8,.8)); }
+.map-card.map-dust .map-tag { color: rgba(248,216,158,.82); }
+.map-card.map-dust .map-desc { color: rgba(240,224,190,.6); }
+.map-card.map-dust.active {
+  border-color: #f0cd8c;
+  background: linear-gradient(180deg, rgba(128,94,38,.82), rgba(56,38,10,.88));
+  box-shadow: 0 0 0 2px rgba(240,205,140,.2), 0 0 18px rgba(240,205,140,.3);
+}
+
 .big-btn {
   pointer-events: auto;
   cursor: pointer;

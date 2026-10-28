@@ -1,5 +1,6 @@
 import { Arena } from './Arena.js';
 import { IceWorld } from './IceWorld.js';
+import { DustYard } from './DustYard.js';
 
 export const MAPS = [
   {
@@ -19,6 +20,15 @@ export const MAPS = [
     desc: 'CS 经典 fy_iceworld：田字四柱与两侧矮墙',
     startLabel: '进入雪地',
     create: (scene) => new IceWorld(scene),
+  },
+  {
+    id: 'dust',
+    name: '沙城',
+    short: '沙城',
+    tag: 'DUST YARD',
+    desc: '致敬 de_dust2：中门、长 A、B 长廊三线压进',
+    startLabel: '进入沙城',
+    create: (scene) => new DustYard(scene),
   },
 ];
 
