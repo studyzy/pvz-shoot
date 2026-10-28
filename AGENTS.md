@@ -40,8 +40,7 @@ npm run preview   # 预览构建产物
 | `src/world/materials.js` | Toon 材质、程序化草地/雪地/冰面/天空/云/光晕/污渍贴图、PMREM 户外环境贴图（`outdoorEnvironment`） |
 | `src/entities/Player.js` | 第一人称移动、跳跃、平台落脚/踏步、碰撞、生命/回血、镜头位置与后坐力 |
 | `src/entities/Zombie.js` | 单个僵尸：绑定模型骨架、AI、行走/攻击/死亡动画、受击/减速/掉落回调 |
-| `src/entities/ZombieModel.js` | **代价最高、最需要小心**：程序化生成僵尸各部位合并几何、面部、帽子、UV 分区 |
-| `src/entities/ZombieTexture.js` | 异步加载 4 张文生图贴图 → 裁水印 → 合成 1024 图集 → 供材质使用 |
+| `src/entities/ZombieModel.js` | 加载外部 `public/models/zombie.glb`（单网格、无骨骼），导出 `zombieModel` 就绪标志与 `ZOMBIE_SCALE` |
 | `src/entities/ZombieManager.js` | 波次生成、分离、范围伤害、击杀结算、Boss 跟踪、阳光掉落数量 |
 | `src/entities/SunOrbs.js` | 阳光球池、弹跳、磁吸、拾取 |
 | `src/entities/WeaponPickups.js` | 地面植物拾取物池：按地图点位刷新、发光/名称牌、靠近自动拾取、重生 |
@@ -52,7 +51,7 @@ npm run preview   # 预览构建产物
 | `src/input/Controls.js` | 键鼠 + 触屏输入、平台识别、虚拟摇杆、指针锁定 |
 | `src/ui/HUD.js` | DOM HUD、植物栏、横幅、命中标记、开始/暂停/结算界面 |
 | `src/style.css` | 全部界面样式与响应式/安全区适配 |
-| `public/textures/` | 4 张文生图材质（JPG），构建时原样拷贝到 `dist/textures/` |
+| `public/models/` | `zombie.glb`（约 360 KB：6.2k 三角面 + 3 张 512 WebP），构建时原样拷贝到 `dist/models/` |
 | `docs/GAMEPLAY.md` | 玩家向完整数值文档；**改数值后同步更新** |
 
 ---
@@ -112,26 +111,29 @@ npm run preview   # 预览构建产物
 
 ### 5.2 僵尸模型与材质
 
-- 几何体通过 `getZombieRig(type, variant)` **按类型+变体缓存并共享**。
-  **不要 dispose 这些几何体**，只 dispose 每个僵尸自己的 `mat`（见 `Zombie.dispose`）。
-- 每个僵尸一份 `MeshStandardMaterial`（`vertexColors: true` + 图集 `map` + `normalMap` + `roughnessMap`/`metalnessMap` 共用一张 ORM + `envMap`），用于白闪（`emissiveIntensity`）和冰冻（`mat.color` 乘色）。
-  材质是 PBR，`roughness: 1` / `metalness: 1` 只是让 ORM 图完全接管；调数值请改 `ZombieTexture.zombieOrmTexture()` 的区域表，不要在构造里硬改。
-  `envMap` 来自 `Game.setMap` 写入的 `ctx.env`（`outdoorEnvironment(renderer, mapId)`，两张地图各缓存一份）；`envMapIntensity` 控制在 0.5 左右，拉高会让僵尸发油。
-  **贴图变多后每像素开销上升**：加贴图/提分辨率前先在 iPhone 上复测帧率。
-- 骨架层级：`model → spine → (body, headPivot, shoulders → elbows)`，腿直接挂在 `model` 下的 `hips → knees`。动画在 `Zombie.update` 里，死亡时 `armsLimp()`。
-- 新增部位：在 `ZombieModel.js` 里用 `addPrim()` 添加，必须带 UV（所有内置几何体都有）；合并后仍是单个 mesh。
-- Boss 的木棒只加在**右臂**（`armLowerClub`），不要两个手都加。
-- 每个僵尸 10 个 mesh（身体/头/4 段手臂/4 段腿）+ 阴影，**同屏上限 14**；不要随意增加分段或使用独立几何体。
+- 僵尸是**外部 glb**，不是程序化生成的了：`zombieModel.scene.clone(true)` 克隆，几何体在所有僵尸间共享，**不要 dispose 几何体**，只 dispose 每个僵尸自己的材质（`Zombie.dispose` 遍历 `this.mats`）。
+- 每个僵尸克隆一份材质（同一张 glTF 材质），用于白闪（`emissiveIntensity`）和冰冻（`color` 乘色）；贴图仍然全僵尸共享。
+- `envMap` 来自 `Game.setMap` 写入的 `ctx.env`（`outdoorEnvironment(renderer, mapId)`，两张地图各缓存一份），`envMapIntensity` 0.35。
+- glb **没有骨骼**，迈步靠顶点着色器里的"假骨骼"（`WALK_CHUNK`）：按高度把顶点分给大腿/小腿，绕髋、膝做旋转，混合区只有 0.04–0.05，太小会裂、太大像橡皮筋。躯干起伏、侧摆、前倾仍由 `Zombie.update` 的整体 transform 负责。
+- **几何体是 Z-up**（节点上挂着 +90° X 旋转），着色器里高度必须用 `-position.z`，用 `position.y` 会把整个模型撕成薄片（踩过）。
+- 摆动参数通过 `this.walk` 里的 `uPhase` / `uMove` 两个 uniform 驱动，每帧在 `update` 里写；阴影用同一个补丁挂到 `customDepthMaterial`，否则腿动了影子不动。
+- 换模型时改 `public/models/zombie.glb` 并同步 `ZombieModel.js` 的 `ZOMBIE_SCALE`、以及 `getChest`/`getHead` 的高度和 `ProjectileSystem`/`WeaponSystem` 里的命中半径。
+- 配件（交通锥 / 铁桶 / Boss 木棒）是**程序化补回**的：`Zombie.buildHat()` 按 `cfg.acc` 往 `this.body` 上挂一组 `MeshStandardMaterial` 网格，坐标用 glb 的模型单位（头顶约 y=1.0，整体高 1.108）。加新配件就在这个函数里按 `acc` 分支。
+- 配件材质要同时 `push` 进 `this.mats` 和 `this.matBase`，否则白闪（`applyFlash`）和冰冻（`applyTint`）只会作用在身体上，帽子不跟着变。
+- 每个僵尸只有 **1 个 mesh + 1 个材质**（外加一块 blob 阴影），所以一只僵尸 = 1 个 draw call。压测 31 只同屏：110 draw call / 10 万三角面，仍低于 14 只上限的历史水位。
 
-### 5.3 UV 与贴图图集
+### 5.3 glb 规格与压缩
 
-- 图集是 1024×1024，4 个 512 单元，每单元内缩 16px、实际 480px；区域定义在 `ZombieModel.js` 的 `UV_REG`：`skin / cloth / pants / metal`。
-- 由同一张 1024 图集在 `initZombieAtlas` 里派生两张贴图：**法线图**（Sobel 自亮度，强度在 `normalTexture` 里，过大会变成橘皮）与 **ORM 图**（256，G=粗糙度、B=金属度，顺序必须与上衣图平铺顺序一致：skin 左上 / cloth 右上 / pants 左下 / metal 右下）。
-- 两张派生图都是 `NoColorSpace`，和 albedo 一致；改 albedo 的归一化方式时它们要一起重算。
-- 添加部位前先 `setRegion('skin'|'cloth'|'pants'|'metal')`，默认是 skin；加错区域会贴错材质。
-- 图集加载是**异步**的：`ZombieTexture.zombieAtlas.map` 为空时材质先用程序化污渍兜底，`Zombie.update` 里检测到就绪后补上 `map` 并 `needsUpdate = true`。
-- 生成的原始图有平台水印，合成时裁掉右侧/下侧 12%；替换贴图时保持这个裁剪逻辑，或换无水印素材。
-- 贴图亮度被归一化成中性细节图（`NoColorSpace`），颜色由顶点色决定；不要直接塞彩色贴图，否则颜色会被乘暗。
+- 当前 `zombie.glb`：6,258 三角面、单网格、单材质、3 张 512 WebP（baseColor / normal / metallicRoughness），357 KB。原始 AI 模型是 5 万面 + 3 张 4096 PNG（29 MB），**不压缩会直接把无头浏览器和低端 GPU 打爆**。
+- 压缩流程（用 `@gltf-transform/cli`，不要手工改）：
+  ```bash
+  gltf-transform resize in.glb a.glb --width 512 --height 512
+  gltf-transform weld a.glb b.glb
+  gltf-transform simplify b.glb c.glb --ratio 0.12 --error 0.004
+  gltf-transform webp c.glb out.glb --quality 88
+  ```
+- 模型约定：**Y 轴向上、面朝 +Z、脚底在 y=0**，原始高 1.108 米，靠 `ZOMBIE_SCALE = 1.67` 拉到 1.85 米。换模型必须重新确认这四条。
+- 加载是**异步**的：`ZombieManager` 在 `zombieModel.ready` 之前不刷怪（`update` 里那个 `&& zombieModel.ready` 判断），别删。
 
 ### 5.4 输入与平台
 
@@ -171,9 +173,9 @@ npm run preview   # 预览构建产物
 
 ### 5.8 资源
 
-- 只允许项目内资源。贴图放 `public/textures/`，用 `import.meta.env.BASE_URL + 'textures/...'` 引用（构建后位于 `dist/textures/`）。
-- 不要引入 CDN、外部字体、外部模型；Three.js 由 npm 打包。
-- `public/textures` 下的 4 张 JPG 是文生图产物，已压缩；替换时保持 1024×1024、尽量无缝、无水印。
+- 只允许项目内资源：贴图放 `public/textures/`、模型放 `public/models/`，都用 `import.meta.env.BASE_URL + '...'` 引用（构建后位于 `dist/` 下同名目录）。
+- **运行时**不要拉 CDN、外部字体、外部模型；但模型可以先下载进仓库再当项目内资源用（僵尸 glb 就是这么来的）。
+- Three.js 由 npm 打包。
 - 程序化音效在 `Sfx.js`，无音频文件。
 
 ### 5.9 地图与地面拾取
@@ -219,8 +221,8 @@ npm run preview   # 预览构建产物
 
 ### 新增僵尸类型
 
-1. `config.js` → `ZOMBIES` 加属性（`hp/speed/damage/score/scale/skin/shirt/pants/acc/radius`）。
-2. `ZombieModel.js` → 在 `buildHead`/`buildHat` 加配饰，或在 `getZombieRig` 里按类型分支；新几何要带 UV 并设对 `setRegion`。
+1. `config.js` → `ZOMBIES` 加属性（`hp/speed/damage/score/scale/radius`；`skin/shirt/pants/acc` 现在只影响血/掉落等逻辑，模型不再读它们）。
+2. 造型要么换一份 glb（见 5.3 的压缩流程），要么在 `Zombie.buildRig` 里按类型给不同模型/材质；已经没有 `buildHead`/`getZombieRig` 了。
 3. `ZombieManager.wavePlan` 里加入生成权重/数量；`handleKill` 里补阳光掉落数量。
 4. 需要新的行为（远程、跳跃等）改 `Zombie.update`，并在 `Zombie` 里补命中球。
 5. 更新 `docs/GAMEPLAY.md` 图鉴与波次表。
@@ -288,6 +290,7 @@ __game.renderer.info.render     // draw call / 三角面
 - 没有通用地形/斜坡系统：雪地只有轴对齐的平顶平台（田字四柱、侧矮墙、砖台），靠 `platforms` 采样支撑；没有斜坡、楼梯、可破坏物。
 - 没有弹药与换弹；豌豆无限，特殊植物靠阳光。
 - 僵尸全是近战，没有远程/投掷单位。
+- 僵尸 glb 没有骨骼：腿靠顶点着色器假蒙皮摆动，手臂只吃到很轻的摆动；没有 IK，脚会轻微滑步、髋部会有拉伸感。要完全正确得换带骨骼的 glb。
 - Boss 只有高血量/高伤害/大攻击距离，没有专属技能。
 - 爆炸无视遮挡（地图开阔）；辅助瞄准不预判移动。
 - 僵尸默认不做网格寻路；雪地用 1 米网格流场绕开田字四柱（`IceWorld.updateNav`），其他地图仍是直线追击 + 分离 + 碰撞推出，并带贴墙滑动。

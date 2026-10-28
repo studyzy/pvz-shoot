@@ -725,7 +725,7 @@ export class WeaponSystem {
       z.getChest(tmpChest);
       const t1 = segmentSphereT(tmpOrigin, tmpSegEnd, tmpChest, 0.46 * z.scaleFactor);
       z.getHead(tmpHead);
-      const t2 = segmentSphereT(tmpOrigin, tmpSegEnd, tmpHead, 0.3 * z.scaleFactor);
+      const t2 = segmentSphereT(tmpOrigin, tmpSegEnd, tmpHead, 0.38 * z.scaleFactor);
       let t = -1;
       if (t1 >= 0 && t2 >= 0) t = Math.min(t1, t2);
       else if (t1 >= 0) t = t1;

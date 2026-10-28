@@ -1,13 +1,60 @@
 import * as THREE from 'three';
-import { blobShadowTexture, zombieGrimeTexture } from '../world/materials.js';
+import { blobShadowTexture } from '../world/materials.js';
 import { ZOMBIES } from '../config.js';
-import { getZombieRig, zombieVariantCount } from './ZombieModel.js';
-import { zombieAtlas, zombieOrmTexture } from './ZombieTexture.js';
+import { zombieModel, ZOMBIE_SCALE } from './ZombieModel.js';
 import { clamp, rand, TAU } from '../utils.js';
 
 const ICE = new THREE.Color(0x9fe4ff);
 const WHITE = new THREE.Color(0xffffff);
 const tmpV = new THREE.Vector3();
+
+// 假骨骼：顶点着色器里按高度/左右分区绕髋、肩旋转，做真正的交替迈步
+const WALK_CHUNK = `
+  vec3 transformed = vec3( position );
+  // 注意：几何体是 Z-up（节点上挂着 +90° X 旋转），高度 = -position.z
+  float h = -position.z;
+  float side = transformed.x >= 0.0 ? 1.0 : -1.0;
+  float legPhase = uPhase + (side > 0.0 ? 0.0 : PI);
+  float legAng = sin(legPhase) * 0.4 * uMove;
+  float kneeAng = max(0.0, -sin(legPhase)) * 0.85 * uMove;
+  if (h < 0.54) {
+    // 大腿：绕髋
+    float w = smoothstep(0.0, 1.0, clamp((0.54 - h) / 0.05, 0.0, 1.0));
+    vec3 pivot = vec3(side * 0.075, 0.0, -0.52);
+    vec3 d = transformed - pivot;
+    float s = sin(legAng), c = cos(legAng);
+    vec3 r = vec3(d.x, d.y * c - d.z * s, d.y * s + d.z * c);
+    transformed = mix(transformed, pivot + r, w);
+  }
+  if (h < 0.32) {
+    // 小腿：绕膝再折一下，脚才不会像棍子一样扫过去
+    vec3 kp = vec3(side * 0.075, 0.0, -0.30);
+    vec3 kd = transformed - kp;
+    float ks = sin(kneeAng), kc = cos(kneeAng);
+    vec3 kr = vec3(kd.x, kd.y * kc - kd.z * ks, kd.y * ks + kd.z * kc);
+    float kw = smoothstep(0.0, 1.0, clamp((0.32 - h) / 0.04, 0.0, 1.0));
+    transformed = mix(transformed, kp + kr, kw);
+  }
+  // 手臂：只吃 |x| 很大、且在肩以下的顶点，避免把大头卷进来
+  float armAng = -legAng * 0.6;
+  float aw = smoothstep(0.235, 0.275, abs(transformed.x)) * (1.0 - smoothstep(0.68, 0.80, h));
+  if (aw > 0.001 && h > 0.3) {
+    vec3 ap = vec3(side * 0.21, 0.0, -0.80);
+    vec3 ad = transformed - ap;
+    float as = sin(armAng), ac = cos(armAng);
+    vec3 ar = vec3(ad.x, ad.y * ac - ad.z * as, ad.y * as + ad.z * ac);
+    transformed = mix(transformed, ap + ar, aw);
+  }
+`;
+
+function patchWalkShader(mat, uniforms) {
+  mat.onBeforeCompile = (shader) => {
+    shader.uniforms.uPhase = uniforms.uPhase;
+    shader.uniforms.uMove = uniforms.uMove;
+    shader.vertexShader = 'uniform float uPhase;\nuniform float uMove;\n' + shader.vertexShader.replace('#include <begin_vertex>', WALK_CHUNK);
+  };
+  mat.needsUpdate = true;
+}
 
 let shadowMatShared = null;
 function shadowMaterial() {
@@ -59,27 +106,8 @@ export class Zombie {
     this.rotY = rand(0, TAU);
     this.animSpeed = 0;
 
-    this.variant = Math.floor(rand(0, zombieVariantCount(type)));
-    this.rig = getZombieRig(type, this.variant);
-
-    this.baseTint = new THREE.Color(0xffffff).offsetHSL(0, 0, rand(-0.035, 0.03));
-    const orm = zombieOrmTexture();
-    this.mat = new THREE.MeshStandardMaterial({
-      vertexColors: true,
-      map: zombieAtlas.map || zombieGrimeTexture(),
-      roughnessMap: orm,
-      metalnessMap: orm,
-      normalMap: zombieAtlas.normal || null,
-      normalScale: new THREE.Vector2(0.35, 0.35),
-      roughness: 1,
-      metalness: 1,
-      envMap: ctx.env || null,
-      envMapIntensity: 0.5,
-      emissive: 0xffffff,
-      emissiveIntensity: 0,
-    });
-    this.mapApplied = !!zombieAtlas.map;
-    this.mat.color.copy(this.baseTint);
+    this.variant = Math.floor(rand(0, 3));
+    this.baseTint = new THREE.Color(0xffffff).offsetHSL(0, 0, rand(-0.03, 0.025));
 
     this.root = new THREE.Group();
     this.root.position.set(x, 0, z);
@@ -103,74 +131,122 @@ export class Zombie {
   }
 
   buildRig() {
-    const mat = this.mat;
-    const mk = (geo) => {
+    // glb 是单网格静态模型：每个僵尸克隆一份，只克隆材质（要独立的白闪/冰冻）
+    this.body = zombieModel.scene.clone(true);
+    this.body.scale.setScalar(ZOMBIE_SCALE);
+    this.model.add(this.body);
+
+    this.walk = { uPhase: { value: 0 }, uMove: { value: 0 } };
+    this.mats = [];
+    this.matBase = [];
+    this.body.traverse((n) => {
+      if (!n.isMesh) return;
+      const m = n.material.clone();
+      m.envMap = this.ctx.env || null;
+      m.envMapIntensity = 0.35;
+      m.emissive.setHex(0xffffff);
+      m.emissiveIntensity = 0;
+      m.color.copy(this.baseTint);
+      patchWalkShader(m, this.walk);
+      // 阴影走同一套顶点变形，否则腿动了影子不动
+      const depth = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking });
+      depth.onBeforeCompile = m.onBeforeCompile;
+      m.customDepthMaterial = depth;
+      n.material = m;
+      n.castShadow = true;
+      n.receiveShadow = false;
+      this.mats.push(m);
+      this.matBase.push(m.color.clone());
+    });
+    this.buildHat();
+  }
+
+  // 交通锥 / 铁桶：加在 glb 头顶（模型单位，Y 向上，头骨顶约 1.0）
+  buildHat() {
+    const acc = this.def.acc;
+    if (acc !== 'cone' && acc !== 'bucket' && acc !== 'club') return;
+
+    const hat = new THREE.Group();
+    hat.position.set(0, acc === 'bucket' ? 1.06 : 1.01, 0.015);
+    hat.rotation.set(0.03, 0.1, 0.05);
+
+    const push = (geo, color, opts) => {
+      const mat = new THREE.MeshStandardMaterial({
+        color,
+        roughness: (opts && opts.roughness) !== undefined ? opts.roughness : 0.6,
+        metalness: (opts && opts.metalness) || 0,
+        emissive: 0xffffff,
+        emissiveIntensity: 0,
+        envMap: this.ctx.env || null,
+        envMapIntensity: 0.4,
+      });
       const m = new THREE.Mesh(geo, mat);
       m.castShadow = true;
       m.receiveShadow = false;
+      hat.add(m);
+      this.mats.push(mat);
+      this.matBase.push(mat.color.clone());
       return m;
     };
 
-    this.spine = new THREE.Group();
-    this.spine.position.y = 0.88;
-    this.spine.add(mk(this.rig.body));
-    this.model.add(this.spine);
-
-    this.headPivot = new THREE.Group();
-    this.headPivot.position.set(0, 0.632, 0.01);
-    this.headPivot.scale.setScalar(this.type === 'boss' ? 1.28 : 1.05);
-    this.headPivot.add(mk(this.rig.head));
-    this.spine.add(this.headPivot);
-
-    this.shoulders = [];
-    this.elbows = [];
-    for (let i = 0; i < 2; i++) {
-      const side = i === 0 ? -1 : 1;
-      const shoulder = new THREE.Group();
-      shoulder.position.set(side * 0.315, 0.5, 0.0);
-      shoulder.add(mk(this.rig.armUpper));
-      const elbow = new THREE.Group();
-      elbow.position.set(0, -0.34, 0);
-      const lowerGeo = i === 1 && this.rig.armLowerClub ? this.rig.armLowerClub : this.rig.armLower;
-      elbow.add(mk(lowerGeo));
-      shoulder.add(elbow);
-      shoulder.rotation.z = side * 0.16;
-      shoulder.rotation.x = -1.38;
-      elbow.rotation.x = 0.12;
-      this.spine.add(shoulder);
-      this.shoulders.push(shoulder);
-      this.elbows.push(elbow);
+    if (acc === 'club') {
+      // Boss 的木棒：握在右手（-x 侧），斜向体前
+      hat.position.set(-0.26, 0.46, 0.06);
+      hat.rotation.set(0.35, 0, 0.28);
+      push(new THREE.CylinderGeometry(0.038, 0.05, 0.52, 10), 0x7d5733, { roughness: 0.85 });
+      push(new THREE.CylinderGeometry(0.085, 0.105, 0.2, 10), 0x5b3d22, { roughness: 0.8 });
+      const head = hat.children[hat.children.length - 1];
+      head.position.y = -0.3;
+      const shaft = hat.children[hat.children.length - 2];
+      shaft.position.y = 0.02;
+      this.body.add(hat);
+      this.hat = hat;
+      return;
     }
 
-    this.hips = [];
-    this.knees = [];
-    for (let i = 0; i < 2; i++) {
-      const side = i === 0 ? -1 : 1;
-      const hip = new THREE.Group();
-      hip.position.set(side * 0.145, 0.86, 0);
-      hip.add(mk(this.rig.legUpper));
-      const knee = new THREE.Group();
-      knee.position.set(0, -0.44, 0);
-      knee.add(mk(this.rig.legLower));
-      hip.add(knee);
-      this.model.add(hip);
-      this.hips.push(hip);
-      this.knees.push(knee);
+    if (acc === 'cone') {
+      // 路障锥：底座 + 锥体 + 两道反光带
+      push(new THREE.CylinderGeometry(0.205, 0.215, 0.032, 22), 0xd85c24, { roughness: 0.75 });
+      push(new THREE.CylinderGeometry(0.045, 0.175, 0.42, 22), 0xe0662a, { roughness: 0.6 });
+      push(new THREE.CylinderGeometry(0.118, 0.138, 0.07, 22, 1, true), 0xf3efe2, { roughness: 0.45 });
+      push(new THREE.CylinderGeometry(0.078, 0.094, 0.055, 22, 1, true), 0xf3efe2, { roughness: 0.45 });
+    } else {
+      // 铁桶：桶身 + 上下箍
+      push(new THREE.CylinderGeometry(0.222, 0.242, 0.26, 24), 0xb9c0c7, { roughness: 0.5, metalness: 0.45 });
+      push(new THREE.TorusGeometry(0.244, 0.016, 6, 24), 0x878f96, { roughness: 0.45, metalness: 0.5 });
+      push(new THREE.TorusGeometry(0.226, 0.014, 6, 24), 0x878f96, { roughness: 0.45, metalness: 0.5 });
+    }
+
+    this.body.add(hat);
+    this.hat = hat;
+  }
+
+  // 白闪 / 寒冰要同时作用到身体和帽子，所以遍历所有材质
+  applyFlash(v) {
+    for (let i = 0; i < this.mats.length; i++) this.mats[i].emissiveIntensity = v;
+  }
+
+  applyTint(ice) {
+    for (let i = 0; i < this.mats.length; i++) {
+      const m = this.mats[i];
+      m.color.copy(this.matBase[i]);
+      if (ice > 0) m.color.lerp(ICE, ice);
+      m.color.multiply(this.baseTint);
     }
   }
 
   getAimPoint(out) {
-    out.set(this.root.position.x, 1.12 * this.scaleFactor, this.root.position.z);
+    out.set(this.root.position.x, 0.95 * this.scaleFactor, this.root.position.z);
     return out;
   }
 
   getChest(out) {
-    out.set(this.root.position.x, 1.12 * this.scaleFactor, this.root.position.z);
+    out.set(this.root.position.x, 0.95 * this.scaleFactor, this.root.position.z);
     return out;
   }
 
   getHead(out) {
-    out.set(this.root.position.x, 1.81 * this.scaleFactor, this.root.position.z);
+    out.set(this.root.position.x, 1.45 * this.scaleFactor, this.root.position.z);
     return out;
   }
 
@@ -206,20 +282,14 @@ export class Zombie {
   update(dt, player, colliders) {
     if (this.dead) return;
 
-    if (!this.mapApplied && zombieAtlas.map) {
-      this.mat.map = zombieAtlas.map;
-      this.mat.normalMap = zombieAtlas.normal;
-      this.mat.needsUpdate = true;
-      this.mapApplied = true;
-    }
 
     if (this.dying) {
       this.deathT += dt;
       const t = Math.min(1, this.deathT / 0.34);
       this.model.rotation.x = -t * 1.5;
       this.model.rotation.z = t * 0.12;
-      this.armsLimp(t);
-      this.mat.emissiveIntensity = Math.max(0, this.mat.emissiveIntensity - dt * 3);
+      this.flash = Math.max(0, this.flash - dt * 3);
+      this.applyFlash(this.flash * 0.45);
       if (this.deathT > 0.55) {
         const k = Math.min(1, (this.deathT - 0.55) / 1.0);
         this.root.position.y = -k * 0.95;
@@ -242,15 +312,15 @@ export class Zombie {
 
     if (this.flash > 0) {
       this.flash = Math.max(0, this.flash - dt * 12);
-      this.mat.emissiveIntensity = this.flash * 0.45;
+      this.applyFlash(this.flash * 0.45);
     }
 
     if (this.slowTimer > 0) {
       this.slowTimer -= dt;
-      this.mat.color.copy(this.baseTint).lerp(ICE, 0.55);
-      if (this.slowTimer <= 0) this.mat.color.copy(this.baseTint);
+      this.applyTint(0.55);
+      if (this.slowTimer <= 0) this.applyTint(0);
     } else if (this.slowTimer > -1) {
-      this.mat.color.copy(this.baseTint);
+      this.applyTint(0);
       this.slowTimer = -1;
     }
 
@@ -371,61 +441,28 @@ export class Zombie {
       }
     }
 
-    // ---- animation ----
+    // ---- animation：glb 无骨骼，用整体起伏/侧摆做出蹒跚感 ----
     const speedPhase = moving ? 5.4 + this.speed * 0.9 : 1.5;
     this.phase += dt * speedPhase;
     const s = Math.sin(this.phase);
-    const c = Math.cos(this.phase);
-    const swing = moving ? 0.52 : 0.05;
-
-    this.hips[0].rotation.x = s * swing;
-    this.hips[1].rotation.x = -s * swing;
-    this.knees[0].rotation.x = Math.max(0, -s) * 0.95 * (moving ? 1 : 0.25) + 0.05;
-    this.knees[1].rotation.x = Math.max(0, s) * 0.95 * (moving ? 1 : 0.25) + 0.05;
-
     const atk = this.attackAnim > 0 ? Math.sin((1 - this.attackAnim / 0.4) * Math.PI) : 0;
+    const moveK = moving ? 1 : 0.3;
 
-    this.shoulders[0].rotation.x = -1.38 + s * 0.1 + atk * 1.0;
-    this.shoulders[1].rotation.x = -1.38 - s * 0.1 + atk * 1.0;
-    this.shoulders[0].rotation.z = -0.16 - s * 0.03;
-    this.shoulders[1].rotation.z = 0.16 + s * 0.03;
-    this.elbows[0].rotation.x = 0.12 - atk * 0.18 + c * 0.03;
-    this.elbows[1].rotation.x = 0.12 - atk * 0.18 - c * 0.03;
+    this.walk.uPhase.value = this.phase;
+    this.walk.uMove.value = moving ? 1 : 0.12;
 
-    this.spine.rotation.x = 0.11 + Math.abs(s) * 0.02 * (moving ? 1 : 0) + atk * 0.2;
-    this.spine.rotation.z = Math.sin(this.phase * 0.5) * 0.035 * (moving ? 1 : 0.4);
-    this.spine.rotation.y = s * 0.06 * (moving ? 1 : 0.3);
-    this.spine.position.y = 0.88 + (moving ? Math.abs(s) * 0.022 : 0);
-
-    this.headPivot.rotation.x = -0.06 + atk * 0.22 + Math.sin(this.phase * 0.5 + 1) * 0.03;
-    this.headPivot.rotation.z = Math.sin(this.phase * 0.5 + 0.4) * 0.07;
-    this.headPivot.rotation.y = Math.sin(this.phase * 0.33) * 0.05;
-
-    this.model.position.y = 0;
-    this.model.rotation.z = moving ? Math.sin(this.phase) * 0.025 : 0;
+    this.model.position.y = moving ? Math.abs(s) * 0.05 : 0;
+    this.model.rotation.x = 0.03 + Math.abs(s) * 0.02 * moveK + atk * 0.16;
+    this.model.rotation.z = s * 0.045 * moveK;
+    this.model.rotation.y = s * 0.09 * moveK;
 
     this.pushX = 0;
     this.pushZ = 0;
   }
 
-  armsLimp(t) {
-    const k = Math.min(1, t);
-    this.shoulders[0].rotation.x = -1.38 + k * (0.9 + Math.sin(this.phase) * 0.2);
-    this.shoulders[1].rotation.x = -1.38 + k * (0.7 + Math.cos(this.phase) * 0.2);
-    this.shoulders[0].rotation.z = -0.16 - k * 0.5;
-    this.shoulders[1].rotation.z = 0.16 + k * 0.5;
-    this.elbows[0].rotation.x = 0.12 - k * 0.3;
-    this.elbows[1].rotation.x = 0.12 - k * 0.2;
-    this.hips[0].rotation.x = -k * 0.35;
-    this.hips[1].rotation.x = k * 0.12;
-    this.knees[0].rotation.x = 0.05 + k * 0.5;
-    this.knees[1].rotation.x = 0.05 + k * 0.2;
-    this.headPivot.rotation.x = -k * 0.35;
-  }
-
   dispose() {
     this.root.parent && this.root.parent.remove(this.root);
-    this.mat.dispose();
+    for (let i = 0; i < this.mats.length; i++) this.mats[i].dispose();
   }
 }
 

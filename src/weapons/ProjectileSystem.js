@@ -151,7 +151,7 @@ export class ProjectileSystem {
         z.getChest(tmpChest);
         const tBody = segmentSphereT(p.prev, p.pos, tmpChest, 0.46 * z.scaleFactor + 0.14);
         z.getHead(tmpHead);
-        const tHead = segmentSphereT(p.prev, p.pos, tmpHead, 0.3 * z.scaleFactor + 0.14);
+        const tHead = segmentSphereT(p.prev, p.pos, tmpHead, 0.38 * z.scaleFactor + 0.14);
         let t = -1;
         let head = false;
         if (tHead >= 0 && (tBody < 0 || tHead <= tBody)) {

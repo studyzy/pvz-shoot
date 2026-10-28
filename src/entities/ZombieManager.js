@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { Zombie } from './Zombie.js';
+import { zombieModel } from './ZombieModel.js';
 import { wavePlan, waveMaxAlive, waveSpawnInterval, zombieHpMul, zombieSpeedMul } from '../config.js';
 import { rand, clamp } from '../utils.js';
 
@@ -47,7 +48,7 @@ export class ZombieManager {
   update(dt, player, colliders) {
     if (this.state === 'spawning') {
       this.spawnTimer -= dt;
-      if (this.queue.length > 0 && this.zombies.length < this.maxAlive && this.spawnTimer <= 0) {
+      if (this.queue.length > 0 && this.zombies.length < this.maxAlive && this.spawnTimer <= 0 && zombieModel.ready) {
         this.spawnOne(player);
         this.spawnTimer = this.interval * rand(0.75, 1.25);
       }
