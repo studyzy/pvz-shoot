@@ -36,8 +36,10 @@ npm run preview   # 预览构建产物
 | `src/config.js` | **所有可调数值**：`TUNING`、`WEAPONS`、`ZOMBIES`、波次公式。改平衡先改这里 |
 | `src/world/Arena.js` | 后院场景：地面、栅栏、房子、树、墓碑、割草机、光照与阴影、碰撞体列表 `colliders` |
 | `src/world/IceWorld.js` | 雪地场景：按 fy_iceworld 复刻的田字四根 3.6 米高柱、两侧 0.85 米可跳矮墙、两端基地、四角砖台、11.4 米高冰墙与雪山；`platforms` 做落脚/侧碰撞、`colliders` 给僵尸绕行 |
+| `src/world/DustYard.js` | 沙城场景：动线致敬 de_dust2（中门 / 长 A / B 长廊三线 → 北横道 → A、B 点与 CT 出生点），几何与配色全部自绘；`solid()` 统一生成盒体 + `platforms` + 僵尸用圆形 `colliders` |
+| `src/world/FlowField.js` | 1 米网格流场（BFS）：`blockPlatforms()` 标记障碍、`update()` 按玩家位置重算、`flowAt()` 给僵尸方向；雪地与沙城共用 |
 | `src/world/maps.js` | 地图注册表 `MAPS`（菜单元数据）与 `createMaps()`；新增地图从这里挂 |
-| `src/world/materials.js` | Toon 材质、程序化草地/雪地/冰面/天空/云/光晕/污渍贴图、PMREM 户外环境贴图（`outdoorEnvironment`） |
+| `src/world/materials.js` | Toon 材质、程序化草地/雪地/冰面/沙地/天空/沙漠天空/云/光晕/污渍贴图、PMREM 户外环境贴图（`outdoorEnvironment`，支持 backyard/snow/dust） |
 | `src/entities/Player.js` | 第一人称移动、跳跃、平台落脚/踏步、碰撞、生命/回血、镜头位置与后坐力 |
 | `src/entities/Zombie.js` | 单个僵尸：绑定模型骨架、AI、行走/攻击/死亡动画、受击/减速/掉落回调 |
 | `src/entities/ZombieModel.js` | **代价最高、最需要小心**：程序化生成僵尸各部位合并几何、面部、帽子、UV 分区 |
@@ -116,7 +118,7 @@ npm run preview   # 预览构建产物
   **不要 dispose 这些几何体**，只 dispose 每个僵尸自己的 `mat`（见 `Zombie.dispose`）。
 - 每个僵尸一份 `MeshStandardMaterial`（`vertexColors: true` + 图集 `map` + `normalMap` + `roughnessMap`/`metalnessMap` 共用一张 ORM + `envMap`），用于白闪（`emissiveIntensity`）和冰冻（`mat.color` 乘色）。
   材质是 PBR，`roughness: 1` / `metalness: 1` 只是让 ORM 图完全接管；调数值请改 `ZombieTexture.zombieOrmTexture()` 的区域表，不要在构造里硬改。
-  `envMap` 来自 `Game.setMap` 写入的 `ctx.env`（`outdoorEnvironment(renderer, mapId)`，两张地图各缓存一份）；`envMapIntensity` 控制在 0.5 左右，拉高会让僵尸发油。
+  `envMap` 来自 `Game.setMap` 写入的 `ctx.env`（`outdoorEnvironment(renderer, mapId)`，三张地图各缓存一份）；`envMapIntensity` 控制在 0.5 左右，拉高会让僵尸发油。
   **贴图变多后每像素开销上升**：加贴图/提分辨率前先在 iPhone 上复测帧率。
 - 骨架层级：`model → spine → (body, headPivot, shoulders → elbows)`，腿直接挂在 `model` 下的 `hips → knees`。动画在 `Zombie.update` 里，死亡时 `armsLimp()`。
 - 新增部位：在 `ZombieModel.js` 里用 `addPrim()` 添加，必须带 UV（所有内置几何体都有）；合并后仍是单个 mesh。
@@ -284,8 +286,8 @@ __game.renderer.info.render     // draw call / 三角面
 
 ## 8. 已知限制（是设计取舍，不要当 bug 修）
 
-- 只有后院 / 雪地两张无尽地图，没有关卡章节/剧情。
-- 没有通用地形/斜坡系统：雪地只有轴对齐的平顶平台（田字四柱、侧矮墙、砖台），靠 `platforms` 采样支撑；没有斜坡、楼梯、可破坏物。
+- 只有后院 / 雪地 / 沙城三张无尽地图，没有关卡章节/剧情。
+- 没有通用地形/斜坡系统：地图只有轴对齐的平顶平台（雪地的田字四柱/矮墙/砖台、沙城的 A/B 点高台），靠 `platforms` 采样支撑；没有斜坡、楼梯、可破坏物。沙城的高台用 0.4 米台阶拼成可走上坡，僵尸上不去。
 - 没有弹药与换弹；豌豆无限，特殊植物靠阳光。
 - 僵尸全是近战，没有远程/投掷单位。
 - Boss 只有高血量/高伤害/大攻击距离，没有专属技能。
@@ -309,7 +311,7 @@ __game.renderer.info.render     // draw call / 三角面
 ## 10. 快速索引
 
 - 想改手感：`Player`（速度/跳跃/回血）+ `WeaponSystem`（后坐/摇摆/辅助瞄准）。
-- 想改地图：`src/world/maps.js` + `Arena.js` / `IceWorld.js`；想改地面武器：`config.js` 的 `WEAPONS` + `WeaponPickups.js`。
+- 想改地图：`src/world/maps.js` + `Arena.js` / `IceWorld.js` / `DustYard.js`（寻路统一走 `FlowField.js`）；想改地面武器：`config.js` 的 `WEAPONS` + `WeaponPickups.js`。
 - 想改难度：`config.js` 波次公式 + `ZombieManager` 生成逻辑。
 - 想改画面：`Arena`（场景/光照）、`materials.js`（色调）、`ZombieModel`（僵尸造型）。
 - 想改 UI：`index.html` + `style.css` + `HUD.js`，注意 `pointer-events` 与安全区。

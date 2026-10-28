@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { toon, snowTexture, snowSkyTexture, iceWallTexture } from './materials.js';
-import { rand, TAU, clamp } from '../utils.js';
+import { rand, TAU } from '../utils.js';
+import { FlowField } from './FlowField.js';
 
 const SNOW_COUNT = 380;
 const HALF_X = 17.6;
@@ -32,145 +33,17 @@ export class IceWorld {
       [-13.2, -14.0], [13.2, -14.0], [0, -13.0], [0, -19.4],
     ];
     this.time = 0;
-    this.navCell = 1;
-    this.navCols = Math.ceil((HALF_X * 2) / this.navCell);
-    this.navRows = Math.ceil((HALF_Z * 2) / this.navCell);
-    this.navBlocked = new Uint8Array(this.navCols * this.navRows);
-    this.navDist = new Float32Array(this.navCols * this.navRows);
-    this.navDirX = new Float32Array(this.navCols * this.navRows);
-    this.navDirZ = new Float32Array(this.navCols * this.navRows);
-    this.navQueue = new Int32Array(this.navCols * this.navRows);
-    this.navCX = -9999;
-    this.navCZ = -9999;
-    this.navTimer = 0;
     this.build();
-    this.buildNav();
-  }
-
-  buildNav() {
-    const cols = this.navCols;
-    const rows = this.navRows;
-    const cell = this.navCell;
-    const blocked = this.navBlocked;
-    for (let i = 0; i < this.platforms.length; i++) {
-      const p = this.platforms[i];
-      const x0 = Math.floor((p.x - p.w * 0.5 - 0.55 + HALF_X) / cell);
-      const x1 = Math.floor((p.x + p.w * 0.5 + 0.55 + HALF_X) / cell);
-      const z0 = Math.floor((p.z - p.d * 0.5 - 0.55 + HALF_Z) / cell);
-      const z1 = Math.floor((p.z + p.d * 0.5 + 0.55 + HALF_Z) / cell);
-      for (let z = Math.max(0, z0); z <= Math.min(rows - 1, z1); z++) {
-        for (let x = Math.max(0, x0); x <= Math.min(cols - 1, x1); x++) {
-          blocked[z * cols + x] = 1;
-        }
-      }
-    }
+    this.nav = new FlowField(HALF_X, HALF_Z, 1);
+    this.nav.blockPlatforms(this.platforms);
   }
 
   updateNav(player, dt) {
-    this.navTimer -= dt;
-    const cols = this.navCols;
-    const rows = this.navRows;
-    const cell = this.navCell;
-    const blocked = this.navBlocked;
-    const cx = clamp(Math.floor((player.pos.x + HALF_X) / cell), 0, cols - 1);
-    const cz = clamp(Math.floor((player.pos.z + HALF_Z) / cell), 0, rows - 1);
-    if (cx === this.navCX && cz === this.navCZ && this.navTimer > 0) return;
-    this.navCX = cx;
-    this.navCZ = cz;
-    this.navTimer = 0.45;
-
-    let sx = cx;
-    let sz = cz;
-    if (blocked[cz * cols + cx]) {
-      let best = Infinity;
-      sx = -1;
-      for (let z = 0; z < rows; z++) {
-        for (let x = 0; x < cols; x++) {
-          if (blocked[z * cols + x]) continue;
-          const d = (x - cx) * (x - cx) + (z - cz) * (z - cz);
-          if (d < best) {
-            best = d;
-            sx = x;
-            sz = z;
-          }
-        }
-      }
-      if (sx < 0) return;
-    }
-
-    const dist = this.navDist;
-    const queue = this.navQueue;
-    dist.fill(-1);
-    let head = 0;
-    let tail = 0;
-    const start = sz * cols + sx;
-    dist[start] = 0;
-    queue[tail++] = start;
-
-    while (head < tail) {
-      const idx = queue[head++];
-      const x = idx % cols;
-      const z = (idx / cols) | 0;
-      const d = dist[idx];
-      for (let oz = -1; oz <= 1; oz++) {
-        for (let ox = -1; ox <= 1; ox++) {
-          if (ox === 0 && oz === 0) continue;
-          const nx = x + ox;
-          const nz = z + oz;
-          if (nx < 0 || nz < 0 || nx >= cols || nz >= rows) continue;
-          const ni = nz * cols + nx;
-          if (blocked[ni] || dist[ni] >= 0) continue;
-          dist[ni] = d + 1;
-          queue[tail++] = ni;
-        }
-      }
-    }
-
-    this.navDirX.fill(0);
-    this.navDirZ.fill(0);
-    for (let z = 0; z < rows; z++) {
-      for (let x = 0; x < cols; x++) {
-        const idx = z * cols + x;
-        if (blocked[idx] || dist[idx] <= 0) continue;
-        let bestD = dist[idx];
-        let bx = 0;
-        let bz = 0;
-        for (let oz = -1; oz <= 1; oz++) {
-          for (let ox = -1; ox <= 1; ox++) {
-            if (ox === 0 && oz === 0) continue;
-            const nx = x + ox;
-            const nz = z + oz;
-            if (nx < 0 || nz < 0 || nx >= cols || nz >= rows) continue;
-            const ni = nz * cols + nx;
-            if (blocked[ni]) continue;
-            if (dist[ni] >= 0 && dist[ni] < bestD) {
-              bestD = dist[ni];
-              bx = ox;
-              bz = oz;
-            }
-          }
-        }
-        if (bx !== 0 || bz !== 0) {
-          const len = Math.hypot(bx, bz);
-          this.navDirX[idx] = bx / len;
-          this.navDirZ[idx] = bz / len;
-        }
-      }
-    }
+    this.nav.update(player.pos.x, player.pos.z, dt);
   }
 
   flowAt(x, z, out) {
-    const cx = Math.floor((x + HALF_X) / this.navCell);
-    const cz = Math.floor((z + HALF_Z) / this.navCell);
-    if (cx < 0 || cz < 0 || cx >= this.navCols || cz >= this.navRows) return false;
-    const idx = cz * this.navCols + cx;
-    if (this.navBlocked[idx]) return false;
-    const dx = this.navDirX[idx];
-    const dz = this.navDirZ[idx];
-    if (dx === 0 && dz === 0) return false;
-    out.x = dx;
-    out.z = dz;
-    return true;
+    return this.nav.flowAt(x, z, out);
   }
 
   activate(scene) {

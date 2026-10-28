@@ -114,6 +114,52 @@ export function snowTexture() {
   return tex;
 }
 
+let _sand = null;
+export function sandTexture() {
+  if (_sand) return _sand;
+  const size = 256;
+  const c = document.createElement('canvas');
+  c.width = size;
+  c.height = size;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#e2cb9d';
+  ctx.fillRect(0, 0, size, size);
+  for (let i = 0; i < 10; i++) {
+    ctx.fillStyle = i % 2 === 0 ? 'rgba(255,246,214,0.14)' : 'rgba(150,116,64,0.10)';
+    ctx.fillRect(0, i * 26, size, 24);
+  }
+  for (let i = 0; i < 34; i++) {
+    const x = Math.random() * size;
+    const y = Math.random() * size;
+    const r = 14 + Math.random() * 46;
+    const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+    g.addColorStop(0, 'rgba(196,158,96,0.16)');
+    g.addColorStop(0.6, 'rgba(196,158,96,0.06)');
+    g.addColorStop(1, 'rgba(196,158,96,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(x - r, y - r, r * 2, r * 2);
+  }
+  for (let i = 0; i < 1500; i++) {
+    const a = 0.06 + Math.random() * 0.16;
+    ctx.fillStyle = Math.random() < 0.7 ? 'rgba(255,250,228,' + a + ')' : 'rgba(138,104,56,' + a + ')';
+    const s = 1 + Math.random() * 1.8;
+    ctx.fillRect(Math.random() * size, Math.random() * size, s, s);
+  }
+  for (let i = 0; i < 60; i++) {
+    ctx.fillStyle = 'rgba(120,92,50,' + (0.12 + Math.random() * 0.14) + ')';
+    ctx.beginPath();
+    ctx.arc(Math.random() * size, Math.random() * size, 0.8 + Math.random() * 1.6, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(24, 24);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
+  _sand = tex;
+  return tex;
+}
+
 let _iceWall = null;
 export function iceWallTexture() {
   if (_iceWall) return _iceWall;
@@ -246,6 +292,27 @@ export function snowSkyTexture() {
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
   _snowSky = tex;
+  return tex;
+}
+
+let _desertSky = null;
+export function desertSkyTexture() {
+  if (_desertSky) return _desertSky;
+  const c = document.createElement('canvas');
+  c.width = 8;
+  c.height = 512;
+  const ctx = c.getContext('2d');
+  const grd = ctx.createLinearGradient(0, 0, 0, 512);
+  grd.addColorStop(0, '#3d7fb8');
+  grd.addColorStop(0.34, '#7fb4d9');
+  grd.addColorStop(0.6, '#c9d9d6');
+  grd.addColorStop(0.82, '#efdfb6');
+  grd.addColorStop(1, '#f6ecd0');
+  ctx.fillStyle = grd;
+  ctx.fillRect(0, 0, 8, 512);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  _desertSky = tex;
   return tex;
 }
 
@@ -456,7 +523,7 @@ export function zombieGrimeTexture() {
 let _envs = null;
 // 程序化户外环境贴图（PMREM）：只给 PBR 材质提供反射与高光，不参与场景雾/背景。
 export function outdoorEnvironment(renderer, mapId) {
-  const key = mapId === 'snow' ? 'snow' : 'backyard';
+  const key = mapId === 'snow' ? 'snow' : mapId === 'dust' ? 'dust' : 'backyard';
   if (_envs && _envs[key]) return _envs[key];
   if (!_envs) _envs = {};
 
@@ -471,6 +538,11 @@ export function outdoorEnvironment(renderer, mapId) {
     sky.addColorStop(0.5, '#8fc0ea');
     sky.addColorStop(0.82, '#dbeafb');
     sky.addColorStop(1, '#ffffff');
+  } else if (key === 'dust') {
+    sky.addColorStop(0, '#3f7cb0');
+    sky.addColorStop(0.5, '#9cc0d2');
+    sky.addColorStop(0.82, '#ecd9ac');
+    sky.addColorStop(1, '#f7ecc9');
   } else {
     sky.addColorStop(0, '#2b6ab8');
     sky.addColorStop(0.45, '#8ecdf5');
@@ -484,6 +556,9 @@ export function outdoorEnvironment(renderer, mapId) {
   if (key === 'snow') {
     ground.addColorStop(0, '#eef7ff');
     ground.addColorStop(1, '#c2d6e8');
+  } else if (key === 'dust') {
+    ground.addColorStop(0, '#e6cf9f');
+    ground.addColorStop(1, '#a5804a');
   } else {
     ground.addColorStop(0, '#7ba24a');
     ground.addColorStop(1, '#3d5320');
