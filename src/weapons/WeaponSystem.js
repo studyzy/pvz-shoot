@@ -136,7 +136,8 @@ export class WeaponSystem {
     }
 
     const muzzle = new THREE.Object3D();
-    muzzle.position.set(0, -0.01, -0.5);
+    // 枪口取枪管中心线：取枪口下沿的话弹丸出膛再回中线，近距离一定擦过头部打进胸口。
+    muzzle.position.set(0, 0.005, -0.5);
     group.add(muzzle);
 
     group.position.set(0.44, -0.3, -1.0);
@@ -654,8 +655,9 @@ export class WeaponSystem {
     }
     this.cooldown = def.cooldown;
 
-    const assist = this.assist;
+    const assist = this.assist && this.resolveAssist(this.assist);
     const targetPoint = assist ? assist.point : this.forwardPoint(70, tmpTarget);
+    const headshot = !!assist && assist.head;
     const model = this.models[this.current];
     model.muzzle.getWorldPosition(tmpMuzzle);
     const shots = Math.max(1, def.shots || 1);
@@ -668,7 +670,7 @@ export class WeaponSystem {
           const off = (s - (shots - 1) * 0.5) * (def.spread || 0.03);
           tmpTo.applyAxisAngle(UP, off);
         }
-        this.ctx.projectiles.spawnPea(tmpOrigin, tmpTo, def);
+        this.ctx.projectiles.spawnPea(tmpOrigin, tmpTo, def, headshot);
       }
       this.particlesAtMuzzle(def, shots);
       if (def.slow) this.ctx.sfx.shootIce();
@@ -684,7 +686,7 @@ export class WeaponSystem {
       this.ctx.projectiles.throwCherry(tmpOrigin, targetPoint, def);
       this.ctx.sfx.throwCherry();
     } else {
-      this.hitscan(def, targetPoint);
+      this.hitscan(def, targetPoint, headshot);
     }
 
     this.recoil = Math.min(1.6, this.recoil + 0.9);
@@ -711,7 +713,7 @@ export class WeaponSystem {
     });
   }
 
-  hitscan(def, targetPoint) {
+  hitscan(def, targetPoint, aimHead) {
     this.camera.getWorldDirection(tmpFwd);
     tmpOrigin.copy(this.camera.position);
     const maxDist = 90;
@@ -719,19 +721,31 @@ export class WeaponSystem {
 
     let bestT = 2;
     let bestPos = null;
+    let bestZ = null;
+    let headshot = aimHead;
     for (let i = 0; i < this.ctx.zombies.zombies.length; i++) {
       const z = this.ctx.zombies.zombies[i];
       if (!z.alive || z.dying) continue;
+      if (aimHead && z !== this.assist.zombie) continue;
       z.getChest(tmpChest);
       const t1 = segmentSphereT(tmpOrigin, tmpSegEnd, tmpChest, 0.46 * z.scaleFactor);
       z.getHead(tmpHead);
-      const t2 = segmentSphereT(tmpOrigin, tmpSegEnd, tmpHead, 0.38 * z.scaleFactor);
+      const t2 = segmentSphereT(tmpOrigin, tmpSegEnd, tmpHead, 0.36 * z.scaleFactor);
       let t = -1;
-      if (t1 >= 0 && t2 >= 0) t = Math.min(t1, t2);
-      else if (t1 >= 0) t = t1;
-      else if (t2 >= 0) t = t2;
+      let head = false;
+      if (aimHead) {
+        t = t2 >= 0 ? t2 : t1;
+        head = true;
+      } else if (t2 >= 0 && (t1 < 0 || t2 <= t1)) {
+        t = t2;
+        head = true;
+      } else if (t1 >= 0) {
+        t = t1;
+      }
       if (t >= 0 && t < bestT) {
         bestT = t;
+        bestZ = z;
+        headshot = head;
         bestPos = new THREE.Vector3().copy(tmpOrigin).addScaledVector(tmpFwd, maxDist * t);
       }
     }
@@ -750,7 +764,7 @@ export class WeaponSystem {
       if (t >= maxDist) impact.copy(targetPoint);
     }
 
-    this.ctx.projectiles.explodeAt(impact, def.radius, def.damage, true);
+    this.ctx.projectiles.explodeAt(impact, def.radius, def.damage, true, bestZ, headshot);
     this.ctx.sfx.cannon();
     this.ctx.shake(0.55);
   }
@@ -780,6 +794,16 @@ export class WeaponSystem {
       }
     }
     return best;
+  }
+
+  // 准星本来就对着头部球时才把瞄点抬到头上，否则仍锁胸口：辅助瞄准永远只是“帮人打中”，不白送爆头。
+  resolveAssist(assist) {
+    const z = assist.zombie;
+    if (!z.alive || z.dying) return assist;
+    z.getHead(tmpHead);
+    tmpTo.copy(tmpHead).sub(this.camera.position).normalize();
+    if (tmpFwd.dot(tmpTo) < Math.cos(0.02)) return assist;
+    return { point: tmpHead.clone(), zombie: z, angle: assist.angle, head: true };
   }
 
   forwardPoint(dist, out) {

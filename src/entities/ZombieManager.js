@@ -165,7 +165,8 @@ export class ZombieManager {
     return zombie;
   }
 
-  damageArea(center, radius, damage) {
+  // headTarget + headMul：准星命中的那只吃爆头加成（Zombie.hit 自己会记爆头击杀）。
+  damageArea(center, radius, damage, headTarget, headMul) {
     let hits = 0;
     for (let i = 0; i < this.zombies.length; i++) {
       const z = this.zombies[i];
@@ -174,10 +175,11 @@ export class ZombieManager {
       const d = Math.hypot(p.x - center.x, p.z - center.z);
       if (d < radius + z.radius) {
         const falloff = 1 - Math.min(1, Math.max(0, (d - radius * 0.35) / radius)) * 0.55;
-        const dead = z.hit(damage * falloff, false);
+        const head = z === headTarget;
+        const dead = z.hit(damage * falloff * (head ? headMul || 1 : 1), false, head);
         z.stagger = 0.18;
         hits++;
-        if (dead) this.handleKill(z, false);
+        if (dead) this.handleKill(z, head);
       }
     }
     return hits;

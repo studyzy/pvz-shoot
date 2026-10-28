@@ -8,6 +8,7 @@ export const TUNING = {
   maxHealth: 100,
   regenDelay: 7,
   regenRate: 9,
+  headshotMul: 3,
   startSun: 70,
   maxSun: 999,
   startZ: 13,

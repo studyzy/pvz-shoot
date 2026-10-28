@@ -250,10 +250,11 @@ export class Zombie {
     return out;
   }
 
-  hit(dmg, slow) {
+  hit(dmg, slow, head) {
     if (!this.alive || this.dying || this.spawnT < 0.5) return false;
     this.hp -= dmg;
     this.flash = 1;
+    this.headHit = !!head;
     if (slow) this.slowTimer = 2.6;
     if (this.hp <= 0) {
       this.hp = 0;

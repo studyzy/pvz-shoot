@@ -1,12 +1,21 @@
 import * as THREE from 'three';
 import { segmentSphereT } from '../utils.js';
+import { TUNING } from '../config.js';
+import { sweepWalls, bounceVel } from './HitWalls.js';
 
 const PEA_POOL = 64;
+// 命中球半径（米，乘体型系数）：头部球直径必须压到头部真实体积；比身体球还大的话准星在身体/头部交界处
+// 必然先碰到头部球，爆头会变成“打哪儿都爆头”。
+const HEAD_R = 0.36;
+const CHEST_R = 0.46;
 const CHERRY_POOL = 5;
 const tmpChest = new THREE.Vector3();
 const tmpHead = new THREE.Vector3();
 const tmpA = new THREE.Vector3();
 const tmpB = new THREE.Vector3();
+const tmpN = new THREE.Vector3();
+const tmpEnd = new THREE.Vector3();
+const noWalls = [];
 
 export class ProjectileSystem {
   constructor(ctx) {
@@ -33,6 +42,7 @@ export class ProjectileSystem {
         vel: new THREE.Vector3(),
         damage: 0,
         slow: false,
+        headshot: false,
         type: 'pea',
         life: 0,
         pierce: 0,
@@ -66,11 +76,13 @@ export class ProjectileSystem {
         radius: 5,
         life: 0,
         fuse: 0,
+        ground: 0.25,
+        gravity: 15,
       });
     }
   }
 
-  spawnPea(origin, dir, def) {
+  spawnPea(origin, dir, def, headshot) {
     const p = this.peas.find((x) => !x.active);
     if (!p) return;
     p.active = true;
@@ -78,6 +90,8 @@ export class ProjectileSystem {
     p.prev.copy(origin);
     p.vel.copy(dir).multiplyScalar(def.speed);
     p.damage = def.damage;
+    // 瞄准辅助把弹道度数补偿到头部时打上标记：这一发第一个命中的僵尸直接吃爆头伤害。
+    p.headshot = !!headshot;
     p.slow = !!def.slow;
     p.type = def.id;
     p.life = 1.6;
@@ -110,6 +124,8 @@ export class ProjectileSystem {
     c.radius = def.radius;
     c.fuse = 2.6;
     c.life = 0;
+    // 落地点取粒子效果的高度：西瓜 1.35 倍缩放，落点抬高一点才像砸在地上。
+    c.ground = def.id === 'melon' ? 0.45 : 0.25;
     c.mat.color.setHex(def.color || 0xe8452f);
     c.mat.emissive.setHex(def.id === 'melon' ? 0x143d10 : 0x5a0c05);
     c.group.scale.setScalar(def.id === 'melon' ? 1.35 : 1);
@@ -124,12 +140,15 @@ export class ProjectileSystem {
     c.gravity = g;
   }
 
-  explodeAt(pos, radius, damage, big) {
+  // headTarget / headshot：准星直接命中僵尸时传进来，该只吃爆头加成，其余范围伤害不变。
+  explodeAt(pos, radius, damage, big, headTarget, headshot) {
     this.particles.explosion(pos, radius);
     this.sfx.explosion(!!big);
     if (this.ctx.onExplosion) this.ctx.onExplosion(pos, radius);
-    const hits = this.zombies.damageArea(pos, radius, damage);
-    if (hits > 0 && this.ctx.onHit) this.ctx.onHit(false, false);
+    const mul = headshot ? TUNING.headshotMul : 1;
+    const hits = this.zombies.damageArea(pos, radius, damage, headTarget, mul);
+    if (headshot) this.sfx.headshot();
+    if (hits > 0 && this.ctx.onHit) this.ctx.onHit(!!headshot, false);
     return hits;
   }
 
@@ -139,23 +158,32 @@ export class ProjectileSystem {
       if (!p.active) continue;
       p.life -= dt;
       p.prev.copy(p.pos);
-      p.pos.addScaledVector(p.vel, dt);
+      if (this.step(p.pos, p.vel, dt, 0.13, 0)) {
+        tmpA.copy(p.pos);
+        tmpA.y = 0.08;
+        this.particles.splat(tmpA, p.slow ? 0xa8f0ff : 0x7fbf3f);
+        this.deactivatePea(p);
+        continue;
+      }
       p.mesh.position.copy(p.pos);
 
       let bestT = 2;
       let bestZ = null;
       let headshot = false;
+      const forced = p.headshot;
       for (let j = 0; j < this.zombies.zombies.length; j++) {
         const z = this.zombies.zombies[j];
         if (!z.alive || z.dying || z.spawnT < 0.5 || p.hits.has(z)) continue;
         z.getChest(tmpChest);
-        const tBody = segmentSphereT(p.prev, p.pos, tmpChest, 0.46 * z.scaleFactor + 0.14);
+        const tBody = segmentSphereT(p.prev, p.pos, tmpChest, CHEST_R * z.scaleFactor + 0.14);
         z.getHead(tmpHead);
-        const tHead = segmentSphereT(p.prev, p.pos, tmpHead, 0.38 * z.scaleFactor + 0.14);
+        const tHead = segmentSphereT(p.prev, p.pos, tmpHead, HEAD_R * z.scaleFactor);
         let t = -1;
         let head = false;
-        if (tHead >= 0 && (tBody < 0 || tHead <= tBody)) {
-          t = tHead;
+        // 头部球必须用原始半径比较：命中球被胖化到 0.52 会从头顶一路盖到胸口，爆头永远判不出来。
+        // 同 t 时头部优先，保证重合成的一团也按爆头算。
+        if ((forced && (tHead >= 0 || tBody >= 0)) || (tHead >= 0 && (tBody < 0 || tHead <= tBody))) {
+          t = forced ? Math.max(tHead, tBody) : tHead;
           head = true;
         } else if (tBody >= 0) {
           t = tBody;
@@ -168,7 +196,7 @@ export class ProjectileSystem {
       }
 
       if (bestZ) {
-        const damage = p.damage * (headshot ? 2 : 1);
+        const damage = p.damage * (headshot ? TUNING.headshotMul : 1);
         tmpA.copy(p.prev).lerp(p.pos, bestT);
         const killed = bestZ.hit(damage, p.slow);
         this.particles.splat(tmpA, p.slow ? 0xa8f0ff : 0x7fbf3f);
@@ -185,13 +213,6 @@ export class ProjectileSystem {
         continue;
       }
 
-      if (p.pos.y <= 0.06) {
-        tmpA.copy(p.pos);
-        tmpA.y = 0.08;
-        this.particles.splat(tmpA, p.slow ? 0xa8f0ff : 0x7fbf3f);
-        this.deactivatePea(p);
-        continue;
-      }
       if (p.life <= 0) this.deactivatePea(p);
     }
 
@@ -201,14 +222,12 @@ export class ProjectileSystem {
       c.life += dt;
       c.fuse -= dt;
       c.vel.y -= c.gravity * dt;
-      c.pos.addScaledVector(c.vel, dt);
+      const landed = this.step(c.pos, c.vel, dt, 0.17, c.ground);
       c.group.position.copy(c.pos);
       c.group.rotation.x += dt * 7;
       c.group.rotation.z += dt * 3;
 
-      let boom = false;
-      if (c.pos.y <= 0.25) boom = true;
-      if (c.fuse <= 0) boom = true;
+      let boom = landed || c.fuse <= 0;
       for (let j = 0; j < this.zombies.zombies.length; j++) {
         const z = this.zombies.zombies[j];
         if (!z.alive || z.dying) continue;
@@ -224,6 +243,38 @@ export class ProjectileSystem {
         c.group.visible = false;
       }
     }
+  }
+
+  // 投掷物推进一帧：落回地面平面、撞地图挡板、撞外圈，三者取最近的一件事处理。
+  // ground 是地面高度；返回 true 表示这一帧落地。
+  // 撞墙只做一次反射并丢掉剩余位移，速度已按能量损失衰减，下一帧继续 —— 不会穿墙。
+  step(pos, vel, dt, radius, ground) {
+    const map = this.ctx.map;
+    const walls = (map && map.walls) || noWalls;
+    const b = (map && map.bounds) || { x: 23, z: 23 };
+    tmpEnd.copy(pos).addScaledVector(vel, dt);
+    let t = 2;
+    let kind = 0;
+    if (vel.y < 0 && pos.y > ground && tmpEnd.y <= ground) {
+      t = (pos.y - ground) / (pos.y - tmpEnd.y);
+      kind = 2;
+    }
+    const tw = sweepWalls(walls, b.x, b.z, pos, tmpEnd, radius, tmpN);
+    if (tw >= 0 && tw < t) {
+      t = tw;
+      kind = 1;
+    }
+    if (kind === 0) {
+      pos.copy(tmpEnd);
+      return false;
+    }
+    pos.lerpVectors(pos, tmpEnd, Math.min(t, 1));
+    if (kind === 2) {
+      pos.y = ground;
+      return true;
+    }
+    bounceVel(vel, tmpN.x, tmpN.y, tmpN.z);
+    return false;
   }
 
   deactivatePea(p) {

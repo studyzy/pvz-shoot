@@ -83,7 +83,7 @@ npm run preview   # 预览构建产物
 - 相机 `rotation.order = 'YXZ'`；俯仰限制 ±1.42 rad。
 - 武器视图模型是 **相机的子节点**（`weapons.root`），近裁剪面 0.05；位置大约在 `(0.4, -0.3, -0.9)`，缩放 0.6–0.9。
 - 僵尸 `root.position` 在脚底，朝向 +Z（`rotation.y = atan2(dx, dz)`）；模型正面朝 +Z。
-- 命中球：胸口 `y = 1.12 × scale`、半径 `0.46 × scale`；头部 `y = 1.81 × scale`、半径 `0.30 × scale`（见 `Zombie.getChest/getHead` 与 `ProjectileSystem`）。
+- 命中球：胸口 `y = 0.95 × scale`、半径 `0.46 × scale`；头部 `y = 1.45 × scale`、半径 `0.36 × scale`（见 `Zombie.getChest/getHead` 与 `ProjectileSystem`）。**头部球必须比身体球小**，否则扫掠时头部球总先被碰到，爆头变成“打哪儿都爆头”。
 
 ---
 
@@ -91,7 +91,7 @@ npm run preview   # 预览构建产物
 
 `controls.firing` → `WeaponSystem.update` → `tryFire()` → `ctx.spendSun(cost)`
 → `findAimTarget()`（锥形吸附胸口）→ 生成豌豆 / 抛樱桃 / 即时爆炸
-→ `ProjectileSystem` 用 `segmentSphereT` 做扫掠命中 → 比较头部/身体球的 t 值判定爆头（×2 伤害）
+→ `ProjectileSystem` 用 `segmentSphereT` 做扫掠命中 → 比较头部/身体球的 t 值判定爆头（`TUNING.headshotMul`，×3 伤害）
 → `Zombie.hit()`（白闪、减速、死亡）
 → 击杀时 `ZombieManager.handleKill()`（计分 ×1.5 爆头、掉阳光、Boss 清理）
 → `ctx.onKill` → `Game.stats` + HUD。
