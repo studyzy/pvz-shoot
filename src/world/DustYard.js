@@ -24,6 +24,8 @@ export class DustYard {
     this.colliders = [];
     this.playerColliders = [];
     this.platforms = [];
+    // 投掷物反弹用的真实几何体：OBB 盒 {x,y,z,hx,hy,hz,c,s} 与立地圆柱 {x,z,r,h}
+    this.walls = [];
     this.pickupSpots = [
       [-4.5, 19], [4.5, 19],
       [-3.2, 12.5], [-22.5, 9], [21, 12],
@@ -59,6 +61,8 @@ export class DustYard {
 
   addPlatform(x, z, w, d, h) {
     this.platforms.push({ x, z, w, d, h });
+    // 平台都是轴对齐实心盒（含 collide:false 的 0.4 米台），顺带登进反弹体。
+    this.walls.push({ x, y: h / 2, z, hx: w / 2, hy: h / 2, hz: d / 2, c: 1, s: 0 });
   }
 
   // 僵尸用的圆形碰撞：沿盒体外沿铺一圈，圆心半径 0.85，间距 1.15，保证无缝。
@@ -148,6 +152,9 @@ export class DustYard {
     const strip = new THREE.Mesh(new THREE.BoxGeometry(w + 0.04, 0.22, d + 0.08), this.matDoor);
     strip.position.set(x, y0 + 0.11, z);
     this.root.add(strip);
+
+    // 门楣悬在半空：漏登记的话投掷物会直接从门洞上方飞过去。
+    this.walls.push({ x, y: y0 + h / 2, z, hx: w / 2, hy: h / 2, hz: d / 2, c: 1, s: 0 });
   }
 
   // 铁桶：挡人也挡僵尸，给空旷的点位一点高低变化。
@@ -160,6 +167,8 @@ export class DustYard {
 
     this.addPlatform(x, z, 0.9, 0.9, h);
     this.addCollider(x, z, 0.5);
+    // 桶按圆柱登记，盒体近似会多出一圈空气墙。
+    this.walls[this.walls.length - 1] = { x, z, r: 0.45, h };
   }
 
   // 布篷：贴在楼体上的彩色遮阳布，负责给沙墙加一点颜色。
@@ -263,6 +272,7 @@ export class DustYard {
       body.castShadow = true;
       body.receiveShadow = true;
       this.root.add(body);
+      this.walls.push({ x: w.x, y: WALL_H / 2, z: w.z, hx: w.w / 2, hy: WALL_H / 2, hz: w.d / 2, c: 1, s: 0 });
 
       const cap = new THREE.Mesh(new THREE.BoxGeometry(w.w + 0.24, 0.28, w.d + 0.24), this.matCap);
       cap.position.set(w.x, WALL_H + 0.14, w.z);

@@ -24,6 +24,8 @@ export class IceWorld {
     this.colliders = [];
     this.playerColliders = [];
     this.platforms = [];
+    // 投掷物反弹用的真实几何体：OBB 盒 {x,y,z,hx,hy,hz,c,s} 与立地圆柱 {x,z,r,h}
+    this.walls = [];
     this.pickupSpots = [
       [-11, 16.7], [-4, 16.7], [4, 16.7], [11, 16.7],
       [-11, -16.7], [-4, -16.7], [4, -16.7], [11, -16.7],
@@ -64,6 +66,8 @@ export class IceWorld {
 
   addPlatform(x, z, w, d, h) {
     this.platforms.push({ x, z, w, d, h });
+    // 每个平台都是实心方块，顺带登进反弹体（c=1, s=0）。
+    this.walls.push({ x, y: h / 2, z, hx: w / 2, hy: h / 2, hz: d / 2, c: 1, s: 0 });
   }
 
   build() {
@@ -141,6 +145,9 @@ export class IceWorld {
       cap.position.set(w.x, WALL_H + 0.17, w.z);
       cap.castShadow = true;
       this.root.add(cap);
+
+      // 外墙自带顶盖，统一按 11.4 + 0.34 登记。
+      this.walls.push({ x: w.x, y: (WALL_H + 0.34) / 2, z: w.z, hx: w.w / 2, hy: (WALL_H + 0.34) / 2, hz: w.d / 2, c: 1, s: 0 });
     }
   }
 

@@ -3,6 +3,9 @@ import { segmentSphereT } from '../utils.js';
 import { TUNING } from '../config.js';
 import { sweepWalls, bounceVel } from './HitWalls.js';
 
+const PEA_RADIUS = 0.13;
+const CHERRY_RADIUS = 0.17;
+
 const PEA_POOL = 64;
 // 命中球半径（米，乘体型系数）：头部球直径必须压到头部真实体积；比身体球还大的话准星在身体/头部交界处
 // 必然先碰到头部球，爆头会变成“打哪儿都爆头”。
@@ -158,7 +161,7 @@ export class ProjectileSystem {
       if (!p.active) continue;
       p.life -= dt;
       p.prev.copy(p.pos);
-      if (this.step(p.pos, p.vel, dt, 0.13, 0)) {
+      if (this.step(p.pos, p.vel, dt, PEA_RADIUS, 0)) {
         tmpA.copy(p.pos);
         tmpA.y = 0.08;
         this.particles.splat(tmpA, p.slow ? 0xa8f0ff : 0x7fbf3f);
@@ -222,7 +225,7 @@ export class ProjectileSystem {
       c.life += dt;
       c.fuse -= dt;
       c.vel.y -= c.gravity * dt;
-      const landed = this.step(c.pos, c.vel, dt, 0.17, c.ground);
+      const landed = this.step(c.pos, c.vel, dt, CHERRY_RADIUS, c.ground);
       c.group.position.copy(c.pos);
       c.group.rotation.x += dt * 7;
       c.group.rotation.z += dt * 3;

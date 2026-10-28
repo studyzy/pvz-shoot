@@ -19,6 +19,8 @@ export class Arena {
     this.root.visible = false;
     scene.add(this.root);
     this.colliders = [];
+    // 投掷物反弹用的真实几何体：OBB 盒 {x,y,z,hx,hy,hz,c,s} 与立地圆柱 {x,z,r,h}
+    this.walls = [];
     this.bounds = { x: 23, z: 23 };
     this.spawn = { x: 0, z: 13, yaw: 0 };
     this.pickupSpots = [
@@ -49,6 +51,16 @@ export class Arena {
 
   addCollider(x, z, r) {
     this.colliders.push({ x, z, r });
+  }
+
+  // 反弹盒：中心 + 半尺寸，绕 Y 旋转由 c/s 给出（无旋转 c=1, s=0）。
+  addWallBox(x, y, z, hx, hy, hz, yaw) {
+    this.walls.push({ x, y, z, hx, hy, hz, c: Math.cos(yaw || 0), s: Math.sin(yaw || 0) });
+  }
+
+  // 反弹圆柱：贴地，y 从 0 到 h。
+  addWallColumn(x, z, r, h) {
+    this.walls.push({ x, z, r, h });
   }
 
   build() {
@@ -153,6 +165,11 @@ export class Arena {
         tips.setMatrixAt(idx, tmpMat);
         idx++;
       }
+      // 整面栅栏用一条细长盒近似，省掉一棵柱一棵柱的登记。
+      if (side === 0) this.addWallBox(0, 0.575, -half, half, 0.575, 0.2, 0);
+      else if (side === 1) this.addWallBox(0, 0.575, half, half, 0.575, 0.2, 0);
+      else if (side === 2) this.addWallBox(-half, 0.575, 0, 0.2, 0.575, half, 0);
+      else this.addWallBox(half, 0.575, 0, 0.2, 0.575, half, 0);
     }
     bodies.instanceMatrix.needsUpdate = true;
     tips.instanceMatrix.needsUpdate = true;
@@ -272,6 +289,7 @@ export class Arena {
     g.scale.setScalar(scale);
     this.root.add(g);
     this.addCollider(x, z, 0.55 * scale + 0.25);
+    this.addWallColumn(x, z, 0.6 * scale, 99);
   }
 
   buildTrees() {
@@ -321,6 +339,7 @@ export class Arena {
       g.rotation.y = s[2];
       this.root.add(g);
       this.addCollider(s[0], s[1], 0.55);
+      this.addWallColumn(s[0], s[1], 0.55, 1.4);
     }
   }
 
@@ -352,6 +371,7 @@ export class Arena {
       g.rotation.y = rand(-0.15, 0.15);
       this.root.add(g);
       this.addCollider(g.position.x, g.position.z, 0.55);
+      this.addWallBox(g.position.x, 0.36, g.position.z, 0.45, 0.36, 0.3, g.rotation.y);
     }
   }
 
@@ -388,6 +408,7 @@ export class Arena {
       g.rotation.y = rand(0, TAU);
       this.root.add(g);
       this.addCollider(spots[i][0], spots[i][1], 0.4);
+      this.addWallColumn(spots[i][0], spots[i][1], 0.4, 1.75);
     }
   }
 
