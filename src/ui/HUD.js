@@ -43,7 +43,6 @@ export class HUD {
     this.ammoNow = document.getElementById('ammoNow');
     this.ammoMax = document.getElementById('ammoMax');
     this.muteBtn = document.getElementById('muteBtn');
-    this.rotateHint = document.getElementById('rotateHint');
     this.fireBtn = document.getElementById('fireBtn');
     this.jumpBtn = document.getElementById('jumpBtn');
     this.desktopHint = document.getElementById('desktopHint');
@@ -337,8 +336,12 @@ export class HUD {
 
   setMode(touch) {
     this.isTouch = touch;
+    if (this.joyBase) {
+      this.joyBase.classList.toggle('hidden', !touch);
+      if (!touch) this.joyBase.classList.remove('active');
+    }
     this.tutorialEl.innerHTML = touch
-      ? '<div><b>左摇杆</b> 移动 · <b>右侧拖动</b> 瞄准</div><div><b>开火</b> 射击 · 踩到地上的植物就能拾取</div>'
+      ? '<div><b>左下摇杆</b> 移动 · <b>右侧拖动</b> 瞄准</div><div><b>右下开火</b> · <b>跳跃</b>在开火上方 · 底部植物栏切换 · 踩植物拾取</div>'
       : '<div><b>WASD</b> 移动 · <b>鼠标</b> 瞄准 · <b>左键</b> 射击</div><div><b>空格</b> 跳跃 · <b>1-4</b> 切换植物 · <b>5</b> 战利品</div>';
   }
 
@@ -357,10 +360,9 @@ export class HUD {
     this.tutorialEl.classList.add('fade');
   }
 
-  showJoystick(x, y) {
-    this.joyBase.style.left = x + 'px';
-    this.joyBase.style.top = y + 'px';
+  showJoystick() {
     this.joyBase.classList.remove('hidden');
+    this.joyBase.classList.add('active');
     this.joyKnob.style.transform = 'translate(0px, 0px)';
   }
 
@@ -369,16 +371,10 @@ export class HUD {
   }
 
   hideJoystick() {
-    this.joyBase.classList.add('hidden');
+    if (!this.joyBase) return;
+    this.joyBase.classList.remove('active');
     this.joyKnob.style.transform = 'translate(0px, 0px)';
-  }
-
-  rotateHintIfNeeded() {
-    const portrait = window.innerHeight > window.innerWidth;
-    if (portrait && window.innerWidth < 620) {
-      this.rotateHint.classList.remove('hidden');
-      setTimeout(() => this.rotateHint.classList.add('hidden'), 4200);
-    }
+    if (!this.isTouch) this.joyBase.classList.add('hidden');
   }
 
   reset() {

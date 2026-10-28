@@ -131,6 +131,7 @@ export class Game {
     this.bindButtons();
     this.bindResize();
     this.resize();
+    this.checkOrientation();
     this.hud.setSun(this.sun, true);
     this.hud.setHealth(this.player.hp, this.player.maxHp);
     this.menuCamera(0);
@@ -166,19 +167,62 @@ export class Game {
     });
     jumpBtn.addEventListener('contextmenu', (e) => e.preventDefault());
 
+    const orientationBtn = document.getElementById('orientationBtn');
+    if (orientationBtn) {
+      orientationBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        this.requestLandscape();
+      });
+    }
+
     this.canvas.addEventListener('webglcontextlost', (e) => {
       e.preventDefault();
     });
   }
 
   bindResize() {
-    const onResize = () => this.resize();
+    const onResize = () => {
+      this.resize();
+      this.checkOrientation();
+    };
     window.addEventListener('resize', onResize);
     window.addEventListener('orientationchange', () => setTimeout(onResize, 250));
+    document.addEventListener('fullscreenchange', () => setTimeout(onResize, 120));
     if (window.visualViewport) window.visualViewport.addEventListener('resize', onResize);
     document.addEventListener('visibilitychange', () => {
       if (document.hidden && this.state === 'playing') this.pause();
     });
+  }
+
+  checkOrientation() {
+    if (this.state === 'playing' && window.innerHeight > window.innerWidth) this.pause();
+  }
+
+  requestLandscape() {
+    if (!this.controls || !this.controls.isTouch) return;
+    const root = document.documentElement;
+    const lock = () => {
+      try {
+        if (screen.orientation && screen.orientation.lock) {
+          const p = screen.orientation.lock('landscape');
+          if (p && p.catch) p.catch(() => {});
+        }
+      } catch (e) {
+        // iOS Safari 不支持网页锁定方向，交给玩家手动横屏。
+      }
+    };
+    try {
+      if (root.requestFullscreen) {
+        const p = root.requestFullscreen({ navigationUI: 'hide' });
+        if (p && p.then) p.then(lock).catch(lock);
+        else lock();
+      } else {
+        lock();
+      }
+    } catch (e) {
+      lock();
+    }
   }
 
   resize() {
@@ -241,7 +285,6 @@ export class Game {
     this.controls.requestLock();
     this.zombies.startWave(1);
     this.scheduleTutorial();
-    this.hud.rotateHintIfNeeded();
     this.clock.getDelta();
     this.deathT = 0;
     if (!this.running) {

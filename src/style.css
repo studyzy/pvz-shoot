@@ -835,23 +835,79 @@ h2 {
   flex-wrap: wrap;
 }
 
-.rotate-hint {
+.orientation-gate {
+  position: absolute;
+  inset: 0;
+  z-index: 80;
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: calc(24px + var(--safe-t)) calc(24px + var(--safe-r)) calc(24px + var(--safe-b)) calc(24px + var(--safe-l));
+  text-align: center;
+  color: #eaf8ff;
+  background:
+    radial-gradient(ellipse at 50% 34%, rgba(85, 185, 240, 0.24), transparent 62%),
+    linear-gradient(160deg, #091825, #10324b 66%, #081520);
+  pointer-events: auto;
+}
+@media (orientation: portrait) {
+  .orientation-gate { display: flex; }
+}
+body.desktop #orientationBtn { display: none; }
+.orientation-phone {
+  width: 46px;
+  height: 78px;
+  margin-bottom: 10px;
+  border: 3px solid #9fe8ff;
+  border-radius: 11px;
+  position: relative;
+  box-shadow: 0 0 26px rgba(120, 220, 255, 0.35);
+  animation: phoneTurn 2.6s ease-in-out infinite;
+}
+.orientation-phone::before {
+  content: '';
   position: absolute;
   left: 50%;
-  top: calc(96px + var(--safe-t));
-  transform: translateX(-50%);
-  z-index: 25;
-  font-size: 11px;
-  letter-spacing: 1px;
-  color: #f0ffd8;
-  background: rgba(12,24,6,.72);
-  border: 1px solid rgba(255,255,255,.18);
-  padding: 6px 16px;
-  border-radius: 999px;
-  pointer-events: none;
-  animation: toastIn .4s ease;
+  bottom: 5px;
+  width: 4px;
+  height: 4px;
+  margin-left: -2px;
+  border-radius: 50%;
+  background: #9fe8ff;
 }
-@keyframes toastIn { from { opacity: 0; transform: translate(-50%, 8px); } }
+.orientation-phone::after {
+  content: '';
+  position: absolute;
+  inset: 7px 5px 11px;
+  border-radius: 5px;
+  background: linear-gradient(180deg, rgba(120, 220, 255, 0.3), rgba(120, 220, 255, 0.06));
+}
+@keyframes phoneTurn {
+  0%, 18% { transform: rotate(0deg); }
+  52%, 78% { transform: rotate(90deg); }
+  100% { transform: rotate(0deg); }
+}
+.orientation-title {
+  font-size: clamp(22px, 5.4vmin, 30px);
+  font-weight: 900;
+  letter-spacing: 3px;
+  color: #d9f6ff;
+  text-shadow: 0 3px 0 #062033, 0 0 22px rgba(120, 220, 255, 0.35);
+}
+.orientation-text {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  color: #c9ecff;
+}
+.orientation-note {
+  max-width: 460px;
+  font-size: 11px;
+  line-height: 1.7;
+  color: rgba(200, 235, 255, 0.62);
+}
 
 /* ---------- Responsive ---------- */
 @media (min-width: 900px) and (min-height: 620px) {
@@ -902,4 +958,105 @@ h2 {
   .boss-bar { top: calc(88px + var(--safe-t)); width: 70vw; }
   .hp-bar { width: 110px; }
   .chip.kills { display: none; }
+}
+
+/* ---------- Landscape touch controls (PUBG-like) ---------- */
+@media (orientation: landscape) {
+  body.touch {
+    --fire-size: clamp(100px, 15vh, 128px);
+    --jump-size: clamp(58px, 9vh, 76px);
+    --weapon-w: clamp(48px, 8vh, 62px);
+    --weapon-h: clamp(56px, 9.2vh, 72px);
+    --joy-size: clamp(118px, 22vh, 160px);
+  }
+
+  body.touch .dock {
+    position: absolute;
+    inset: 0;
+    display: block;
+    padding: 0;
+    pointer-events: none;
+  }
+
+  body.touch .weapon-dock {
+    position: absolute;
+    right: calc(var(--fire-size) + 24px + var(--safe-r));
+    bottom: calc(18px + var(--safe-b));
+    align-items: flex-end;
+    gap: 6px;
+  }
+
+  body.touch .weapon-btn {
+    width: var(--weapon-w);
+    height: var(--weapon-h);
+    padding: 7px 2px 3px;
+    border-radius: 13px;
+  }
+
+  body.touch .weapon-btn svg { width: calc(var(--weapon-w) * 0.56); height: calc(var(--weapon-w) * 0.56); }
+  body.touch .weapon-btn .wname { font-size: clamp(8px, 1.1vh, 10px); }
+  body.touch .weapon-btn .wkey { font-size: 8px; }
+  body.touch .weapon-btn .wcost { font-size: 8px; }
+
+  body.touch .action-row {
+    position: absolute;
+    right: calc(16px + var(--safe-r));
+    bottom: calc(14px + var(--safe-b));
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    pointer-events: none;
+  }
+
+  body.touch .fire-btn {
+    width: var(--fire-size);
+    height: var(--fire-size);
+    font-size: clamp(18px, 2.4vh, 24px);
+    letter-spacing: 2px;
+  }
+
+  body.touch .jump-btn {
+    width: var(--jump-size);
+    height: var(--jump-size);
+    padding: 8px 0 5px;
+  }
+
+  body.touch .jump-btn svg { width: calc(var(--jump-size) * 0.42); height: calc(var(--jump-size) * 0.42); }
+
+  body.touch .joy-base {
+    display: block;
+    left: calc(16px + var(--safe-l));
+    top: auto;
+    bottom: calc(16px + var(--safe-b));
+    width: var(--joy-size);
+    height: var(--joy-size);
+    margin: 0;
+    opacity: .58;
+    transition: opacity .12s, box-shadow .12s;
+  }
+
+  body.touch .joy-base.active {
+    opacity: 1;
+    box-shadow: 0 0 0 2px rgba(190, 240, 140, .35), 0 0 24px rgba(160, 230, 80, .28), inset 0 0 22px rgba(0, 0, 0, .25);
+  }
+
+  body.touch .joy-knob {
+    width: calc(var(--joy-size) * 0.42);
+    height: calc(var(--joy-size) * 0.42);
+    margin: calc(var(--joy-size) * -0.21) 0 0 calc(var(--joy-size) * -0.21);
+  }
+}
+
+@media (orientation: landscape) and (max-width: 700px) {
+  body.touch {
+    --fire-size: 96px;
+    --jump-size: 54px;
+    --weapon-w: 42px;
+    --weapon-h: 50px;
+    --joy-size: 110px;
+  }
+  body.touch .weapon-dock {
+    right: calc(var(--fire-size) + 18px + var(--safe-r));
+    gap: 4px;
+  }
 }

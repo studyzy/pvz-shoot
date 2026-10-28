@@ -130,16 +130,18 @@ export class Controls {
         this.isTouch = true;
         if (this.onModeChange) this.onModeChange(true);
       }
-      if (this.joyId === null && e.clientX < window.innerWidth * 0.46) {
+      // 左下角是固定摇杆区，其余区域（包括左上）用于拖动视角。
+      const inJoyZone = e.clientX < window.innerWidth * 0.46 && e.clientY > window.innerHeight * 0.42;
+      if (this.joyId === null && inJoyZone) {
         this.joyId = e.pointerId;
-        const r = Math.max(52, Math.min(64, Math.min(window.innerWidth, window.innerHeight) * 0.15));
-        this.joyRadius = r;
-        this.joyOriginX = e.clientX;
-        this.joyOriginY = e.clientY;
+        const rect = this.hud.joyBase.getBoundingClientRect();
+        this.joyRadius = Math.max(36, rect.width * 0.3);
+        this.joyOriginX = rect.left + rect.width * 0.5;
+        this.joyOriginY = rect.top + rect.height * 0.5;
         this.move.x = 0;
         this.move.y = 0;
-        this.hud.showJoystick(e.clientX, e.clientY);
-      } else if (this.lookId === null) {
+        this.hud.showJoystick();
+      } else if (this.lookId === null && e.clientX >= window.innerWidth * 0.46) {
         this.lookId = e.pointerId;
         this.lastPointerX = e.clientX;
         this.lastPointerY = e.clientY;
