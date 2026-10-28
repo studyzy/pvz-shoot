@@ -235,3 +235,49 @@ export function faceTexture(variant) {
   faceCache[v] = tex;
   return tex;
 }
+
+let _grime = null;
+export function zombieGrimeTexture() {
+  if (_grime) return _grime;
+  const size = 256;
+  const c = document.createElement('canvas');
+  c.width = c.height = size;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#f6f4ea';
+  ctx.fillRect(0, 0, size, size);
+  for (let i = 0; i < 30; i++) {
+    const x = Math.random() * size;
+    const y = Math.random() * size;
+    const r = 6 + Math.random() * 34;
+    const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+    g.addColorStop(0, 'rgba(58,58,38,0.14)');
+    g.addColorStop(0.6, 'rgba(58,58,38,0.06)');
+    g.addColorStop(1, 'rgba(58,58,38,0)');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  for (let i = 0; i < 420; i++) {
+    const a = 0.05 + Math.random() * 0.14;
+    ctx.fillStyle = Math.random() < 0.7 ? 'rgba(52,50,34,' + a + ')' : 'rgba(96,60,40,' + a + ')';
+    ctx.fillRect(Math.random() * size, Math.random() * size, 1 + Math.random() * 2, 1 + Math.random() * 2);
+  }
+  ctx.lineWidth = 1;
+  for (let i = 0; i < 26; i++) {
+    ctx.strokeStyle = 'rgba(60,58,40,' + (0.05 + Math.random() * 0.1) + ')';
+    const x = Math.random() * size;
+    const y = Math.random() * size;
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.lineTo(x + (Math.random() - 0.5) * 30, y + (Math.random() - 0.5) * 30);
+    ctx.stroke();
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 2;
+  _grime = tex;
+  return tex;
+}
+

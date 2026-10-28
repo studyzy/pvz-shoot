@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { Arena } from './world/Arena.js';
 import { Player } from './entities/Player.js';
 import { ZombieManager } from './entities/ZombieManager.js';
+import { initZombieAtlas } from './entities/ZombieTexture.js';
 import { ProjectileSystem } from './weapons/ProjectileSystem.js';
 import { WeaponSystem } from './weapons/WeaponSystem.js';
 import { Particles } from './fx/Particles.js';
@@ -50,6 +51,7 @@ export class Game {
     this.ctx.camera = this.camera;
 
     this.sfx = new Sfx();
+    initZombieAtlas();
     this.hud = new HUD();
     this.particles = new Particles(this.scene);
     this.arena = new Arena(this.scene);
