@@ -105,7 +105,8 @@ src/world/          后院 / 雪地场景、地图注册表、材质与程序化
 src/entities/       玩家、僵尸、僵尸波次管理、阳光、地面武器拾取
 src/weapons/        手持植物、射击、弹道与爆炸
 src/fx/             粒子与爆炸特效
-src/audio/          程序化音效
+src/audio/          音效（CC0 采样 + 程序化合成）
+public/audio/       CC0 音效素材（构建时内嵌，见 LICENSE-audio.txt）
 src/input/          键鼠 + 触屏输入、模式识别
 src/ui/             HUD
 public/textures/    文生图生成的僵尸皮肤 / 布料 / 金属贴图

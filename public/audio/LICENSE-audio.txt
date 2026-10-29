@@ -1,0 +1,37 @@
+Audio assets — sources, processing and licenses
+==============================================
+
+Every sound effect in public/audio/ was sourced from OpenGameArt.org and
+released under CC0 1.0 Universal (public domain dedication,
+https://creativecommons.org/publicdomain/zero/1.0/). The original uploads
+were downloaded on 2026-10-29.
+
+At runtime these files are not fetched: the embed-audio plugin in
+vite.config.js / vitest.config.js splices the raw bytes of each file into
+src/fx/audio.js at build time, and Sfx.decodeWav plays them through WebAudio.
+The copy under public/audio/ is kept so the assets can be auditioned,
+replaced, or re-processed. To replace a sound, edit the file and rebuild.
+
+Processing applied to every file
+--------------------------------
+- single channel (stereo sources were down-mixed),
+- 44.1 kHz, 16-bit PCM WAV,
+- silence-trimmed (energy threshold -42 dBFS, 8 ms pad, 12 ms fade in/out),
+- peak-normalised to -3 dBFS.
+
+| file             | used for                         | source page                                                    | original file     |
+|------------------|----------------------------------|----------------------------------------------------------------|-------------------|
+| gun1.wav         | pea / fire pea shot, cannon      | https://opengameart.org/content/gunshots                       | 22 Pistol.wav     |
+| gun2.wav         | pea shot variant, fire pea shot  | https://opengameart.org/content/gunshots                       | 22 Magnum.wav     |
+| boom.wav         | cherry / cactus watermelon blast | https://opengameart.org/content/explosion-0                    | explosion.wav     |
+| bp.wav           | wave start (distant gunpowder)   | https://opengameart.org/content/gunshots                       | Black Powder.wav  |
+| z1..z6.wav       | zombie / skeleton groans         | https://opengameart.org/content/zombies-sound-pack             | zombie-5/10/14/16/20/24.wav |
+| pop1.wav         | projectile hit, headshot, balloon pop | https://opengameart.org/content/3-pop-sounds              | pop1.ogg          |
+| slime.wav        | wall-nut shield raised           | https://opengameart.org/content/40-cc0-water-splash-slime-sfx  | slime_01.ogg      |
+| slime2.wav       | wall-nut shield broken           | https://opengameart.org/content/40-cc0-water-splash-slime-sfx  | slime_04.ogg      |
+| splash5.wav      | footsteps, dirt hit              | https://opengameart.org/content/40-cc0-water-splash-slime-sfx  | splash_05.ogg     |
+| bubble.wav       | cherry throw                     | https://opengameart.org/content/40-cc0-water-splash-slime-sfx  | bubble_01.ogg     |
+| freeze.wav       | ice pea shot                     | https://opengameart.org/content/freeze-spell-0                 | freeze.wav        |
+
+Music-free, UI clicks, coin pickups, wave-clear jingle, deny and headshot
+accent are still synthesised in src/audio/Sfx.js (tone() / noise()).

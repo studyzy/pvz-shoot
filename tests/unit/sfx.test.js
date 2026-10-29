@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { installFakeAudio } from '../helpers/env.js';
-import { Sfx } from '../../src/audio/Sfx.js';
+import { Sfx, decodeWav } from '../../src/audio/Sfx.js';
+import { gun1 } from '../../src/fx/audio.js';
 
 // 第 0 个 createGain 是 unlock 时的 master，之后的才是单次音效的包络。
 const effectGains = (ctx) => ctx.createGain.mock.results.slice(1).map((r) => r.value);
@@ -259,29 +260,36 @@ describe('Sfx', () => {
   });
 
   describe('全部音效方法', () => {
-    // [标签, 方法名, 参数, 预期的振荡器数, 预期的噪声源数]
+    // [标签, 方法名, 参数, 预期的振荡器数, 预期的噪声源数（含采样播放的 BufferSource）]
     const CASES = [
-      ['shootPea', 'shootPea', [], 1, 1],
-      ['shootIce', 'shootIce', [], 2, 1],
-      ['throwCherry', 'throwCherry', [], 1, 1],
-      ['cannon', 'cannon', [], 1, 1],
-      ['explosion()', 'explosion', [false], 2, 1],
-      ['explosion(true)', 'explosion', [true], 2, 1],
-      ['hit', 'hit', [], 1, 0],
-      ['headshot', 'headshot', [], 2, 0],
-      ['hurt', 'hurt', [], 1, 1],
+      // 开火/命中这类高频音效走采样（createBufferSource 播音频缓冲，也算一个 BufferSource），
+      // 合成层只保留气声、提示音、低频扫频这类补充。
+      ['shootPea', 'shootPea', [], 0, 2],
+      ['shootIce', 'shootIce', [], 0, 1],
+      ['throwCherry', 'throwCherry', [], 0, 1],
+      ['cannon', 'cannon', [], 0, 2],
+      ['explosion()', 'explosion', [false], 0, 1],
+      ['explosion(true)', 'explosion', [true], 0, 2],
+      ['hit', 'hit', [], 0, 1],
+      ['headshot', 'headshot', [], 2, 1],
+      ['hurt', 'hurt', [], 0, 2],
       ['pickup', 'pickup', [], 2, 0],
       ['deny', 'deny', [], 1, 0],
       ['click', 'click', [], 1, 0],
       // groan 的第一层带 vibrato → 额外一个 LFO 振荡器
-      ['groan()', 'groan', [], 3, 0],
-      ['groan(vol,pan)', 'groan', [0.8, -0.3], 3, 0],
+      ['groan()', 'groan', [], 0, 1],
+      ['groan(vol,pan)', 'groan', [0.8, -0.3], 0, 1],
       ['dirt', 'dirt', [], 0, 1],
-      ['step', 'step', [], 1, 1],
-      ['waveStart()', 'waveStart', [], 3, 0],
-      ['waveStart(boss)', 'waveStart', [true], 4, 0],
+      ['step', 'step', [], 0, 1],
+      ['waveStart()', 'waveStart', [], 2, 1],
+      ['waveStart(boss)', 'waveStart', [true], 3, 1],
       ['waveClear', 'waveClear', [], 3, 0],
-      ['death', 'death', [], 1, 1],
+      ['death', 'death', [], 0, 1],
+      ['shootFire', 'shootFire', [], 0, 1],
+      ['armorBreak', 'armorBreak', [], 1, 2],
+      ['shieldUp', 'shieldUp', [], 0, 1],
+      ['shieldBreak', 'shieldBreak', [], 1, 1],
+      ['balloonPop', 'balloonPop', [], 0, 1],
     ];
 
     it.each(CASES)('%s 产生预期的振荡器/噪声源数量', (label, method, args, oscs, noises) => {
@@ -299,61 +307,85 @@ describe('Sfx', () => {
 
     it('每个音效方法在未解锁时都不抛错且不创建节点', () => {
       const s = new Sfx();
-      const methods = ['shootPea', 'shootIce', 'throwCherry', 'cannon', 'explosion', 'hit', 'headshot',
-        'hurt', 'pickup', 'deny', 'click', 'groan', 'dirt', 'step', 'waveStart', 'waveClear', 'death'];
+      const methods = ['shootPea', 'shootIce', 'shootFire', 'throwCherry', 'cannon', 'explosion', 'hit', 'headshot',
+        'hurt', 'pickup', 'deny', 'click', 'groan', 'dirt', 'step', 'waveStart', 'waveClear', 'death',
+        'armorBreak', 'shieldUp', 'shieldBreak', 'balloonPop'];
       for (const m of methods) expect(() => s[m]()).not.toThrow();
       expect(audio.created).toHaveLength(0);
     });
 
-    it('explosion(big) 的噪声与低频层按 1 / 0.7 放大，第三层固定 0.14', () => {
-      const peaks = (big) => {
+    it('explosion(big) 额外加一层低频噪声，小爆炸只有采样', () => {
+      const counts = (big) => {
         const s = unlocked();
         const ctx = s.ctx;
         s.explosion(big);
-        return effectGains(ctx).map((g) => g.gain.calls[1][1]);
+        return ctx.createBufferSource.mock.calls.length;
       };
-      const small = peaks(false);
-      const big = peaks(true);
-      expect(small).toHaveLength(3);
-      expect(small[0]).toBeCloseTo(0.48 * 0.7, 6); // noise
-      expect(small[1]).toBeCloseTo(0.34 * 0.7, 6); // 低频 sine
-      expect(small[2]).toBeCloseTo(0.14, 6); // 第三层不随 big 变化
-      expect(big[0]).toBeCloseTo(0.48, 6);
-      expect(big[1]).toBeCloseTo(0.34, 6);
-      expect(big[2]).toBeCloseTo(0.14, 6);
-      expect(big[0] / small[0]).toBeCloseTo(1 / 0.7, 6);
-      expect(big[1] / small[1]).toBeCloseTo(1 / 0.7, 6);
+      expect(counts(false)).toBe(counts(true) - 1);
     });
 
-    it('groan 的音量 = vol*0.11，第二层是其 0.4 倍，并都带左右声像', () => {
+    it('groan 的音量随 vol 缩放（vol=0 不发声），并按 pan 摆左右', () => {
+      const sources = (vol) => {
+        const s = unlocked();
+        s.groan(vol, 0);
+        return s.ctx.createBufferSource.mock.calls.length;
+      };
+      expect(sources(0)).toBe(0);
+      expect(sources(0.5)).toBe(1);
+      expect(sources(0.8)).toBe(1);
       const s = unlocked();
-      const ctx = s.ctx;
       s.groan(0.8, 0.5);
-      // 第一层 tone 的包络 gain 先创建，随后插入 vibrato 的 lfoGain，最后才是第二层 tone
-      const gains = effectGains(ctx);
-      expect(gains).toHaveLength(3);
-      expect(gains[1].gain.value).toBe(9); // groan 传入 vibratoDepth: 9
-      const toneGains = [gains[0], gains[2]];
-      expect(toneGains[0].gain.calls[1][1]).toBeCloseTo(0.8 * 0.11, 6);
-      expect(toneGains[1].gain.calls[1][1]).toBeCloseTo(0.8 * 0.11 * 0.4, 6);
-      const pans = ctx.createStereoPanner.mock.results.map((r) => r.value);
-      expect(pans).toHaveLength(2);
-      expect(pans[0].pan.value).toBe(0.5);
-      expect(pans[1].pan.value).toBe(0.5);
+      const pan = s.ctx.createStereoPanner.mock.results.at(-1).value;
+      expect(pan.pan.value).toBe(0.5);
     });
 
-    it('groan 不传参数时使用默认 vol=0.5 / pan=0', () => {
+    it('采样走 BufferSource → Gain → master，播放速率在随机音高范围内', () => {
       const s = unlocked();
       const ctx = s.ctx;
-      s.groan();
-      const gains = effectGains(ctx);
-      expect(gains[0].gain.calls[1][1]).toBeCloseTo(0.5 * 0.11, 6);
-      expect(gains[2].gain.calls[1][1]).toBeCloseTo(0.5 * 0.11 * 0.4, 6);
-      // pan=0 是 falsy，不会创建 StereoPanner
-      expect(ctx.createStereoPanner).not.toHaveBeenCalled();
+      s.shootIce();
+      const src = ctx.createBufferSource.mock.results.at(-1).value;
+      expect(src.buffer).toBe(s.sample('freeze'));
+      expect(src.start).toHaveBeenCalled();
+      expect(src.onended).toBeTypeOf('function');
+      const rate = src.playbackRate.value;
+      expect(rate).toBeGreaterThanOrEqual(0.95);
+      expect(rate).toBeLessThanOrEqual(1.05);
+      const gain = ctx.createGain.mock.results.at(-1).value;
+      expect(gain.gain.value).toBeGreaterThan(0);
+      expect(gain.gain.value).toBeLessThan(1);
     });
 
-    it('headshot 频率高于 hit（听感上区分爆头）', () => {
+    it('同一个采样只解码一次，重复播放复用缓冲', () => {
+      const s = unlocked();
+      const ctx = s.ctx;
+      s.step();
+      const first = s.sample('splash5');
+      const calls = ctx.createBuffer.mock.calls.length;
+      s.step();
+      expect(s.sample('splash5')).toBe(first);
+      expect(ctx.createBuffer.mock.calls.length).toBe(calls);
+    });
+
+    it('sample/handle 在未解锁或素材缺失时安全返回 null', () => {
+      const locked = new Sfx();
+      expect(locked.sample('gun1')).toBe(null);
+      const s = unlocked();
+      expect(s.sample('不存在的键')).toBe(null);
+      expect(() => s.play('不存在的键')).not.toThrow();
+      expect(() => s.playSample('不存在的键', 1, {})).not.toThrow();
+    });
+
+    it('decodeWav 拒绝非 WAV / 非 PCM16 的数据', () => {
+      expect(decodeWav(new Uint8Array(0))).toBe(null);
+      expect(decodeWav(new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]))).toBe(null);
+      const bytes = Uint8Array.from(gun1, (c) => c.charCodeAt(0) & 0xff);
+      const wav = decodeWav(bytes);
+      expect(wav.rate).toBe(22050);
+      expect(wav.channels).toBe(1);
+      expect(wav.frames).toBeGreaterThan(1000);
+    });
+
+    it('headshot 有比普通命中更高的提示音（听感上区分爆头）', () => {
       const s = unlocked();
       const ctx = s.ctx;
       s.headshot();
@@ -366,8 +398,8 @@ describe('Sfx', () => {
       const ctx = s.ctx;
       s.waveStart(true);
       const freqCalls = ctx.createOscillator.mock.results.map((r) => r.value.frequency.calls);
-      expect(freqCalls.map((c) => c[0][1])).toEqual([118, 157, 78, 52]);
-      expect(freqCalls[3][1]).toEqual(['expRamp', 34, 1.2]);
+      expect(freqCalls.map((c) => c[0][1])).toEqual([118, 157, 52]);
+      expect(freqCalls[2][1]).toEqual(['expRamp', 34, 1.2]);
     });
   });
 });
