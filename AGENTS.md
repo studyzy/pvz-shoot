@@ -51,7 +51,9 @@ npm run preview   # 预览构建产物
 | `src/weapons/WeaponSystem.js` | 手持植物视图模型、瞄准辅助、开火、切枪、后坐/摇摆、命中判定入口 |
 | `src/weapons/ProjectileSystem.js` | 豌豆池、樱桃抛物线、爆炸、爆头判定 |
 | `src/fx/Particles.js` | InstancedMesh 粒子池、爆炸球壳/冲击环、临时点光源 |
-| `src/audio/Sfx.js` | WebAudio 程序化音效（无音频文件） |
+| `src/audio/Sfx.js` | WebAudio 音效：开火/命中/僵尸吼叫走 CC0 采样（`SAMPLES` 表驱动），UI 提示音仍用 `tone()` / `noise()` 合成 |
+| `src/fx/audio.js` | 采样素材的内嵌出口（导出名占位，构建时由 `vite.config.js` 的 `embed-audio` 插件填入 `public/audio/*.wav` 的原始字节） |
+| `public/audio/` | 16 个 CC0 音效（`gun1/gun2/boom/bp/z1..z6/pop1/slime/slime2/splash5/bubble/freeze`）+ `LICENSE-audio.txt`（来源、裁剪参数、许可）；只有这份和 `src/fx/audio.js` 会被打进包里 |
 | `src/input/Controls.js` | 键鼠 + 触屏输入、平台识别、虚拟摇杆、指针锁定 |
 | `src/ui/HUD.js` | DOM HUD、植物栏、横幅、命中标记、开始/暂停/结算界面 |
 | `src/style.css` | 全部界面样式与响应式/安全区适配 |
@@ -107,7 +109,9 @@ npm run preview   # 预览构建产物
 
 爆炸走 `ZombieManager.damageArea()`，按距离衰减（中心 100%，边缘 45%），并在内部完成击杀结算。
 
-地面拾取的植物走另一条线：`WeaponPickups` 检测玩家距离 → `WeaponSystem.pickup(index)` 设置`carried`与满弹匣 → 立即装备。**枪免费捡，子弹用阳光买**：开火扣弹药；打空后 `tryReload()` 自动扣 `cost × ammo` 续一整梭子，阳光不够则 `locked`（枪不丢，HUD 变暗显示"缺阳光"），攒够后自动续弹。只有主动按 5 才 `dropLoot()` 回豌豆。
+地面拾取的植物走另一条线：`WeaponPickups` 检测玩家距离 → `WeaponSystem.pickup(index)` → 进一个**武器槽**（`slots[]`，最多 `WEAPON_SLOTS.count = 3` 个）→ 立即装备。**枪免费捡，子弹用阳光买**：开火扣弹药；打空后 `tryReload()` 自动扣 `cost × ammo` 续一整梭子，阳光不够则 `locked`（枪不丢，HUD 变暗显示"缺阳光"），攒够后自动续弹。
+
+**武器槽（吃鸡式）**：`slots[i]` 存武器 index（-1 空），`activeSlot` 是当前激活的槽（-1 = 手上是植物栏里的初始植物）。`pickup()` 的返回值是**「拾取物该不该消失」**：`true` = 拿走了，`false` = 暂时没拿走（槽满、正在等玩家选替换哪一格），此时 `WeaponPickups` **必须让物品留在地上**。槽满时 `replacePrompt` 计时 `WEAPON_SLOTS.replacePick` 秒，超时取消。丢弃走 `dropSlot()` → `ctx.pickups.dropAt()` 把枪交回地面（`Game` 构造里 `ctx.pickups = this.pickups`，漏了这一步丢枪会凭空消失）。
 
 ---
 
@@ -124,6 +128,8 @@ npm run preview   # 预览构建产物
 - **护甲只写在 `config.js` 的 `ARMOR_MATERIALS` 表里**：`absorption`（吸收比例）、`burnImmune`（燃烧烧不动）、`pierceBlock`（挡穿透）。僵尸用 `armor: { material, hp }` 挂上。不要给某把武器写"对铁桶减伤"的特例——那是这张表推出来的。
 - **对空是白名单**：`WEAPONS[].aerial` 不写 = 打不到空中目标；`'explosion'` = 爆炸类；数字 = 伤害倍率（火豌豆 0.25）。判定必须在三处一致：`ProjectileSystem.update`、`WeaponSystem.raycastZombies`、`ZombieManager.damageArea`，漏一处就会出现"玉米炮能打、豌豆也能"的破绽。
 - **充能制植物**（目前只有坚果）：`maxCharges` + `recharge`，`WeaponSystem.charges[]` 是浮点（每帧累加），HUD 显示 `Math.floor`。没有 `maxCharges` 的植物恒为 `Infinity`，走原来的路径。
+- **战利品一律走 `slots[]`，不要再用 `carried`**（已删除）。判断"有没有这把枪"用 `slotOf(index)`，不要看 `ammo[index] > 0`——打空但没丢的枪仍在槽里。
+- **武器槽不能平铺进底部那一行**：底部 6 格 + 3 槽在 iPhone 横屏 844px 下必然溢出（6 格已经只余 19px）。槽位是独立的 `slot-dock`（桌面竖排在开火上方的右侧、触屏横排），且触屏下 `.dock` 是 `inset: 0` 的绝对层，`body.touch .slot-dock` **必须自己定位**。
 
 ### 5.2 僵尸模型与材质
 
@@ -205,7 +211,8 @@ npm run preview   # 预览构建产物
 - 只允许项目内资源：贴图放 `public/textures/`、模型放 `public/models/`，都用 `import.meta.env.BASE_URL + '...'` 引用（构建后位于 `dist/` 下同名目录）。
 - **运行时**不要拉 CDN、外部字体、外部模型；但模型可以先下载进仓库再当项目内资源用（僵尸 glb 就是这么来的）。
 - Three.js 由 npm 打包。
-- 程序化音效在 `Sfx.js`，无音频文件。
+- 音效素材放 `public/audio/`（CC0，来源见 `public/audio/LICENSE-audio.txt`），**构建时内嵌**进 JS：`embed-audio` 插件（`vite.config.js` 与 `vitest.config.js` 各一份，改一处要同步另一处）把 `src/fx/audio.js` 里的 `%%INJECT%%` 占位符按索引替换成 WAV 字节。不要改成运行时 `fetch` + `decodeAudioData`——那是异步的，第一枪会没声。
+- 插件替换必须走 `indexOf` + 切片（不能用 `String.replace`：采样字节里可能恰好出现 `$&` 之类的替换模式），WAV 里每个非可见 ASCII 字节都要转成 `\xNN`（同理别用 `String.fromCharCode/slice` 之类按字符操作这批数据的写法）。这两个坑都真踩过。
 
 ### 5.9 地图与地面拾取
 
@@ -218,7 +225,7 @@ npm run preview   # 预览构建产物
 - 薄墙用圆形碰撞体近似时，圆心间距必须小于 `2 × (r + 僵尸半径 × 0.8)`，否则僵尸会从圆与圆之间穿过去（雪地矮墙用 0.85 米间距 / r = 0.6）。
 - 拾取点位写在各自地图的 `pickupSpots`；`WeaponPickups` 池上限 `MAX_SPOTS = 10`，点位超过 10 要同时改。
 - 拾取物只刷新 `starter: false` 的武器；拾取距离、重生时间在 `WeaponPickups.js` 顶部常量。
-- 拾取植物在 `WeaponSystem` 里只占一个动态战利品格；再捡会替换旧的。打空不丢枪，`tryReload()` 自动续弹，钱不够则 `locked`。
+- 拾取植物在 `WeaponSystem` 里占一个**武器槽**（共 3 个）；槽满时弹替换提示而不是直接吞。打空不丢枪，`tryReload()` 自动续弹，钱不够则 `locked`。
 - 新增拾取植物必须给 `model`（视图模型分支）、`ammo`、`color`，并在 `WeaponSystem.buildViewModels` 的 `builders` 里有对应构建函数。
 
 ---
@@ -271,8 +278,9 @@ npm run preview   # 预览构建产物
 
 ### 新增音效
 
-- 在 `Sfx.js` 用 `tone()` / `noise()` 组合，导出命名方法（如 `explosion()`）；在系统里通过 `ctx.sfx` 调用。
-- 音量统一走 `master`，不要直接连 `destination`。
+- 想接真实录音：把 CC0 素材按 `public/audio/LICENSE-audio.txt` 里的处理流程裁好（单声道 44.1kHz 16bit、去静音、峰值 -3dB）放进 `public/audio/`，在 `src/fx/audio.js` 加一个 `%%INJECT%%` 导出、在两份配置的 `AUDIO_FILES` 表里登记，再在 `Sfx.js` 的 `SAMPLES` 表里写 `方法名: [['文件键', 音量], 最低音高, 最高音高, 'pan' | 'mono']`，然后加一个 `this.play('方法名')` 的公开方法。
+- 纯合成音效在 `Sfx.js` 用 `tone()` / `noise()` 组合。两种都通过 `ctx.sfx` 调用。
+- 音量统一走 `master`，不要直接连 `destination`；采样表里的音量是相对量，调手感只改 `SAMPLES`。
 
 ---
 
@@ -299,7 +307,8 @@ __game.renderer.info.render     // draw call / 三角面
 ### 改动后的最低验收
 
 - `npm run build` 通过；控制台无 error / pageerror。
-- 桌面（1440×860）：选地图 → 开始 → 指针锁定 → WASD 移动 → 鼠标转视角 → 左键射击 → 1-4 切植物 → 5 切战利品 → 空格跳 → Esc 暂停/继续。
+- 桌面（1440×860）：选地图 → 开始 → 指针锁定 → WASD 移动 → 鼠标转视角 → 左键射击 → 1-6 切植物 → 7/8/9 切武器槽 → Tab 循环 → G 丢枪 → 空格跳 → Esc 暂停/继续。
+- 武器槽：连捡 3 把依次填满；第 4 把弹「替换哪一格？」、2.5 秒不选则取消；丢下的枪在脚边可再捡回；重开一局清空。
 - iPhone 横屏（844×390）、iPad（1024×768）：选图卡片不溢出；虚拟摇杆、右侧拖动、开火、跳跃、植物栏都可用；HUD 不被安全区裁切。
 - 竖屏（390×844）：显示「请横屏游玩」拦截层，不进入游戏；横过来后拦截层消失、可正常开始。
 - 地图：菜单能切换后院/雪地，背景、雾、相机随之切换；雪地能看到田字四柱、两侧矮墙、两端基地、四角砖台、围墙与雪山。
@@ -326,7 +335,7 @@ CI（`.github/workflows/ci.yml`）在每次 push 到 main 和每个 PR 上跑三
 
 | job | 内容 | 失败条件 |
 | --- | --- | --- |
-| **UT + 集成测试** | `vitest run --coverage`（908 用例） | 任何用例失败；覆盖率低于 `vitest.config.js` 的 `thresholds`（语句/行 98%、分支 94%、函数 97%） |
+| **UT + 集成测试** | `vitest run --coverage`（927 用例） | 任何用例失败；覆盖率低于 `vitest.config.js` 的 `thresholds`（语句/行 98%、分支 94%、函数 97%） |
 | **浏览器级 E2E** | `playwright-core install --with-deps chromium` + `npm run test:e2e`（7 场景） | 任一场景 FAIL 或页面出现 console.error / pageerror |
 | **生产构建** | `npm run build` | 构建失败 |
 
@@ -347,7 +356,7 @@ CI（`.github/workflows/ci.yml`）在每次 push 到 main 和每个 PR 上跑三
 - 爆炸位置本身不判遮挡（范围伤害照算），但豌豆和投掷物会被地图 `walls` 挡住；辅助瞄准不预判移动。
 - 僵尸默认不做网格寻路；雪地用 1 米网格流场绕开田字四柱（`IceWorld.updateNav`），其他地图仍是直线追击 + 分离 + 碰撞推出，并带贴墙滑动。
 - 割草机是装饰，不会触发清场。
-- 地面武器同时只能拿一把，不能手动丢弃或囤两把；再捡一把会替换当前战利品。续弹自动完成，没有换弹动画。（吃鸡式多槽位是计划中的下一期，不在当前版本。）
+- 地面武器最多**同时带 3 把**（吃鸡式武器槽），可以主动丢弃（G）。续弹自动完成，**没有手动换弹键**、没有换弹动画。
 - **坚果是免伤盾不是无敌**：盾血 400、撑多久取决于场上僵尸数量；罩内移速 ×0.88、每开一枪额外扣 1 点盾血、气球伤害穿透护盾。这三条是刻意的，删掉任何一条它都会变成"开着盾站桩打"的无敌点。
 - **气球是纯高度层级**：不吃地面碰撞体（在飞）、不被墙挡住；站上 ≥1.5 米高台用任何武器都能打到，这是刻意的零成本解法，别当漏洞修。
 - 同屏僵尸硬上限 14（移动端性能）。
