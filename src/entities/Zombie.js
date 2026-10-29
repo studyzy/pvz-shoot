@@ -216,10 +216,15 @@ export class Zombie {
     const targetLocalZ = 0.03;
     let hatY = targetLocalY;
     let hatZ = targetLocalZ;
-    // 骨骼链上的缩放必须"除掉"：glb 里 CharacterArmature 带 100 倍缩放，Head 骨骼自己在它下面，
+    // 骨骼链上"多出来"的缩放必须抵掉：glb 里 CharacterArmature 带 100 倍缩放，Head 骨骼自己在它下面，
     // 直接把帽子 add 到 Head 上，几何体会被这 100 倍放大 —— 交通锥会变成十米宽的巨物。
-    // 把帽子整体缩到 1/骨骼世界缩放，再按骨骼的世界旋转摆正，就能得到"手写世界坐标"的老效果，
+    // 把帽子缩到「应得世界缩放 / 骨骼世界缩放」，再按骨骼的世界旋转摆正，就能得到"手写世界坐标"的老效果，
     // 同时还能跟着头部动画动。父节点必须是已经挂上 body 的骨骼（matrixWorld 才是最终的）。
+    // 配件几何按**模型本地单位**给，本来就该吃到模型缩放（MODELS.scale）和 root 缩放
+    // （scaleFactor）；骨骼链里**多出来**的部分（僵尸 glb 的 CharacterArmature 100 倍）才要抵掉。
+    // 曾经直接除以骨骼世界缩放，把模型缩放也除掉了 —— 交通锥/铁桶的世界尺寸只剩身体的
+    // 1/1.55，大半截陷进脑袋里，看起来像「没戴帽子」；Boss 木棒同理缩水一半。
+    const hatWorldScale = MODELS[this.isSkeleton ? 'skeleton' : 'zombie'].scale * this.scaleFactor;
     let hatScale = 1;
     if (headBone) {
       this.body.updateWorldMatrix(true, false);
@@ -228,7 +233,7 @@ export class Zombie {
       const local = headBone.worldToLocal(target);
       hatY = local.y;
       hatZ = local.z;
-      hatScale = 1 / headBone.getWorldScale(new THREE.Vector3()).x;
+      hatScale = hatWorldScale / headBone.getWorldScale(new THREE.Vector3()).x;
       headBone.getWorldQuaternion(hatQuat).invert();
     }
     hat.position.set(0, hatY, hatZ);
@@ -268,7 +273,7 @@ export class Zombie {
         hat.position.set(0, 0, 0);
         // 和帽子同理：骷髅骨骼也在带缩放的骨架下，不抵掉的话木棒会跟着放大
         slot.updateWorldMatrix(true, false);
-        hat.scale.setScalar(1 / slot.getWorldScale(new THREE.Vector3()).x);
+        hat.scale.setScalar(hatWorldScale / slot.getWorldScale(new THREE.Vector3()).x);
         hat.rotation.set(Math.PI, 0, 0); // 棒头朝向手腕外，避免穿进小臂
         push(new THREE.CylinderGeometry(0.026, 0.034, 0.62, 10), 0x7d5733, { roughness: 0.85 });
         push(new THREE.CylinderGeometry(0.062, 0.078, 0.24, 10), 0x5b3d22, { roughness: 0.8 });

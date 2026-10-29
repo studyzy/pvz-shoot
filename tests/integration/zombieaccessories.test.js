@@ -18,6 +18,7 @@ vi.doMock('three', async (importOriginal) => {
 let THREE;
 let game;
 let spawnZombieAt;
+let MODELS;
 
 beforeAll(async () => {
   const H = await import('../helpers/game.js');
@@ -27,7 +28,9 @@ beforeAll(async () => {
   game = (await H.createGame()).game;
   game.start();
   // 真实 glb 是异步解析的：spawnZombieAt 之前必须等到模型就绪，否则拿到的是空 Group
-  const { zombieModel } = await import('../../src/entities/ZombieModel.js');
+  const zm = await import('../../src/entities/ZombieModel.js');
+  MODELS = zm.MODELS;
+  const { zombieModel } = zm;
   for (let i = 0; i < 200 && !zombieModel.ready; i++) await new Promise((r) => setTimeout(r, 10));
 }, 180000);
 
@@ -53,6 +56,10 @@ describe('僵尸配件挂在骨骼上不会跟着骨架缩放放大', () => {
 
   it.each(['cone', 'bucket'])('%s 的世界尺寸和僵尸身体匹配（不超过身高的 0.6 倍、不超过 1 米宽）', (type) => {
     const z = spawn(type);
+    // 播一会儿动画再量：bind 姿态的 Head 骨骼还带着 glb 的 Z-up 修正旋转（约 108°），
+    // 帽子包围盒会按倾斜后的外接盒虚胖（铁桶 0.87 → 1.14），玩家看到的其实是动画姿态。
+    for (let i = 0; i < 30; i++) game.update(1 / 60);
+    z.root.updateMatrixWorld(true);
     const hat = worldSize(z.hat);
     const body = worldSize(z.body);
     // 旧 bug：直接挂骨骼，交通锥被放大到 80+ 米宽、世界 y 从 -39 跨到 +43
@@ -68,6 +75,13 @@ describe('僵尸配件挂在骨骼上不会跟着骨架缩放放大', () => {
     // 身体（含配件前）最高点由模型决定，帽子应当落在身体顶端附近
     expect(hat.min.y).toBeGreaterThan(z.root.position.y + 1);
     expect(hat.max.y).toBeLessThanOrEqual(body.max.y + 0.01);
+  });
+
+  it.each(['cone', 'bucket'])('%s 的世界缩放和身体一致（抵掉 100 倍骨架，保留模型缩放）', (type) => {
+    const z = spawn(type);
+    // 曾经的 bug：hatScale 直接取 1/骨骼世界缩放，把模型缩放（ZOMBIE_SCALE）也除掉了，
+    // 配件世界尺寸只剩身体的 1/1.55，大半截陷进脑袋里，看起来像「没戴帽子」。
+    expect(z.hat.getWorldScale(new THREE.Vector3()).x).toBeCloseTo(MODELS.zombie.scale * z.scaleFactor, 2);
   });
 
   it('身体本身还是正常僵尸尺寸（配件没有把它撑大）', () => {

@@ -147,7 +147,7 @@ npm run preview   # 预览构建产物
 - 换模型时改 `public/models/zombie.glb` 并同步 `ZombieModel.js` 的 `ZOMBIE_SCALE`（当前 1.55）、以及 `getChest`/`getHead` 的高度和 `ProjectileSystem`/`WeaponSystem` 里的命中半径。
 - 配件（交通锥 / 铁桶 / Boss 木棒）是**程序化补回**的：`Zombie.buildHat()` 按 `cfg.acc` 挂一组 `MeshStandardMaterial` 网格。交通锥/铁桶挂 `this.body`，坐标用僵尸模型单位（头顶约 y=1.19，整体高 1.194）；**Boss 的木棒挂在骷髅骨骼 `handslotr` 上**（跟着手臂挥动），坐标用骷髅模型单位。加新配件就在这个函数里按 `acc` 分支。
 - 配件材质要同时 `push` 进 `this.mats` 和 `this.matBase`，否则白闪（`applyFlash`）和冰冻（`applyTint`）只会作用在身体上，帽子不跟着变。
-- **挂骨骼的配件必须抵掉骨骼链的缩放**：`CharacterArmature` 带 100 倍缩放，直接把帽子 `add` 到 `Head` 上几何体会被放大成十米宽的巨物。做法是 `hat.scale = 1 / headBone.getWorldScale()` + 反解四元数（见 `buildHat`）。不抵掉的话还会把木棒一起放大。
+- **挂骨骼的配件必须抵掉骨骼链里"多出来"的缩放，且只抵掉它**：`CharacterArmature` 带 100 倍缩放，直接把帽子 `add` 到 `Head` 上几何体会被放大成十米宽的巨物。做法是 `hat.scale = 应得世界缩放 / headBone.getWorldScale()` + 反解四元数（见 `buildHat`），其中**应得世界缩放 = `MODELS[id].scale × scaleFactor`**（配件几何按模型本地单位给，本来就该吃模型缩放和 root 缩放）。曾经直接写成 `1 / getWorldScale()`，把模型缩放也除掉了 —— 交通锥/铁桶只剩身体 1/1.55 大、大半截陷进脑袋里，Boss 木棒同理缩水。
 - **护肩这类不跟头动的配件挂 `this.body`，不挂头部骨骼**：挂在头上的护肩会跟着头部抖动，看起来像在耸肩。
 - 每个僵尸是 **2 个蒙皮 mesh**（身体 + 眼球）+ 1 个材质（外加一块 blob 阴影），一只僵尸约 2 个 draw call。E2E 实测 14 只同屏：139 draw call / 13.5 万三角面。
 
