@@ -45,6 +45,7 @@ npm run preview   # 预览构建产物
 | `src/entities/Zombie.js` | 单个僵尸：绑定模型骨架、AI、行走/攻击/死亡动画、受击/减速/掉落回调 |
 | `src/entities/ZombieModel.js` | 加载两个外部模型：`zombie.glb`（Quaternius 僵尸，50 骨骼 + 16 段动画）与 `skeleton.glb`（KayKit 骷髅，41 骨骼 + 13 段动画）；导出 `zombieModel` 就绪标志、`MODELS` 缩放表与 `findClip()` |
 | `src/entities/ZombieManager.js` | 波次生成、分离、范围伤害、击杀结算、Boss 跟踪、阳光掉落数量 |
+| `src/entities/WallNuts.js` | **坚果免伤盾**：玩家身上的一个状态（不是场景实体）。`absorb()` 拦伤害、盾血/破盾动画、罩壳跟随 |
 | `src/entities/SunOrbs.js` | 阳光球池、弹跳、磁吸、拾取 |
 | `src/entities/WeaponPickups.js` | 地面植物拾取物池：按地图点位刷新、发光/名称牌、靠近自动拾取、重生 |
 | `src/weapons/WeaponSystem.js` | 手持植物视图模型、瞄准辅助、开火、切枪、后坐/摇摆、命中判定入口 |
@@ -119,6 +120,10 @@ npm run preview   # 预览构建产物
 - 阳光经济（`docs/GAMEPLAY.md` §4）：初始 60、上限 300、每颗 5、未拾取 18 秒消失；掉落数量在 `ZombieManager.handleKill`，天降参数在 `config.js` 的 `SUN_SKY`（30 秒 1 颗，占收入 4~8%，主收入仍是击杀）。
 - **豌豆 `cost: 0` 是承重墙**：保证阳光见底时仍有枪可用，不会出现"没钱且打不动"的死锁。不要改成收费。
 - 武器分两类：`starter: true` 进植物栏、每发按 `cost` 花阳光；`starter: false` 只能地面拾取、免费拿、自带一梭子 `ammo`，打空后按 `cost × ammo` 用阳光续弹。
+- **新增武器必须写在 `WEAPONS` 数组末尾**：植物栏/战利品的 index 是按数组下标算的，`tests/unit/weaponsystem.test.js` 里有大量 `pickup(5)`、`equip(7)` 的硬编码下标。往中间插一个会让几十个用例一起红，而且 `1-6` 的快捷键会整体错位。
+- **护甲只写在 `config.js` 的 `ARMOR_MATERIALS` 表里**：`absorption`（吸收比例）、`burnImmune`（燃烧烧不动）、`pierceBlock`（挡穿透）。僵尸用 `armor: { material, hp }` 挂上。不要给某把武器写"对铁桶减伤"的特例——那是这张表推出来的。
+- **对空是白名单**：`WEAPONS[].aerial` 不写 = 打不到空中目标；`'explosion'` = 爆炸类；数字 = 伤害倍率（火豌豆 0.25）。判定必须在三处一致：`ProjectileSystem.update`、`WeaponSystem.raycastZombies`、`ZombieManager.damageArea`，漏一处就会出现"玉米炮能打、豌豆也能"的破绽。
+- **充能制植物**（目前只有坚果）：`maxCharges` + `recharge`，`WeaponSystem.charges[]` 是浮点（每帧累加），HUD 显示 `Math.floor`。没有 `maxCharges` 的植物恒为 `Infinity`，走原来的路径。
 
 ### 5.2 僵尸模型与材质
 
@@ -131,6 +136,8 @@ npm run preview   # 预览构建产物
 - 换模型时改 `public/models/zombie.glb` 并同步 `ZombieModel.js` 的 `ZOMBIE_SCALE`（当前 1.55）、以及 `getChest`/`getHead` 的高度和 `ProjectileSystem`/`WeaponSystem` 里的命中半径。
 - 配件（交通锥 / 铁桶 / Boss 木棒）是**程序化补回**的：`Zombie.buildHat()` 按 `cfg.acc` 挂一组 `MeshStandardMaterial` 网格。交通锥/铁桶挂 `this.body`，坐标用僵尸模型单位（头顶约 y=1.19，整体高 1.194）；**Boss 的木棒挂在骷髅骨骼 `handslotr` 上**（跟着手臂挥动），坐标用骷髅模型单位。加新配件就在这个函数里按 `acc` 分支。
 - 配件材质要同时 `push` 进 `this.mats` 和 `this.matBase`，否则白闪（`applyFlash`）和冰冻（`applyTint`）只会作用在身体上，帽子不跟着变。
+- **挂骨骼的配件必须抵掉骨骼链的缩放**：`CharacterArmature` 带 100 倍缩放，直接把帽子 `add` 到 `Head` 上几何体会被放大成十米宽的巨物。做法是 `hat.scale = 1 / headBone.getWorldScale()` + 反解四元数（见 `buildHat`）。不抵掉的话还会把木棒一起放大。
+- **护肩这类不跟头动的配件挂 `this.body`，不挂头部骨骼**：挂在头上的护肩会跟着头部抖动，看起来像在耸肩。
 - 每个僵尸是 **2 个蒙皮 mesh**（身体 + 眼球）+ 1 个材质（外加一块 blob 阴影），一只僵尸约 2 个 draw call。E2E 实测 14 只同屏：139 draw call / 13.5 万三角面。
 
 ### 5.3 glb 规格与压缩
@@ -247,6 +254,8 @@ npm run preview   # 预览构建产物
 2. 造型走 `model` 字段（见 5.3.1）：不写用僵尸 glb，写其他 id 就在 `ZombieModel.MODELS` 里登记 url + scale，并在 `Zombie.buildAnimations` 补一组动作名映射。
 3. `ZombieManager.wavePlan` 里加入生成权重/数量；`handleKill` 里补阳光掉落数量。
 4. 需要新的行为（远程、跳跃等）改 `Zombie.update`，并在 `Zombie` 里补命中球。
+4b. **要护甲就写 `armor: { material, hp }`**，材质从 `ARMOR_MATERIALS` 里选（不要新造特例）；`Zombie.hit()` 会先扣护甲、打空时隐藏 `this.hat` 并播 `sfx.armorBreak()`。护甲的 `acc` 必须挂成 `this.hat`，否则破甲时脱不下来。
+4c. **要空中单位就写 `airborne: true` + `airHeight`**：`root.position.y = airHeight`，`getChest/getHead` 会自动抬高度；同时它不吃地面碰撞体、攻击要过垂直判定。别忘了给 `WEAPONS` 里至少留一把 `aerial` 钥匙，并在 `wavePlan` 里配同屏配额（`AIR_QUOTA_RATIO` / `waveAirQuota`）。
 5. 更新 `docs/GAMEPLAY.md` 图鉴与波次表。
 
 ### 调整波次/难度
@@ -297,6 +306,10 @@ __game.renderer.info.render     // draw call / 三角面
 - 高低差：走上四角砖台会自动踏步；两侧 0.85 米矮墙可以跳上去站稳；田字四柱 3.6 米不能跳上；走出边缘会下落；僵尸从北端基地沿通道接近，不会卡死。
 - 拾取：踩到发光植物自动拾取，第 5 格出现图标与弹药数；打空后枪不丢，阳光够自动续弹、不够则变暗显示「缺阳光」；9-14 秒后原点位刷新。
 - 武器：豌豆命中/爆头、寒冰减速变蓝、樱桃落地爆炸、玉米炮即时爆炸；双发/三线散射、机枪射速、仙人掌穿透、西瓜爆炸、辣椒范围灼烧。
+- 坚果墙：按 5 套盾 → 僵尸贴脸打、玩家血条纹丝不动；盾血条变色并在 25% 以下闪烁；盾碎时碎裂音 + 白闪；气球从头顶咬能穿透护盾；罩内移速变慢、连射时盾血肉眼可见地掉。
+- 火豌豆：按 6 切到火豌豆 → 弹丸拖火星、命中后僵尸身上冒火苗；打橄榄球僵尸明显快于豌豆。
+- 护甲：打铁桶/橄榄球时头盔先掉（碎裂音），铁桶对豌豆减伤、橄榄球被火豌豆烧穿；仙人掌穿透打不动铁桶。
+- 气球：豌豆打它穿过去（地面打出点点、无伤害）；换玉米炮/樱桃一发带走；跳到它高度以下能躲开撕咬；站上雪地矮墙 + 水平 3 米内用豌豆也能打到。
 - 流程：击杀掉阳光并拾取（18 秒内没捡会消失）、天降阳光每 30 秒落 1 颗、清波加分、暂停/恢复、死亡结算、再来一局。
 - 性能：1–4 只僵尸时 draw call 约 90–130；14 只时不超过约 250。
 
@@ -313,7 +326,7 @@ CI（`.github/workflows/ci.yml`）在每次 push 到 main 和每个 PR 上跑三
 
 | job | 内容 | 失败条件 |
 | --- | --- | --- |
-| **UT + 集成测试** | `vitest run --coverage`（833 用例） | 任何用例失败；覆盖率低于 `vitest.config.js` 的 `thresholds`（语句/行 98%、分支 94%、函数 97%） |
+| **UT + 集成测试** | `vitest run --coverage`（908 用例） | 任何用例失败；覆盖率低于 `vitest.config.js` 的 `thresholds`（语句/行 98%、分支 94%、函数 97%） |
 | **浏览器级 E2E** | `playwright-core install --with-deps chromium` + `npm run test:e2e`（7 场景） | 任一场景 FAIL 或页面出现 console.error / pageerror |
 | **生产构建** | `npm run build` | 构建失败 |
 
@@ -334,7 +347,9 @@ CI（`.github/workflows/ci.yml`）在每次 push 到 main 和每个 PR 上跑三
 - 爆炸位置本身不判遮挡（范围伤害照算），但豌豆和投掷物会被地图 `walls` 挡住；辅助瞄准不预判移动。
 - 僵尸默认不做网格寻路；雪地用 1 米网格流场绕开田字四柱（`IceWorld.updateNav`），其他地图仍是直线追击 + 分离 + 碰撞推出，并带贴墙滑动。
 - 割草机是装饰，不会触发清场。
-- 地面武器同时只能拿一把，不能手动丢弃或囤两把；再捡一把会替换当前战利品。续弹自动完成，没有换弹动画。
+- 地面武器同时只能拿一把，不能手动丢弃或囤两把；再捡一把会替换当前战利品。续弹自动完成，没有换弹动画。（吃鸡式多槽位是计划中的下一期，不在当前版本。）
+- **坚果是免伤盾不是无敌**：盾血 400、撑多久取决于场上僵尸数量；罩内移速 ×0.88、每开一枪额外扣 1 点盾血、气球伤害穿透护盾。这三条是刻意的，删掉任何一条它都会变成"开着盾站桩打"的无敌点。
+- **气球是纯高度层级**：不吃地面碰撞体（在飞）、不被墙挡住；站上 ≥1.5 米高台用任何武器都能打到，这是刻意的零成本解法，别当漏洞修。
 - 同屏僵尸硬上限 14（移动端性能）。
 - 测试跑在 jsdom 里，WebGL 是替身：渲染效果、真机手感、真实 glb 贴图要靠 `npm run test:e2e` 或人工验收，不要用 jsdom 测试冒充"渲染正常"。
 
