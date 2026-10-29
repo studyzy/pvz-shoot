@@ -10,3 +10,7 @@ coverage/
 
 # E2E 失败截图（本地调试产物，不进仓库）
 tests/integration/.artifacts/
+
+# Python 字节码缓存（.dsh/skills 里的工具脚本会产生）
+__pycache__/
+*.py[cod]

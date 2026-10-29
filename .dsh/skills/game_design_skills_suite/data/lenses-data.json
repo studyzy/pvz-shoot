@@ -1,0 +1,1705 @@
+[
+  {
+    "id": 1,
+    "name_en": "Lens of Essential Experience",
+    "name_cn": "基础体验透镜",
+    "category": "基础体验与终极问题",
+    "tags": [
+      "core",
+      "experience",
+      "onboarding",
+      "pitch"
+    ],
+    "questions": [
+      "我希望玩家获得的本质体验是什么？",
+      "这种体验的核心情感与生理感受是什么？",
+      "游戏的机制、故事、美学和技术如何促成这种体验？"
+    ]
+  },
+  {
+    "id": 2,
+    "name_en": "Lens of Surprise",
+    "name_cn": "惊喜透镜",
+    "category": "基础体验与终极问题",
+    "tags": [
+      "emotion",
+      "pacing",
+      "juice",
+      "story"
+    ],
+    "questions": [
+      "玩家在游玩时会因什么而感到惊喜？",
+      "故事中是否有令人意外的转折？机制中是否有意想不到的规则？",
+      "我们的规则是让事情变得完全可预测，还是能孕育出戏剧性？"
+    ]
+  },
+  {
+    "id": 3,
+    "name_en": "Lens of Fun",
+    "name_cn": "乐趣透镜",
+    "category": "基础体验与终极问题",
+    "tags": [
+      "core",
+      "gameplay",
+      "motivation",
+      "audit"
+    ],
+    "questions": [
+      "游戏中究竟哪一部分让玩家感到纯粹的好玩？",
+      "哪些环节成了枯燥的打工（Chore）而非享受？",
+      "如何放大好玩的局部，砍掉拖沓的非必要环节？"
+    ]
+  },
+  {
+    "id": 4,
+    "name_en": "Lens of Curiosity",
+    "name_cn": "好奇心透镜",
+    "category": "基础体验与终极问题",
+    "tags": [
+      "exploration",
+      "puzzle",
+      "level",
+      "motivation"
+    ],
+    "questions": [
+      "游戏在玩家心中种下了哪些真实的疑问？",
+      "我是否在恰当的时机抛出线索，让玩家迫不及待想去探索？"
+    ]
+  },
+  {
+    "id": 5,
+    "name_en": "Lens of Endogenous Value",
+    "name_cn": "内在价值透镜",
+    "category": "基础体验与终极问题",
+    "tags": [
+      "economy",
+      "reward",
+      "motivation"
+    ],
+    "questions": [
+      "游戏中的物品、货币、声望对玩家来说真正有价值吗？",
+      "这种价值是如何通过稀缺性、实用性或情感寄托建立起来的？"
+    ]
+  },
+  {
+    "id": 6,
+    "name_en": "Lens of the Problem Statement",
+    "name_cn": "终极问题透镜",
+    "category": "基础体验与终极问题",
+    "tags": [
+      "core",
+      "pitch",
+      "audit"
+    ],
+    "questions": [
+      "我们究竟在试图解决什么问题？",
+      "我们当前的方案是否真的切中了核心问题，还是在解决无关副产物？"
+    ]
+  },
+  {
+    "id": 7,
+    "name_en": "Lens of the Elemental Tetrad",
+    "name_cn": "基础四元组透镜",
+    "category": "基础体验与终极问题",
+    "tags": [
+      "tetrad",
+      "system",
+      "balance",
+      "core"
+    ],
+    "questions": [
+      "机制、故事、美学、技术四大元素是否处于均衡支撑状态？",
+      "改变其中一个元素时，是否对其他三个元素进行了合理的补偿？"
+    ]
+  },
+  {
+    "id": 8,
+    "name_en": "Lens of the Unifying Theme",
+    "name_cn": "统一主题透镜",
+    "category": "基础体验与终极问题",
+    "tags": [
+      "theme",
+      "story",
+      "aesthetics",
+      "core"
+    ],
+    "questions": [
+      "游戏的核心主题用一句话怎么表达？",
+      "所有的机制与细节是在强化这个主题，还是在分散主题的感染力？"
+    ]
+  },
+  {
+    "id": 9,
+    "name_en": "Lens of Holographic Design",
+    "name_cn": "全息设计透镜",
+    "category": "基础体验与终极问题",
+    "tags": [
+      "theme",
+      "polish",
+      "aesthetics",
+      "core"
+    ],
+    "questions": [
+      "如果把游戏的某一个孤立局部单独拿出来，它是否体现了整体的灵魂与设计风格？"
+    ]
+  },
+  {
+    "id": 10,
+    "name_en": "Lens of Listening",
+    "name_cn": "倾听透镜",
+    "category": "基础体验与终极问题",
+    "tags": [
+      "playtesting",
+      "team",
+      "audit"
+    ],
+    "questions": [
+      "我是否真正倾听了团队成员的顾虑？",
+      "我是否倾听了玩家测试时的真实身体语言？",
+      "我是否倾听了游戏原型自发产生的进化方向？"
+    ]
+  },
+  {
+    "id": 11,
+    "name_en": "Lens of Infinite Inspiration",
+    "name_cn": "无限灵感透镜",
+    "category": "玩家心理与动机",
+    "tags": [
+      "ideation",
+      "creativity"
+    ],
+    "questions": [
+      "我能否从非游戏领域（建筑、戏剧、烹饪、自然界）汲取设计灵感？",
+      "如何把现实生活中的某种微妙体验转化为游戏机制？"
+    ]
+  },
+  {
+    "id": 12,
+    "name_en": "Lens of Transformation",
+    "name_cn": "转化透镜",
+    "category": "玩家心理与动机",
+    "tags": [
+      "transformation",
+      "growth",
+      "experience"
+    ],
+    "questions": [
+      "这款游戏在何种程度上改变了玩家（知识、技能、心境、世界观）？",
+      "玩家在离开游戏后，是否获得了正向的情感沉淀或心智提升？"
+    ]
+  },
+  {
+    "id": 13,
+    "name_en": "Lens of Creativity",
+    "name_cn": "创造力透镜",
+    "category": "玩家心理与动机",
+    "tags": [
+      "creativity",
+      "agency",
+      "sandbox"
+    ],
+    "questions": [
+      "游戏给玩家留下了多大的创造空间（建造、配装、策略自由度）？",
+      "玩家的创造物能否在游戏世界中获得有意义的反馈与展示？"
+    ]
+  },
+  {
+    "id": 14,
+    "name_en": "Lens of Cognitive Load",
+    "name_cn": "认知负荷透镜",
+    "category": "玩家心理与动机",
+    "tags": [
+      "ui",
+      "onboarding",
+      "accessibility",
+      "combat"
+    ],
+    "questions": [
+      "玩家在同一瞬间需要记住并处理多少个信息项？",
+      "短期工作记忆是否超载？是否有更优雅的信息分组与直觉化表达？"
+    ]
+  },
+  {
+    "id": 15,
+    "name_en": "Lens of Emotion",
+    "name_cn": "情感透镜",
+    "category": "玩家心理与动机",
+    "tags": [
+      "emotion",
+      "story",
+      "aesthetics"
+    ],
+    "questions": [
+      "我希望玩家在体验的这一刻感受到什么情绪（敬畏、恐惧、温馨、解脱）？",
+      "是什么触发了这种情绪？是美学、音乐还是机制带来的紧张感？"
+    ]
+  },
+  {
+    "id": 16,
+    "name_en": "Lens of Wish Fulfillment",
+    "name_cn": "愿望满足透镜",
+    "category": "玩家心理与动机",
+    "tags": [
+      "fantasy",
+      "motivation",
+      "experience"
+    ],
+    "questions": [
+      "这个游戏帮助玩家达成了现实中无法实现的何种梦想（飞翔、主宰命运、拥有伙伴）？",
+      "游戏的包装与反馈是否让这种梦想感足够逼真与畅快？"
+    ]
+  },
+  {
+    "id": 17,
+    "name_en": "Lens of Imagination",
+    "name_cn": "想象力透镜",
+    "category": "玩家心理与动机",
+    "tags": [
+      "imagination",
+      "world",
+      "story"
+    ],
+    "questions": [
+      "游戏留白了哪些部分让玩家的想象力去填补？",
+      "过多的细节展示是否反而扼杀了玩家脑补的乐趣？"
+    ]
+  },
+  {
+    "id": 18,
+    "name_en": "Lens of Immersion",
+    "name_cn": "沉浸感透镜",
+    "category": "玩家心理与动机",
+    "tags": [
+      "immersion",
+      "ui",
+      "aesthetics",
+      "world"
+    ],
+    "questions": [
+      "是什么打破了玩家的沉浸感（刺眼的 UI、穿模、生硬的加载）？",
+      "如何让玩家完全忘记现实世界的存在？"
+    ]
+  },
+  {
+    "id": 19,
+    "name_en": "Lens of Competence",
+    "name_cn": "胜任感透镜",
+    "category": "玩家心理与动机",
+    "tags": [
+      "mastery",
+      "progression",
+      "combat",
+      "motivation"
+    ],
+    "questions": [
+      "玩家在什么时候感觉自己变强大了、变聪明了？",
+      "游戏是否提供了清晰的能力验证舞台，让玩家享受掌控感的成就？"
+    ]
+  },
+  {
+    "id": 20,
+    "name_en": "Lens of Autonomy",
+    "name_cn": "自主权透镜",
+    "category": "玩家心理与动机",
+    "tags": [
+      "agency",
+      "level",
+      "exploration"
+    ],
+    "questions": [
+      "玩家是否感觉自己拥有真正的选择自由？",
+      "游戏的引导是否过于专横（Railroading）以至于剥夺了玩家的主动权？"
+    ]
+  },
+  {
+    "id": 21,
+    "name_en": "Lens of Space",
+    "name_cn": "空间透镜",
+    "category": "机制与规则",
+    "tags": [
+      "level",
+      "space",
+      "combat",
+      "topology"
+    ],
+    "questions": [
+      "游戏的空间维度与边界是什么？",
+      "空间的几何拓扑如何塑造了玩家的移动路径与战术选择？"
+    ]
+  },
+  {
+    "id": 22,
+    "name_en": "Lens of Time",
+    "name_cn": "时间透镜",
+    "category": "机制与规则",
+    "tags": [
+      "pacing",
+      "tension",
+      "combat"
+    ],
+    "questions": [
+      "游戏中的时间是连续的、回合制的还是动态流逝的？",
+      "时间压力是如何驱动玩家情绪张力的？是否有冗长无聊的垃圾时间？"
+    ]
+  },
+  {
+    "id": 23,
+    "name_en": "Lens of Objects and Attributes",
+    "name_cn": "对象与属性透镜",
+    "category": "机制与规则",
+    "tags": [
+      "system",
+      "mechanics",
+      "data"
+    ],
+    "questions": [
+      "游戏世界中有哪些核心实体对象？",
+      "这些对象拥有哪些公开或隐藏的属性？属性的变化如何驱动状态机流转？"
+    ]
+  },
+  {
+    "id": 24,
+    "name_en": "Lens of Actions",
+    "name_cn": "动作透镜",
+    "category": "机制与规则",
+    "tags": [
+      "verbs",
+      "combat",
+      "mechanics",
+      "gameplay"
+    ],
+    "questions": [
+      "玩家拥有的基础动作动词是什么？",
+      "基础动作之间能否产生复合动作或涌现出意想不到的操作连招？"
+    ]
+  },
+  {
+    "id": 25,
+    "name_en": "Lens of Rules",
+    "name_cn": "规则透镜",
+    "category": "机制与规则",
+    "tags": [
+      "rules",
+      "balance",
+      "clarity"
+    ],
+    "questions": [
+      "基础规则与操作规则是否清晰明了？",
+      "底层法则是否自洽，有没有模糊不清引发争议的灰色地带？"
+    ]
+  },
+  {
+    "id": 26,
+    "name_en": "Lens of Skill",
+    "name_cn": "技巧透镜",
+    "category": "机制与规则",
+    "tags": [
+      "skill",
+      "balance",
+      "combat",
+      "mastery"
+    ],
+    "questions": [
+      "游戏需要玩家付出何种类型的技巧（反应、心理博弈、战术规划、记忆）？",
+      "技巧的上限是否足够高，能让硬核玩家持续钻研？"
+    ]
+  },
+  {
+    "id": 27,
+    "name_en": "Lens of Chance",
+    "name_cn": "偶然性与运气透镜",
+    "category": "机制与规则",
+    "tags": [
+      "random",
+      "balance",
+      "roguelike",
+      "dice"
+    ],
+    "questions": [
+      "游戏中引入了哪些随机要素？",
+      "随机性是用于增加不确定性的乐趣与风险博弈，还是导致挫败的根源？"
+    ]
+  },
+  {
+    "id": 28,
+    "name_en": "Lens of State Space",
+    "name_cn": "状态空间透镜",
+    "category": "机制与规则",
+    "tags": [
+      "system",
+      "balance",
+      "state-space"
+    ],
+    "questions": [
+      "游戏可能产生的所有状态总数有多大？",
+      "状态空间是否足够广阔以支撑重玩价值，又不会过于庞大导致系统无法收敛？"
+    ]
+  },
+  {
+    "id": 29,
+    "name_en": "Lens of Emergence",
+    "name_cn": "涌现规则透镜",
+    "category": "机制与规则",
+    "tags": [
+      "system",
+      "emergence",
+      "sandbox",
+      "multi-solution"
+    ],
+    "questions": [
+      "简单的底层规则是否能组合出复杂、精彩、不可预知的宏观游戏局面？"
+    ]
+  },
+  {
+    "id": 30,
+    "name_en": "Lens of Dynamic Systems",
+    "name_cn": "动态系统透镜",
+    "category": "机制与规则",
+    "tags": [
+      "system",
+      "feedback",
+      "economy",
+      "balance"
+    ],
+    "questions": [
+      "系统的正反馈（滚雪球）与负反馈（自我平衡）回路如何交互？",
+      "系统在极限状态下会不会崩溃或陷入死锁循环？"
+    ]
+  },
+  {
+    "id": 31,
+    "name_en": "Lens of Flow",
+    "name_cn": "心流透镜",
+    "category": "挑战与心流",
+    "tags": [
+      "flow",
+      "balance",
+      "pacing",
+      "challenge"
+    ],
+    "questions": [
+      "挑战的难度与玩家当前的技能水平是否精确匹配？",
+      "玩家处于心流通道中，还是掉入了“焦虑区”或“厌倦区”？",
+      "目标是否明确？反馈是否即时清晰？"
+    ]
+  },
+  {
+    "id": 32,
+    "name_en": "Lens of Challenge",
+    "name_cn": "挑战阶梯透镜",
+    "category": "挑战与心流",
+    "tags": [
+      "challenge",
+      "progression",
+      "level",
+      "pacing"
+    ],
+    "questions": [
+      "挑战是否保持了渐进的阶梯式提升？",
+      "在面对大挑战前，玩家是否获得了足够的练习与小胜激励？"
+    ]
+  },
+  {
+    "id": 33,
+    "name_en": "Lens of Punishment",
+    "name_cn": "惩罚透镜",
+    "category": "挑战与心流",
+    "tags": [
+      "punishment",
+      "balance",
+      "risk-reward"
+    ],
+    "questions": [
+      "惩罚的严厉程度是否与犯错成本相称？",
+      "惩罚是否在教导玩家进步，还是在无意义地消耗玩家时间？"
+    ]
+  },
+  {
+    "id": 34,
+    "name_en": "Lens of Reward",
+    "name_cn": "奖励透镜",
+    "category": "挑战与心流",
+    "tags": [
+      "reward",
+      "economy",
+      "motivation"
+    ],
+    "questions": [
+      "玩家获得了哪些维度的奖励（代币、能力、新剧情、审美享受）？",
+      "奖励的发放节奏是否遵循了变动比率强化时刻？"
+    ]
+  },
+  {
+    "id": 35,
+    "name_en": "Lens of Meaningful Choices",
+    "name_cn": "意义选择透镜",
+    "category": "挑战与心流",
+    "tags": [
+      "agency",
+      "balance",
+      "combat",
+      "strategy"
+    ],
+    "questions": [
+      "玩家面临的分支选择是否真正改变了后续局面？",
+      "是否存在‘无脑最优解（Dominant Strategy）’让其他选项变成废品？"
+    ]
+  },
+  {
+    "id": 36,
+    "name_en": "Lens of Triangularity",
+    "name_cn": "三角形博弈透镜",
+    "category": "挑战与心流",
+    "tags": [
+      "risk-reward",
+      "balance",
+      "combat"
+    ],
+    "questions": [
+      "是否存在‘低风险低回报’与‘高风险高回报’的经典三角形抉择？",
+      "这种抉择是否促使玩家主动评估自身承受力并产生刺激感？"
+    ]
+  },
+  {
+    "id": 37,
+    "name_en": "Lens of Grace",
+    "name_cn": "隐性容错透镜",
+    "category": "挑战与心流",
+    "tags": [
+      "game-feel",
+      "juice",
+      "coyote-time",
+      "polish"
+    ],
+    "questions": [
+      "系统是否在底层对玩家的微小失误进行了宽容处理（土狼时间、缓冲、残血保护）？",
+      "这种宽容是否保护了玩家的心流不被挫败感轻易打断？"
+    ]
+  },
+  {
+    "id": 38,
+    "name_en": "Lens of Pacing",
+    "name_cn": "节奏与节拍透镜",
+    "category": "挑战与心流",
+    "tags": [
+      "pacing",
+      "tension",
+      "level",
+      "flow"
+    ],
+    "questions": [
+      "紧张的高潮与放松的呼吸区是如何交替出现的？",
+      "游戏是否陷入了一刻不停的疲劳轰炸或拖沓枯燥？"
+    ]
+  },
+  {
+    "id": 39,
+    "name_en": "Lens of Practice",
+    "name_cn": "练习与复盘透镜",
+    "category": "挑战与心流",
+    "tags": [
+      "practice",
+      "mastery",
+      "flow"
+    ],
+    "questions": [
+      "游戏是否为玩家提供了安全练习复杂机制的机会？",
+      "失败后，玩家能否清楚知道自己死在哪里并在脑海中迅速复盘？"
+    ]
+  },
+  {
+    "id": 40,
+    "name_en": "Lens of Self-Expression",
+    "name_cn": "自我表达透镜",
+    "category": "挑战与心流",
+    "tags": [
+      "agency",
+      "customization",
+      "creativity"
+    ],
+    "questions": [
+      "不同玩家玩同一个关卡时，能否展现出截然不同的个人风格与打法？",
+      "系统是否提供了足够的个性化表达空间？"
+    ]
+  },
+  {
+    "id": 41,
+    "name_en": "Lens of the Puzzle",
+    "name_cn": "谜题透镜",
+    "category": "谜题与交互",
+    "tags": [
+      "puzzle",
+      "level",
+      "aha-moment"
+    ],
+    "questions": [
+      "谜题的核心逻辑机制是否清晰？",
+      "玩家在解开谜题时是否能体验到顿悟的‘Aha! Moment’快感？"
+    ]
+  },
+  {
+    "id": 42,
+    "name_en": "Lens of Puzzle Accessibility",
+    "name_cn": "谜题可读性透镜",
+    "category": "谜题与交互",
+    "tags": [
+      "puzzle",
+      "clarity",
+      "onboarding"
+    ],
+    "questions": [
+      "玩家在动手前能否清楚理解谜题的目标与规则？",
+      "谜题是否依赖不讲理的穷举尝试，还是依赖逻辑推理？"
+    ]
+  },
+  {
+    "id": 43,
+    "name_en": "Lens of Indirect Control",
+    "name_cn": "间接控制透镜",
+    "category": "谜题与交互",
+    "tags": [
+      "guidance",
+      "level",
+      "invisible-tutorial",
+      "lighting"
+    ],
+    "questions": [
+      "我如何通过光照、音效、构图和诱饵引导玩家，同时让他们觉得这是自己的决定？"
+    ]
+  },
+  {
+    "id": 44,
+    "name_en": "Lens of Control",
+    "name_cn": "控制感透镜",
+    "category": "谜题与交互",
+    "tags": [
+      "game-feel",
+      "input",
+      "mechanics"
+    ],
+    "questions": [
+      "按键输入与屏幕角色的物理反应之间是否丝滑顺畅、毫无阻滞？",
+      "玩家是否感觉角色化身就是自己身体的延伸？"
+    ]
+  },
+  {
+    "id": 45,
+    "name_en": "Lens of the Interface",
+    "name_cn": "界面透明度透镜",
+    "category": "谜题与交互",
+    "tags": [
+      "ui",
+      "ux",
+      "immersion"
+    ],
+    "questions": [
+      "UI 界面是隐形无感地辅助玩家，还是笨重地阻挡在玩家与世界之间？",
+      "核心状态信息是否能在不打断视线焦点的情况下被轻松捕捉？"
+    ]
+  },
+  {
+    "id": 46,
+    "name_en": "Lens of Diegesis",
+    "name_cn": "游戏内界面透镜",
+    "category": "谜题与交互",
+    "tags": [
+      "ui",
+      "diegetic",
+      "immersion"
+    ],
+    "questions": [
+      "哪些 UI 元素可以直接融入游戏世界本身（如背部血条、全息弹药表）？",
+      "融入世界是否增强了整体沉浸感？"
+    ]
+  },
+  {
+    "id": 47,
+    "name_en": "Lens of Juiciness",
+    "name_cn": "触觉反馈透镜",
+    "category": "谜题与交互",
+    "tags": [
+      "juice",
+      "game-feel",
+      "vibration",
+      "hitstop"
+    ],
+    "questions": [
+      "玩家的操作是否能得到夸张、丰满、愉悦的多重视听反馈（微震、粒子、卡肉、音效）？"
+    ]
+  },
+  {
+    "id": 48,
+    "name_en": "Lens of Visual Attention",
+    "name_cn": "视野与注意力透镜",
+    "category": "谜题与交互",
+    "tags": [
+      "visual",
+      "ui",
+      "framing",
+      "guidance"
+    ],
+    "questions": [
+      "在任何一个关键瞬间，玩家的视线焦点落在哪里？",
+      "画面中是否有相互抢夺注意力的多余视觉噪点？"
+    ]
+  },
+  {
+    "id": 49,
+    "name_en": "Lens of Modes",
+    "name_cn": "模式切换透镜",
+    "category": "谜题与交互",
+    "tags": [
+      "ui",
+      "modes",
+      "input"
+    ],
+    "questions": [
+      "游戏存在多少种不同的操作/玩法模式（菜单、探索、战斗）？",
+      "模式切换是否流畅无缝？玩家是否会因模式混乱而误操作？"
+    ]
+  },
+  {
+    "id": 50,
+    "name_en": "Lens of Accessibility",
+    "name_cn": "可达性与包容度透镜",
+    "category": "谜题与交互",
+    "tags": [
+      "accessibility",
+      "ui",
+      "ux"
+    ],
+    "questions": [
+      "色盲、听障或反应速度较慢的玩家能否无障碍体验游戏的核心乐趣？",
+      "是否提供了灵活的无障碍辅助选项与按键映射？"
+    ]
+  },
+  {
+    "id": 51,
+    "name_en": "Lens of Competition",
+    "name_cn": "竞争透镜",
+    "category": "社交与竞争",
+    "tags": [
+      "social",
+      "pvp",
+      "balance",
+      "competition"
+    ],
+    "questions": [
+      "竞争是否公平、透明、让输赢双方都心服口服？",
+      "竞争的核心胜负手是技巧博弈、心理预判还是运气？"
+    ]
+  },
+  {
+    "id": 52,
+    "name_en": "Lens of Cooperation",
+    "name_cn": "合作透镜",
+    "category": "社交与竞争",
+    "tags": [
+      "social",
+      "coop",
+      "multiplayer"
+    ],
+    "questions": [
+      "合作是否是通关的必然需求，还是仅仅各玩各的？",
+      "队友之间是否有互补的角色分工与非对称信息传递？"
+    ]
+  },
+  {
+    "id": 53,
+    "name_en": "Lens of Friendship",
+    "name_cn": "友谊与社交纽带透镜",
+    "category": "社交与竞争",
+    "tags": [
+      "social",
+      "friendship",
+      "emotion"
+    ],
+    "questions": [
+      "游戏是否为玩家创造了互相倾听、互相帮助、建立真实信任与友谊的温情契机？"
+    ]
+  },
+  {
+    "id": 54,
+    "name_en": "Lens of Community",
+    "name_cn": "社区透镜",
+    "category": "社交与竞争",
+    "tags": [
+      "social",
+      "community",
+      "ecosystem"
+    ],
+    "questions": [
+      "玩家在游戏外是否有交流攻略、二次创作、分享高光时刻的肥沃社区土壤？",
+      "游戏机制是否在鼓励或滋养这种社区文化？"
+    ]
+  },
+  {
+    "id": 55,
+    "name_en": "Lens of Griefing & Toxicity Prevention",
+    "name_cn": "恶意行为遏制透镜",
+    "category": "社交与竞争",
+    "tags": [
+      "social",
+      "moderation",
+      "rules"
+    ],
+    "questions": [
+      "机制中是否存在可能被恶意玩家利用来破坏他人体验的漏洞？",
+      "系统如何从规则底层消除‘损人不利己’的捣乱空间？"
+    ]
+  },
+  {
+    "id": 56,
+    "name_en": "Lens of the Spectator",
+    "name_cn": "观众与观赏性透镜",
+    "category": "社交与竞争",
+    "tags": [
+      "spectator",
+      "streaming",
+      "visual"
+    ],
+    "questions": [
+      "不亲自操作的旁观者能否轻松看懂当前局面的胜负走向与精彩操作？",
+      "游戏是否具备极强的直播与观赛娱乐性？"
+    ]
+  },
+  {
+    "id": 57,
+    "name_en": "Lens of Judgment",
+    "name_cn": "评判透镜",
+    "category": "社交与竞争",
+    "tags": [
+      "judgment",
+      "rules",
+      "social"
+    ],
+    "questions": [
+      "玩家在游戏中的表现由谁来评判（程序代码、对手投票、裁判）？",
+      "评判标准是否具备公信力与一致性？"
+    ]
+  },
+  {
+    "id": 58,
+    "name_en": "Lens of Governance",
+    "name_cn": "规则制定透镜",
+    "category": "社交与竞争",
+    "tags": [
+      "governance",
+      "social",
+      "rules"
+    ],
+    "questions": [
+      "公会或多人团队中，权力是如何分配与流转的？",
+      "当玩家之间产生纠纷时，是否有清晰的制度与仲裁手段？"
+    ]
+  },
+  {
+    "id": 59,
+    "name_en": "Lens of Comp-Op",
+    "name_cn": "合作竞争透镜",
+    "category": "社交与竞争",
+    "tags": [
+      "social",
+      "coop",
+      "competition"
+    ],
+    "questions": [
+      "游戏中是否存在表面合作但暗中争夺个人最高利益的半合作机制？",
+      "这种微妙的博弈是否制造了良性戏剧冲突？"
+    ]
+  },
+  {
+    "id": 60,
+    "name_en": "Lens of Teamwork",
+    "name_cn": "团队协作透镜",
+    "category": "社交与竞争",
+    "tags": [
+      "teamwork",
+      "coop",
+      "social"
+    ],
+    "questions": [
+      "团队成功是否要求成员之间产生高度默契与步调一致？",
+      "队伍中是否存在‘搭便车（Free-riding）’现象破坏团队积极性？"
+    ]
+  },
+  {
+    "id": 61,
+    "name_en": "Lens of Trust",
+    "name_cn": "信任透镜",
+    "category": "社交与竞争",
+    "tags": [
+      "social",
+      "trust",
+      "psychology"
+    ],
+    "questions": [
+      "玩家之间建立信任需要付出何种代价与时间？",
+      "背叛的收益与惩罚是否经过严密权衡？"
+    ]
+  },
+  {
+    "id": 62,
+    "name_en": "Lens of Social Presence",
+    "name_cn": "社会临场感透镜",
+    "category": "社交与竞争",
+    "tags": [
+      "social",
+      "presence",
+      "avatar"
+    ],
+    "questions": [
+      "玩家在虚拟世界中能否真切感受到其他真实人类的存在与呼吸？",
+      "互动肢体语言与表情系统是否足够生动？"
+    ]
+  },
+  {
+    "id": 63,
+    "name_en": "Lens of the Story Machine",
+    "name_cn": "故事机器透镜",
+    "category": "世界构建与叙事",
+    "tags": [
+      "story",
+      "narrative",
+      "emergence"
+    ],
+    "questions": [
+      "系统是在强行灌输死板剧本，还是像‘故事生成器’让玩家在交互中自发产生传奇？"
+    ]
+  },
+  {
+    "id": 64,
+    "name_en": "Lens of the Character Arc",
+    "name_cn": "角色弧光透镜",
+    "category": "世界构建与叙事",
+    "tags": [
+      "story",
+      "character",
+      "narrative"
+    ],
+    "questions": [
+      "角色在经历一系列事件后，内心信念与处事方式发生了怎样的深刻转变？",
+      "玩家的操作与抉择是否加速或推动了这种转变？"
+    ]
+  },
+  {
+    "id": 65,
+    "name_en": "Lens of the Hero's Journey",
+    "name_cn": "英雄之旅透镜",
+    "category": "世界构建与叙事",
+    "tags": [
+      "story",
+      "myth",
+      "narrative"
+    ],
+    "questions": [
+      "叙事结构是否契合经典的坎贝尔英雄旅程阶段（启程、考验、深渊、蜕变归来）？",
+      "每个阶段的机制难度与情感张力是否高度共振？"
+    ]
+  },
+  {
+    "id": 66,
+    "name_en": "Lens of Character",
+    "name_cn": "角色特质透镜",
+    "category": "世界构建与叙事",
+    "tags": [
+      "character",
+      "story",
+      "motivation"
+    ],
+    "questions": [
+      "角色拥有哪些不可替代的性格弱点、欲望与独特魅力？",
+      "这些特质如何在对白、动作与技能中自然流露？"
+    ]
+  },
+  {
+    "id": 67,
+    "name_en": "Lens of World Building",
+    "name_cn": "世界构建透镜",
+    "category": "世界构建与叙事",
+    "tags": [
+      "world",
+      "lore",
+      "immersion"
+    ],
+    "questions": [
+      "这个虚构世界的历史、生态、文化和法则是否自洽且令人信服？",
+      "世界中是否留下了引人入胜的未解之谜与环境叙事碎片？"
+    ]
+  },
+  {
+    "id": 68,
+    "name_en": "Lens of Narrative Tension",
+    "name_cn": "叙事张力透镜",
+    "category": "世界构建与叙事",
+    "tags": [
+      "story",
+      "pacing",
+      "tension"
+    ],
+    "questions": [
+      "推动故事前进的核心悬念与戏剧危机是什么？",
+      "叙事张力的高潮是否与游戏中最艰难的机制 Boss 战精确重合？"
+    ]
+  },
+  {
+    "id": 69,
+    "name_en": "Lens of Simple Story",
+    "name_cn": "简单叙事透镜",
+    "category": "世界构建与叙事",
+    "tags": [
+      "story",
+      "clarity",
+      "theme"
+    ],
+    "questions": [
+      "如果必须用一句话向从未接触过游戏的人讲清故事主线，那句话是什么？",
+      "故事是否因为堆砌了过多生造词汇而变得臃肿不堪？"
+    ]
+  },
+  {
+    "id": 70,
+    "name_en": "Lens of Story Branching",
+    "name_cn": "故事分支透镜",
+    "category": "世界构建与叙事",
+    "tags": [
+      "story",
+      "branching",
+      "agency"
+    ],
+    "questions": [
+      "剧情分支是真正改变了世界走向，还是仅仅最终殊途同归的假象？",
+      "分支内容的制作成本与玩家体验回报是否匹配？"
+    ]
+  },
+  {
+    "id": 71,
+    "name_en": "Lens of Indirect Narrative",
+    "name_cn": "间接叙事透镜",
+    "category": "世界构建与叙事",
+    "tags": [
+      "story",
+      "environmental",
+      "world"
+    ],
+    "questions": [
+      "世界中的道具描述、建筑废墟、壁画与尸体姿势在向玩家讲述什么无声故事？",
+      "玩家能否通过拼凑线索自发还原历史真相？"
+    ]
+  },
+  {
+    "id": 72,
+    "name_en": "Lens of Ludonarrative Harmony",
+    "name_cn": "玩法叙事协同透镜",
+    "category": "世界构建与叙事",
+    "tags": [
+      "story",
+      "mechanics",
+      "tetrad",
+      "harmony"
+    ],
+    "questions": [
+      "玩家在游玩时反复执行的机械操作（如杀敌搜刮），是否与其扮演角色的道德信念相冲突？",
+      "机制与剧情是否在同向强化同一种情感共振？"
+    ]
+  },
+  {
+    "id": 73,
+    "name_en": "Lens of Character Desire",
+    "name_cn": "角色欲望透镜",
+    "category": "世界构建与叙事",
+    "tags": [
+      "character",
+      "motivation",
+      "story"
+    ],
+    "questions": [
+      "主角与反派各自最渴望得到什么？",
+      "这种深层渴望如何驱动了整部游戏的核心矛盾？"
+    ]
+  },
+  {
+    "id": 74,
+    "name_en": "Lens of Emotional Resonance",
+    "name_cn": "情感共鸣透镜",
+    "category": "世界构建与叙事",
+    "tags": [
+      "emotion",
+      "story",
+      "resonance"
+    ],
+    "questions": [
+      "剧情中的关键悲喜时刻能否触及人类共通的普世情感？",
+      "故事是否让玩家产生了真正的同理心与情感羁绊？"
+    ]
+  },
+  {
+    "id": 75,
+    "name_en": "Lens of Unspoken Narrative",
+    "name_cn": "叙事留白透镜",
+    "category": "世界构建与叙事",
+    "tags": [
+      "story",
+      "imagination",
+      "subtle"
+    ],
+    "questions": [
+      "故事中有哪些悬而未决的谜团故意没有给出标准答案？",
+      "这种留白是否给玩家留下了持久的讨论与遐想空间？"
+    ]
+  },
+  {
+    "id": 76,
+    "name_en": "Lens of Style and Tone",
+    "name_cn": "风格与语调透镜",
+    "category": "美学与感知",
+    "tags": [
+      "aesthetics",
+      "style",
+      "art"
+    ],
+    "questions": [
+      "视觉与听觉风格（像素、赛博朋克、水墨、吉卜力风）是否与故事和机制完美契合？",
+      "是否存在破坏风格一致性的突兀元素？"
+    ]
+  },
+  {
+    "id": 77,
+    "name_en": "Lens of Atmosphere",
+    "name_cn": "氛围透镜",
+    "category": "美学与感知",
+    "tags": [
+      "atmosphere",
+      "aesthetics",
+      "immersion"
+    ],
+    "questions": [
+      "光影、雾气、背景音效与微尘细节如何共同编织出独特的‘场所感（Sense of Place）’？"
+    ]
+  },
+  {
+    "id": 78,
+    "name_en": "Lens of Audio World",
+    "name_cn": "听觉世界透镜",
+    "category": "美学与感知",
+    "tags": [
+      "audio",
+      "music",
+      "immersion"
+    ],
+    "questions": [
+      "音效不仅在提供机制反馈，是否还在为世界注入生命与温度？",
+      "音乐的动态切换是否精准踩中了玩家的情绪节拍？"
+    ]
+  },
+  {
+    "id": 79,
+    "name_en": "Lens of Visual Hierarchy",
+    "name_cn": "视觉层次透镜",
+    "category": "美学与感知",
+    "tags": [
+      "visual",
+      "ui",
+      "framing"
+    ],
+    "questions": [
+      "画面的主要元素、次要元素与背景底色对比是否分明？",
+      "玩家能否在 0.1 秒内从复杂场景中看清危险与目标？"
+    ]
+  },
+  {
+    "id": 80,
+    "name_en": "Lens of Aesthetic Coherence",
+    "name_cn": "美学连贯性透镜",
+    "category": "美学与感知",
+    "tags": [
+      "aesthetics",
+      "coherence",
+      "art"
+    ],
+    "questions": [
+      "UI、角色建模、特效与场景美术在材质、色调与笔触上是否高度统一？"
+    ]
+  },
+  {
+    "id": 81,
+    "name_en": "Lens of Sensory Immersion",
+    "name_cn": "沉浸感知透镜",
+    "category": "美学与感知",
+    "tags": [
+      "immersion",
+      "sensory",
+      "feel"
+    ],
+    "questions": [
+      "视听反馈能否激发玩家其他感官的联觉（如冰冷的触感、金属的酸涩、灼热的温度）？"
+    ]
+  },
+  {
+    "id": 82,
+    "name_en": "Lens of Audio Resonance",
+    "name_cn": "情绪共鸣声效透镜",
+    "category": "美学与感知",
+    "tags": [
+      "audio",
+      "emotion",
+      "juice"
+    ],
+    "questions": [
+      "关键事件的音效（升级、绝杀、死亡）是否具有强烈的心理暗示与成瘾性？"
+    ]
+  },
+  {
+    "id": 83,
+    "name_en": "Lens of Symbolism",
+    "name_cn": "符号与暗示透镜",
+    "category": "美学与感知",
+    "tags": [
+      "symbolism",
+      "art",
+      "theme"
+    ],
+    "questions": [
+      "游戏中的重要道具、建筑或颜色是否承载了隐喻与文化符号？",
+      "这些符号如何潜移默化地传达深层主题？"
+    ]
+  },
+  {
+    "id": 84,
+    "name_en": "Lens of Haptic Aesthetics",
+    "name_cn": "触觉与手感美学透镜",
+    "category": "美学与感知",
+    "tags": [
+      "game-feel",
+      "haptics",
+      "controller"
+    ],
+    "questions": [
+      "手柄震动的频率、强弱与方向是否精确对应了游戏内的物理动作？"
+    ]
+  },
+  {
+    "id": 85,
+    "name_en": "Lens of Aesthetic Minimalism",
+    "name_cn": "极简美学透镜",
+    "category": "美学与感知",
+    "tags": [
+      "minimalism",
+      "clarity",
+      "art"
+    ],
+    "questions": [
+      "画面中是否存在可以删掉却不影响体验的冗余装饰？",
+      "极简设计是否放大了核心体验的纯粹之美？"
+    ]
+  },
+  {
+    "id": 86,
+    "name_en": "Lens of Economy",
+    "name_cn": "虚拟经济透镜",
+    "category": "经济与平衡",
+    "tags": [
+      "economy",
+      "sources-sinks",
+      "balance"
+    ],
+    "questions": [
+      "经济系统中的‘水龙头 (产出)’与‘沉没口 (消耗)’是否动态平衡？",
+      "是否会出现恶性通货膨胀导致货币贬值？"
+    ]
+  },
+  {
+    "id": 87,
+    "name_en": "Lens of Trade",
+    "name_cn": "交易与流动性透镜",
+    "category": "经济与平衡",
+    "tags": [
+      "economy",
+      "trade",
+      "market"
+    ],
+    "questions": [
+      "玩家之间或与 NPC 之间的交易规则是否创造了双赢与策略博弈？",
+      "商品的流通速率是否健康？"
+    ]
+  },
+  {
+    "id": 88,
+    "name_en": "Lens of Elegance",
+    "name_cn": "优雅度透镜",
+    "category": "经济与平衡",
+    "tags": [
+      "elegance",
+      "simplicity",
+      "rules",
+      "nintendo"
+    ],
+    "questions": [
+      "游戏规则是否极简、纯粹，却能产生极为丰富深邃的变化？",
+      "是否存在为了修补局部 bug 而生硬添加大量复杂例外规则的丑陋设计？"
+    ]
+  },
+  {
+    "id": 89,
+    "name_en": "Lens of Character",
+    "name_cn": "性格透镜",
+    "category": "经济与平衡",
+    "tags": [
+      "identity",
+      "uniqueness",
+      "gameplay"
+    ],
+    "questions": [
+      "这款游戏在同品类中是否拥有不可替代的独特‘脾气’与辨识度？"
+    ]
+  },
+  {
+    "id": 90,
+    "name_en": "Lens of Dynamic Balance",
+    "name_cn": "动态平衡透镜",
+    "category": "经济与平衡",
+    "tags": [
+      "balance",
+      "feedback",
+      "system"
+    ],
+    "questions": [
+      "当系统偏离稳态时，负反馈机制是否能自动将其拉回？",
+      "领先者与落后者的差距是否维持在刺激的悬念区间？"
+    ]
+  },
+  {
+    "id": 91,
+    "name_en": "Lens of System Convergence",
+    "name_cn": "系统收敛透镜",
+    "category": "经济与平衡",
+    "tags": [
+      "system",
+      "convergence",
+      "rules"
+    ],
+    "questions": [
+      "游戏机制是否确保每一局必然会走向终局，而不是无限拖延僵持？"
+    ]
+  },
+  {
+    "id": 92,
+    "name_en": "Lens of Resource Circulation",
+    "name_cn": "资源流转透镜",
+    "category": "经济与平衡",
+    "tags": [
+      "economy",
+      "resources",
+      "circulation"
+    ],
+    "questions": [
+      "低阶闲置资源是否提供了向高阶资源转化的有效通道？",
+      "资源的获取与消耗是否能带动多个系统的协同运转？"
+    ]
+  },
+  {
+    "id": 93,
+    "name_en": "Lens of Vicious Loop Prevention",
+    "name_cn": "恶性循环阻断透镜",
+    "category": "经济与平衡",
+    "tags": [
+      "balance",
+      "feedback",
+      "deadlock"
+    ],
+    "questions": [
+      "玩家一旦遭遇挫败，是否会陷入‘没钱修装备 -> 无法打怪 -> 彻底弃坑’的死锁？",
+      "系统是否设置了最低保底与防雪崩安全阀？"
+    ]
+  },
+  {
+    "id": 94,
+    "name_en": "Lens of Probability Transparency",
+    "name_cn": "概率透明度透镜",
+    "category": "经济与平衡",
+    "tags": [
+      "probability",
+      "clarity",
+      "random"
+    ],
+    "questions": [
+      "玩家对随机事件的成功概率预期是否准确？",
+      "是否有伪随机（PRD/保底）消除极度倒霉带来的负面体验？"
+    ]
+  },
+  {
+    "id": 95,
+    "name_en": "Lens of Complexity Threshold",
+    "name_cn": "复杂性阈值透镜",
+    "category": "经济与平衡",
+    "tags": [
+      "complexity",
+      "rules",
+      "system"
+    ],
+    "questions": [
+      "新增的数值维度或系统是否带来了等比例的玩法乐趣提升？",
+      "系统的复杂度是否突破了玩家心智承受的临界点？"
+    ]
+  },
+  {
+    "id": 96,
+    "name_en": "Lens of Motivation",
+    "name_cn": "动机透镜",
+    "category": "动机与留存",
+    "tags": [
+      "motivation",
+      "reward",
+      "retention"
+    ],
+    "questions": [
+      "驱使玩家持续投入的根本动力是外在打卡奖励，还是纯粹的内在动机？",
+      "机制设计是否在不经意间用外在奖励摧毁了内在乐趣（过度理由效应）？"
+    ]
+  },
+  {
+    "id": 97,
+    "name_en": "Lens of Progress",
+    "name_cn": "进度感透镜",
+    "category": "动机与留存",
+    "tags": [
+      "progression",
+      "retention",
+      "reward"
+    ],
+    "questions": [
+      "玩家无论投入 5 分钟还是 5 小时，能否清晰感知到阶段性积累与成长里程碑？"
+    ]
+  },
+  {
+    "id": 98,
+    "name_en": "Lens of Delight",
+    "name_cn": "惊喜时刻透镜",
+    "category": "动机与留存",
+    "tags": [
+      "delight",
+      "easter-egg",
+      "emotion"
+    ],
+    "questions": [
+      "游戏中是否有那些让人会心一笑、毫无功利性的彩蛋与温暖细节？"
+    ]
+  },
+  {
+    "id": 99,
+    "name_en": "Lens of Sunk Cost & Commitment",
+    "name_cn": "沉没成本与承诺透镜",
+    "category": "动机与留存",
+    "tags": [
+      "retention",
+      "psychology",
+      "progression"
+    ],
+    "questions": [
+      "玩家在游戏中积累的心血（基地、角色、收藏）是否促成了对游戏世界的深层认同？",
+      "这种认同是出于热爱还是被迫打卡的痛苦捆绑？"
+    ]
+  },
+  {
+    "id": 100,
+    "name_en": "Lens of the Curiosity Gap",
+    "name_cn": "好奇心缺口透镜",
+    "category": "动机与留存",
+    "tags": [
+      "curiosity",
+      "retention",
+      "exploration"
+    ],
+    "questions": [
+      "在玩家准备关掉游戏的那一刻，是否留下了一个‘差一点就能完成’的悬念勾子？"
+    ]
+  },
+  {
+    "id": 101,
+    "name_en": "Lens of Habit Formation",
+    "name_cn": "习惯养成透镜",
+    "category": "动机与留存",
+    "tags": [
+      "habit",
+      "retention",
+      "loop"
+    ],
+    "questions": [
+      "游戏的游玩节拍是否契合玩家现实生活中的固定场景与触发提示？"
+    ]
+  },
+  {
+    "id": 102,
+    "name_en": "Lens of Cognitive Dissonance",
+    "name_cn": "认知失调透镜",
+    "category": "动机与留存",
+    "tags": [
+      "psychology",
+      "decision",
+      "story"
+    ],
+    "questions": [
+      "当玩家做出艰难的道德抉择后，游戏如何强化其对自身选择的认同感？"
+    ]
+  },
+  {
+    "id": 103,
+    "name_en": "Lens of Social Proof",
+    "name_cn": "社交证明透镜",
+    "category": "动机与留存",
+    "tags": [
+      "social",
+      "proof",
+      "retention"
+    ],
+    "questions": [
+      "玩家能否看到好友或其他玩家的高光成就与热门打法？",
+      "这种社群示范效应是否激发了新的尝试欲望？"
+    ]
+  },
+  {
+    "id": 104,
+    "name_en": "Lens of Loss Aversion",
+    "name_cn": "损失厌恶透镜",
+    "category": "动机与留存",
+    "tags": [
+      "risk-reward",
+      "psychology",
+      "economy"
+    ],
+    "questions": [
+      "机制中潜在的失去（掉落装备、连击中断）是否被用于营造心跳刺激？",
+      "损失惩罚是否过度导致玩家产生心理抗拒而放弃？"
+    ]
+  },
+  {
+    "id": 105,
+    "name_en": "Lens of Profit",
+    "name_cn": "利润与商业模式透镜",
+    "category": "商业与团队",
+    "tags": [
+      "business",
+      "monetization",
+      "pitch"
+    ],
+    "questions": [
+      "游戏的商业变现模式（买断制、F2P、订阅、DLC）是否尊重玩家体验？",
+      "商业化手段是否侵蚀了游戏核心机制的纯粹性与平衡性？"
+    ]
+  },
+  {
+    "id": 106,
+    "name_en": "Lens of Pitch",
+    "name_cn": "宣传与卖点透镜",
+    "category": "商业与团队",
+    "tags": [
+      "pitch",
+      "marketing",
+      "core"
+    ],
+    "questions": [
+      "能否用 10 秒钟向一个路人说清楚这款游戏为什么独一无二且不可错过？"
+    ]
+  },
+  {
+    "id": 107,
+    "name_en": "Lens of Customer Value",
+    "name_cn": "客户价值透镜",
+    "category": "商业与团队",
+    "tags": [
+      "value",
+      "customer",
+      "business"
+    ],
+    "questions": [
+      "玩家花费的金钱与时间，是否换来了远超预期的精神愉悦与独特体验？"
+    ]
+  },
+  {
+    "id": 108,
+    "name_en": "Lens of Team Dynamics",
+    "name_cn": "团队协作透镜",
+    "category": "商业与团队",
+    "tags": [
+      "team",
+      "production",
+      "management"
+    ],
+    "questions": [
+      "开发团队内部沟通是否顺畅？每个人对游戏愿景的理解是否完全同步？"
+    ]
+  },
+  {
+    "id": 109,
+    "name_en": "Lens of Prototype Validation",
+    "name_cn": "原型验证透镜",
+    "category": "商业与团队",
+    "tags": [
+      "prototype",
+      "playtesting",
+      "production"
+    ],
+    "questions": [
+      "当前阶段的原型是否以最低成本验证了最致命的核心假设？"
+    ]
+  },
+  {
+    "id": 110,
+    "name_en": "Lens of Risk Management",
+    "name_cn": "风险管理透镜",
+    "category": "商业与团队",
+    "tags": [
+      "risk",
+      "production",
+      "timeline"
+    ],
+    "questions": [
+      "项目中最大的技术、美术或设计不确定性是什么？",
+      "是否有明确的降级备选方案？"
+    ]
+  },
+  {
+    "id": 111,
+    "name_en": "Lens of Playtesting",
+    "name_cn": "玩家测试透镜",
+    "category": "商业与团队",
+    "tags": [
+      "playtesting",
+      "feedback",
+      "iteration"
+    ],
+    "questions": [
+      "我们是否定期引入从未接触过游戏的全新测试员进行盲测？",
+      "我们是在观察玩家的真实行为，还是在试图替游戏辩护？"
+    ]
+  },
+  {
+    "id": 112,
+    "name_en": "Lens of Vision Alignment",
+    "name_cn": "愿景对齐透镜",
+    "category": "商业与团队",
+    "tags": [
+      "vision",
+      "pitch",
+      "team"
+    ],
+    "questions": [
+      "随着开发推进，游戏是否偏离了最初打动人心的核心体验愿景？"
+    ]
+  },
+  {
+    "id": 113,
+    "name_en": "Lens of the Secret Word",
+    "name_cn": "魔法单词透镜",
+    "category": "终极检验",
+    "tags": [
+      "core",
+      "theme",
+      "soul"
+    ],
+    "questions": [
+      "如果用一个最神圣、纯粹的词汇来定义这款游戏的灵魂，那个词是什么？",
+      "我们的每一次修改，是否让这个词的光芒更加耀眼？"
+    ]
+  }
+]
