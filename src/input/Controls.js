@@ -1,4 +1,4 @@
-import { STARTER_WEAPONS, WEAPON_SLOTS, WEAPONS } from '../config.js';
+import { SLOT_KEYS, SLOT_KEY_BASE } from '../config.js';
 
 export class Controls {
   constructor(canvas, hud) {
@@ -10,10 +10,8 @@ export class Controls {
     this.firing = false;
     this.firePressed = false;
     this.jumpQueued = false;
-    this.weaponRequest = -1;
     this.lootRequest = false;
-    // 武器槽请求：0..count-1 选中槽，-1 无。与 starter 的 weaponRequest 分开，
-    // 因为两者是两套完全不同的槽位（1-6 植物栏 / 7-9 战利品槽）。
+    // 武器槽请求：0..SLOT_KEYS.length-1 选中槽，-1 无。数字键 1-5 对应五个角色槽。
     this.slotRequest = -1;
     this.dropSlotRequest = false;
     this.slotCycle = 0;
@@ -40,11 +38,10 @@ export class Controls {
       this.keys.clear();
       this.firing = false;
       this.firePressed = false;
-      this.weaponRequest = -1;
-      this.lootRequest = false;
+        this.lootRequest = false;
       this.slotRequest = -1;
       this.dropSlotRequest = false;
-      this.slotCycle = 0;
+        this.slotCycle = 0;
       this.joyId = null;
       this.lookId = null;
       this.move.x = 0;
@@ -78,12 +75,6 @@ export class Controls {
     return f;
   }
 
-  consumeWeaponRequest() {
-    const w = this.weaponRequest;
-    this.weaponRequest = -1;
-    return w;
-  }
-
   consumeLootRequest() {
     const v = this.lootRequest;
     this.lootRequest = false;
@@ -97,7 +88,7 @@ export class Controls {
     return v;
   }
 
-  // 丢弃当前槽（G / Backspace）。
+  // 丢弃当前槽（Backspace；G 现在留给手雷蓄力）。
   consumeDropRequest() {
     const v = this.dropSlotRequest;
     this.dropSlotRequest = false;
@@ -259,25 +250,18 @@ export class Controls {
       if (e.code === 'Space') this.jumpQueued = true;
       if (e.code.indexOf('Digit') === 0) {
         const n = parseInt(e.code.slice(5), 10);
-        // 1-6 = 植物栏（豌豆/寒冰/樱桃/玉米炮/坚果/火豌豆）
-        // 注意：weaponRequest 是 WEAPONS 的**全局数组下标**，不是 starter 列表里的序号。
-        // 坚果/火豌豆在数组末尾（10/11），因为它们必须追加在末尾以免打乱既有下标；
-        // 直接写 n-1 会让 5/6 指到地面拾取的双发/三线（4/5），坚果和火豌豆永远按不出来。
-        if (n >= 1 && n <= STARTER_WEAPONS.length) {
-          this.weaponRequest = WEAPONS.indexOf(STARTER_WEAPONS[n - 1]);
-        }
-        // 7-9 = 武器槽（战利品，槽满才会用到 8/9）
-        const slot = n - STARTER_WEAPONS.length - 1;
-        if (n > STARTER_WEAPONS.length && slot >= 0 && slot < WEAPON_SLOTS.count) {
-          this.slotRequest = slot;
-        }
+        // 1-5 = 五个角色槽（豌豆 / 枪② / 大杀器 / 手雷 / 护盾）。
+        // 植物栏已取消，所以只有这一套槽位请求，不再有 weaponRequest 的下标换算。
+        const sIdx = n - SLOT_KEY_BASE;
+        if (sIdx >= 0 && sIdx < SLOT_KEYS.length) this.slotRequest = sIdx;
       }
       if (e.code === 'KeyQ') this.lootRequest = true;
       if (e.code === 'Tab') {
         e.preventDefault();
         this.slotCycle = e.shiftKey ? -1 : 1;
       }
-      if (e.code === 'KeyG' || e.code === 'Backspace') this.dropSlotRequest = true;
+      // G 不再丢弃：G 是手雷的蓄力键（按住蓄力、松手投出），丢弃挪到 Backspace
+      if (e.code === 'Backspace') this.dropSlotRequest = true;
       this.keys.add(e.code);
     });
     window.addEventListener('keyup', (e) => {

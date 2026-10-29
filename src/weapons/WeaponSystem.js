@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { WEAPONS, WEAPON_SLOTS } from '../config.js';
+import { WEAPONS, WEAPON_SLOTS, SLOT_KEYS, GRENADE, PEA_ID } from '../config.js';
 import { toon } from '../world/materials.js';
 import { clamp, segmentSphereT, damp } from '../utils.js';
 
@@ -40,12 +40,13 @@ export class WeaponSystem {
     // 充能制植物（坚果）：charges 是当前囤了几颗，recharge 是每颗回复秒数。
     // 非充能植物恒为 Infinity，走原来的路径，行为零变化。
     this.charges = WEAPONS.map((w) => (w.maxCharges ? w.maxCharges : Infinity));
-    // 武器槽：每个槽存一个武器 index，-1 表示空槽。可以同时持有 WEAPON_SLOTS.count 把。
-    this.slots = new Array(WEAPON_SLOTS.count).fill(-1);
-    // 当前激活的槽（-1 = 手上是植物栏里的初始植物）
-    this.activeSlot = -1;
-    // 槽满时的"替换哪一格？"等待：{ index, timer }
-    this.replacePrompt = null;
+    // 武器槽（按角色）：{ gun: [i0, i1], grenade: i, demo: i, shield: i }，-1 表示空。
+    // 槽位本身带角色，所以"同类替换"天然成立，不需要再弹窗问玩家替换哪一格。
+    this.slots = this.makeSlots();
+    // 当前激活的槽（null = 手上是植物栏里的植物），形如 { role, pos }
+    this.activeSlot = null;
+    // 手雷蓄力：0 = 没在蓄力；> 0 表示已蓄的秒数（松手投出）
+    this.charge = 0;
     this.dropHold = -1;
     this.dropHoldT = 0;
     this.locked = false;
@@ -58,7 +59,23 @@ export class WeaponSystem {
     this.root = new THREE.Group();
     this.camera.add(this.root);
     this.buildViewModels();
-    this.equip(0, true);
+    this.mountPea();
+    this.equip(this.slots.peaGun[0], true);
+  }
+
+  makeSlots() {
+    const slots = {};
+    for (const role of ['peaGun', 'gun', 'demo', 'grenade', 'shield']) {
+      slots[role] = new Array(WEAPON_SLOTS[role]).fill(-1);
+    }
+    return slots;
+  }
+
+  // 豌豆常驻 1 号枪槽：开局就装好，任何操作都换不掉它
+  mountPea() {
+    const idx = WEAPONS.findIndex((w) => w.id === PEA_ID);
+    if (idx >= 0) this.slots.peaGun[0] = idx;
+    return idx;
   }
 
   buildViewModels() {
@@ -663,12 +680,40 @@ export class WeaponSystem {
     this.portrait = aspect < 1;
   }
 
+  // 手上的武器变了 → 同步盾的展开/收起状态。注意是「收起」不是「破盾」：
+  // 盾血原样保留，切回坚果会自动重新展开接着用，只有盾血掉到 0 才是真破。
+  syncShieldWithHand(nextIndex) {
+    const walls = this.ctx.wallNuts;
+    if (!walls) return false;
+    const next = WEAPONS[nextIndex];
+    const holdingNut = !!next && next.kind === 'shield';
+    if (holdingNut) {
+      // 切回坚果：盾血还在就自动举起来（不用再花阳光）
+      if (walls.deploy()) {
+        this.ctx.hud.showBanner('盾已举起 · ' + Math.ceil(walls.hp) + ' 盾血', 1.2);
+        return true;
+      }
+      return false;
+    }
+    // 切走：收起来，盾血保留，人开始正常承伤
+    if (walls.stow()) {
+      this.ctx.hud.showBanner('盾已收起 · 剩 ' + Math.ceil(walls.hp) + ' 盾血', 1.2);
+      return true;
+    }
+    return false;
+  }
+
   equip(index, silent) {
     if (index < 0 || index >= WEAPONS.length) return;
     const def = WEAPONS[index];
-    // 初始植物永远可切；战利品必须在某个槽里（否则就是"没有这把枪"）
-    if (!def.starter && this.slotOf(index) < 0) return;
-    this.activeSlot = def.starter ? -1 : this.slotOf(index);
+    // 五个槽是独占的：手上只能举一个。切走坚果 = 把盾收起来（盾血保留），切回来再展开。
+    this.syncShieldWithHand(index);
+    // 不管是不是植物栏的植物：在槽里就用槽，不在槽里且又不是植物栏就切不到
+    const at = this.slotIndexOf(index);
+    if (!def.starter && !at) return;
+    // activeSlot 看的是"手上这把现在归哪个槽"，不是"它是不是战利品"：
+    // 植物栏的武器被捡进槽位之后，手上举的就是那一格，切枪/角标都按它走。
+    this.activeSlot = at;
     this.current = index;
     for (let i = 0; i < this.models.length; i++) this.models[i].group.visible = i === index;
     this.swapAnim = 1;
@@ -676,139 +721,159 @@ export class WeaponSystem {
     this.ctx.hud.setActiveSlot(this.activeSlot);
     if (def.starter) {
       this.ctx.hud.setAmmo(0, 0, false);
-      // 充能植物（坚果）把剩余颗数画在植物栏那格的角标上
-      this.ctx.hud.setCharges(index, this.charges[index], def.maxCharges);
+      // 充能植物（坚果）把剩余颗数画在它那格的角标上
+      if (def.maxCharges) this.ctx.hud.setCharges(index, this.charges[index], def.maxCharges);
     } else {
       this.ctx.hud.setAmmo(this.ammo[index], def.ammo, true, this.locked);
     }
     if (!silent) this.ctx.sfx.click();
   }
 
-  // 某个武器现在在哪个槽里（-1 = 不在槽里）
-  slotOf(index) {
-    for (let i = 0; i < this.slots.length; i++) if (this.slots[i] === index) return i;
-    return -1;
+  // 某个武器现在在哪个槽里：返回 { role, pos }，不在槽里返回 null
+  slotIndexOf(index) {
+    for (const role of Object.keys(this.slots)) {
+      const arr = this.slots[role];
+      for (let i = 0; i < arr.length; i++) if (arr[i] === index) return { role, pos: i };
+    }
+    return null;
   }
 
-  // 切到某个槽：空格子也允许（按 8 没东西就什么都不做，不打断当前武器）
-  equipSlot(slot) {
-    if (slot < 0 || slot >= this.slots.length) return false;
-    const idx = this.slots[slot];
+  // 某个角色的槽位里有几格
+  slotCount(role) {
+    const arr = this.slots[role];
+    return arr ? arr.length : 0;
+  }
+
+  // 把索引 index 从它所在的槽里摘掉（不处理弹药/地面）
+  takeOut(index) {
+    const at = this.slotIndexOf(index);
+    if (!at) return false;
+    this.slots[at.role][at.pos] = -1;
+    return true;
+  }
+
+  // 切到某个槽位（role + 格号）。空格子点了没反应，不打断当前武器。
+  equipSlot(role, pos) {
+    const at = typeof role === 'object' && role !== null ? role : { role, pos: pos || 0 };
+    const arr = this.slots[at.role];
+    if (!arr || at.pos < 0 || at.pos >= arr.length) return false;
+    const idx = arr[at.pos];
     if (idx < 0) return false;
     this.equip(idx);
     return true;
   }
 
-  // 换一个还有弹药的槽（Tab / 滚轮）。跳过空槽与打空的槽。
+  // 换一个有枪的槽（Tab / 滚轮）：按 SLOT_ORDER（枪①② → 大杀器 → 手雷）循环，跳过空槽
   cycleSlot(dir) {
-    const n = this.slots.length;
-    if (n === 0) return;
-    let start = this.activeSlot < 0 ? (dir > 0 ? -1 : 0) : this.activeSlot;
-    for (let k = 1; k <= n; k++) {
-      const s = ((start + dir * k) % n + n) % n;
-      if (this.slots[s] >= 0) {
-        this.equipSlot(s);
-        return;
-      }
+    const flat = [];
+    for (const role of ['peaGun', 'gun', 'demo', 'grenade', 'shield']) {
+      const arr = this.slots[role] || [];
+      for (let i = 0; i < arr.length; i++) if (arr[i] >= 0) flat.push({ role, pos: i });
     }
+    if (flat.length === 0) return;
+    let at = -1;
+    if (this.activeSlot) {
+      at = flat.findIndex((f) => f.role === this.activeSlot.role && f.pos === this.activeSlot.pos);
+    }
+    const next = at < 0 ? (dir > 0 ? 0 : flat.length - 1) : ((at + dir) % flat.length + flat.length) % flat.length;
+    this.equipSlot(flat[next]);
   }
 
-  trySwitch(dir) {
-    const starters = [];
-    for (let i = 0; i < WEAPONS.length; i++) if (WEAPONS[i].starter) starters.push(i);
-    let pos = starters.indexOf(this.current);
-    if (pos < 0) pos = 0;
-    this.equip(starters[(pos + dir + starters.length) % starters.length]);
-  }
-
-  // 拾取：先进空槽；槽满时不吞，而是弹「替换哪一格？」让玩家自己决定。
+  // 拾取：按 def.slot 找到该武器的角色槽，同槽满了就替换，旧枪掉在脚边。
   // 返回值语义：true = 已经被拿走（拾取物该消失）；false = 暂时没拿走（拾取物留在地上）。
+  // 植物栏里的植物（starter）也能捡进槽位：那是"加一个编排"，不改变它免费的植物栏身份。
   pickup(index) {
     const def = WEAPONS[index];
-    if (!def || def.starter) return false;
+    if (!def || !def.slot) return false;
 
-    // 已经有一把同型号：补满弹药到原来那个槽，不占新格子
-    const existing = this.slotOf(index);
-    if (existing >= 0) {
+    // 已经在身上：补满弹药，切过去，不占新格子
+    const at = this.slotIndexOf(index);
+    if (at) {
       this.ammo[index] = def.ammo;
       this.locked = false;
-      this.equipSlot(existing);
-      this.ctx.hud.setAmmo(def.ammo, def.ammo, true, false);
+      this.equipSlot(at);
       this.ctx.hud.showBanner(def.name + ' 补满 · ' + def.ammo + ' 发', 1.4);
       this.ctx.sfx.pickup();
       return true;
     }
 
-    const empty = this.slots.indexOf(-1);
+    // 豌豆常驻槽不接受任何其他武器；它自己也永远不会走到这里（开局已装好）
+    if (def.slot === 'peaGun') return false;
+    const arr = this.slots[def.slot] || [];
+    const empty = arr.indexOf(-1);
     if (empty >= 0) {
-      this.placeInSlot(empty, index);
+      this.placeInSlot(def.slot, empty, index);
       this.ctx.hud.showBanner('拾取 ' + def.name + ' · ' + def.ammo + ' 发', 1.8);
       this.ctx.sfx.pickup();
       return true;
     }
 
-    // 槽满：进入待替换状态。拾取物留在原地等玩家选（超时就自然留在地上）。
-    this.replacePrompt = { index, timer: WEAPON_SLOTS.replacePick };
-    this.ctx.hud.showBanner('槽位已满 · 按 7/8/9 替换哪一格？', WEAPON_SLOTS.replacePick);
-    this.ctx.hud.setReplacePrompt(true);
-    this.ctx.sfx.deny();
-    return false;
-  }
-
-  placeInSlot(slot, index) {
-    const def = WEAPONS[index];
-    // 同一把枪同时只占一个槽：先把它从旧槽摘掉
-    const dup = this.slotOf(index);
-    if (dup >= 0) this.slots[dup] = -1;
-    this.slots[slot] = index;
-    this.ammo[index] = def.ammo;
-    this.locked = false;
-    this.replacePrompt = null;
-    this.ctx.hud.setReplacePrompt(false);
-    this.ctx.hud.setSlots(this.slots);
-    this.equip(index, true);
-  }
-
-  // 把待替换的武器放进指定槽（玩家按 7/8/9，或点槽位）
-  resolveReplace(slot) {
-    if (!this.replacePrompt) return false;
-    if (slot < 0 || slot >= this.slots.length) return false;
-    const index = this.replacePrompt.index;
-    const old = this.slots[slot];
-    if (old >= 0 && old !== index) this.ammo[old] = 0;
-    this.placeInSlot(slot, index);
-    const def = WEAPONS[index];
-    this.ctx.hud.showBanner(def.name + ' · ' + def.ammo + ' 发', 1.5);
+    // 槽满了：直接顶掉这一格（枪槽只有一个可换位，豌豆那格不参与）。
+    const pos = 0;
+    const old = arr[pos];
+    if (old >= 0) this.eject(old);
+    this.placeInSlot(def.slot, pos, index);
+    const oldName = old >= 0 ? WEAPONS[old].name : '';
+    this.ctx.hud.showBanner(
+      oldName ? '换装 ' + def.name + ' ↑ ' + oldName + ' 掉在地上' : '拾取 ' + def.name,
+      1.8
+    );
     this.ctx.sfx.pickup();
     return true;
   }
 
-  // 丢掉某个槽：枪不消失，掉回地面可以回去捡（吃鸡的必备动作）
-  dropSlot(slot) {
-    if (slot < 0 || slot >= this.slots.length) return false;
-    const idx = this.slots[slot];
-    if (idx < 0) return false;
-    const def = WEAPONS[idx];
-    // 先把位置记下来再清空，落到玩家脚边
+  // 把一个仍在槽里的武器踢出去：清弹药、掉回脚边（吃鸡式替换的旧枪不消失）
+  eject(index) {
+    if (index < 0) return;
+    this.takeOut(index);
+    this.ammo[index] = 0;
+    if (this.current === index) this.locked = false;
+    this.dropOnGround(index);
+  }
+
+  // 在玩家脚边生成一个可再捡起的拾取物
+  dropOnGround(index) {
     const p = this.player.pos;
     const ahead = 1.6;
     const yaw = this.player.yaw;
     const dropX = p.x - Math.sin(yaw) * ahead;
     const dropZ = p.z - Math.cos(yaw) * ahead;
-    this.slots[slot] = -1;
-    this.ammo[idx] = 0;
+    if (this.ctx.pickups && this.ctx.pickups.dropAt) this.ctx.pickups.dropAt(index, dropX, dropZ);
+  }
+
+  placeInSlot(role, pos, index) {
+    const def = WEAPONS[index];
+    // 同一把武器同时只占一个槽：先把它从旧槽摘掉
+    this.takeOut(index);
+    this.slots[role][pos] = index;
+    this.ammo[index] = def.ammo;
     this.locked = false;
-    if (this.ctx.pickups && this.ctx.pickups.dropAt) this.ctx.pickups.dropAt(idx, dropX, dropZ);
     this.ctx.hud.setSlots(this.slots);
-    if (this.activeSlot === slot) this.equip(0, true);
+    this.equip(index, true);
+  }
+
+  // 丢掉某个槽（role + 格号）：枪不消失，掉回地面可以回去捡
+  dropSlot(role, pos) {
+    const at = typeof role === 'object' && role !== null ? role : { role, pos: pos || 0 };
+    const arr = this.slots[at.role];
+    if (!arr || at.pos < 0 || at.pos >= arr.length) return false;
+    const idx = arr[at.pos];
+    if (idx < 0) return false;
+    // 豌豆是承重墙：阳光见底时唯一不花钱的枪，不许丢
+    if (at.role === 'peaGun') return false;
+    const def = WEAPONS[idx];
+    const wasActive = this.activeSlot && this.activeSlot.role === at.role && this.activeSlot.pos === at.pos;
+    this.eject(idx);
+    this.ctx.hud.setSlots(this.slots);
+    if (wasActive) this.equip(this.slots.peaGun[0], true);
     this.ctx.hud.showBanner(def.name + ' 已丢下', 1.4);
     return true;
   }
 
-  // 丢掉当前手上的那把（玩家主动放弃，或按 G）
+  // 丢掉当前手上的那把（按 G 时手上不是手雷就走这里）
   dropLoot() {
-    if (this.activeSlot < 0) return;
-    this.dropSlot(this.activeSlot);
+    if (!this.activeSlot) return;
+    this.dropSlot(this.activeSlot.role, this.activeSlot.pos);
   }
 
   // 打空后用阳光自动续一梭子；阳光不够则锁定，等有钱自动解锁
@@ -821,6 +886,7 @@ export class WeaponSystem {
       if (!this.locked) {
         this.locked = true;
         this.ctx.hud.setAmmo(0, def.ammo, true, true);
+        this.ctx.hud.denySun();
         this.ctx.hud.showBanner('阳光不足 · ' + def.name + ' 待续弹（' + cost + '）', 1.6);
       }
       return false;
@@ -847,27 +913,12 @@ export class WeaponSystem {
       if (i === this.current) this.ctx.hud.setCharges(i, Math.floor(this.charges[i]), w.maxCharges);
     }
 
-    // ---- 槽位交互：替换提示 > 普通选槽 > 循环 > 丢弃 ----
-    if (this.replacePrompt) {
-      this.replacePrompt.timer -= dt;
-      const pick = controls.consumeSlotRequest ? controls.consumeSlotRequest() : -1;
-      if (pick >= 0) this.resolveReplace(pick);
-      else if (this.replacePrompt.timer <= 0) {
-        // 超时不选：拾取物留在原地，不吞玩家的枪
-        this.replacePrompt = null;
-        this.ctx.hud.setReplacePrompt(false);
-        this.ctx.hud.showBanner('拾取取消', 1.0);
-      }
-    } else {
-      const slotReq = controls.consumeSlotRequest ? controls.consumeSlotRequest() : -1;
-      if (slotReq >= 0) this.equipSlot(slotReq);
-      const cycle = controls.consumeSlotCycle ? controls.consumeSlotCycle() : 0;
-      if (cycle !== 0) this.cycleSlot(cycle);
-      if (controls.consumeDropRequest && controls.consumeDropRequest()) this.dropLoot();
-    }
-
-    const req = controls.consumeWeaponRequest();
-    if (req >= 0) this.equip(req);
+    // ---- 槽位交互：选槽 > 循环 > 丢弃。槽位带角色，所以不再有"替换哪一格"的弹窗 ----
+    const slotReq = controls.consumeSlotRequest ? controls.consumeSlotRequest() : -1;
+    if (slotReq >= 0 && SLOT_KEYS[slotReq]) this.equipSlot(SLOT_KEYS[slotReq].role, SLOT_KEYS[slotReq].pos);
+    const cycle = controls.consumeSlotCycle ? controls.consumeSlotCycle() : 0;
+    if (cycle !== 0) this.cycleSlot(cycle);
+    if (controls.consumeDropRequest && controls.consumeDropRequest()) this.dropLoot();
     if (controls.consumeLootRequest && controls.consumeLootRequest()) {
       // Q：回到上一个用过的战利品槽（有就切过去，没有就回豌豆）
       this.cycleSlot(1);
@@ -878,7 +929,11 @@ export class WeaponSystem {
     this.assist = this.findAimTarget(def);
     this.ctx.hud.setAimLock(!!this.assist);
 
-    if (def.auto) {
+    // 手雷是"按住蓄力、松手投出"，不吃 auto/pressed 那套；蓄力条交给 HUD 画
+    if (def.grenade) {
+      this.updateGrenade(dt, controls, def);
+      this.ctx.hud.setCharge(def.grenade ? this.charge / GRENADE.chargeTime : 0);
+    } else if (def.auto) {
       if (controls.firing) this.tryFire(def);
     } else if (pressed) {
       this.tryFire(def);
@@ -920,6 +975,11 @@ export class WeaponSystem {
     // 坚果墙：不是「开火」，是「套盾」。先查盾有没有在、充能够不够，再扣阳光。
     if (def.kind === 'shield') {
       this.raiseShield(def, index);
+      return;
+    }
+
+    // 手雷：按住蓄力、松手投出。蓄力期间不扣任何资源，松手才判定。
+    if (def.grenade) {
       return;
     }
 
@@ -987,18 +1047,74 @@ export class WeaponSystem {
     this.player.addRecoil(def.recoil * 0.0055);
     this.ctx.particles.muzzle(tmpMuzzle, def.color);
     this.ctx.onFire(def);
-    // C2：罩内每开一枪额外扣盾血
-    this.spendShieldOnShot();
 
     if (!starter) {
       this.ctx.hud.setAmmo(this.ammo[index], def.ammo, true);
     }
   }
 
+  // 手雷蓄力：按住开火键攒 charge，松手按蓄力比例换算成投掷距离。
+  updateGrenade(dt, controls, def) {
+    if (!def.grenade) {
+      // 手上不是手雷：把没走完的蓄力清掉，避免切枪后残留
+      if (this.charge > 0) this.charge = 0;
+      return;
+    }
+    const holding = !!controls.firing;
+    if (holding) {
+      if (this.cooldown <= 0) this.charge = Math.min(GRENADE.chargeTime, this.charge + dt);
+    } else if (this.charge > 0) {
+      const ratio = this.charge / GRENADE.chargeTime;
+      this.charge = 0;
+      this.throwGrenade(def, ratio);
+    }
+  }
+
+  throwGrenade(def, ratio) {
+    if (this.cooldown > 0) return;
+    const index = this.current;
+    if (this.ammo[index] <= 0) {
+      // 手雷打空：走和以前一样的自动续弹（阳光不够就 locked，攒够自动续）
+      if (!this.tryReload()) {
+        this.ctx.sfx.deny();
+        return;
+      }
+    }
+    this.ammo[index]--;
+    this.cooldown = def.cooldown;
+
+    const model = this.models[this.current];
+    model.muzzle.getWorldPosition(tmpMuzzle);
+    const dist = clamp(GRENADE.minRange + (GRENADE.maxRange - GRENADE.minRange) * ratio, GRENADE.minRange, GRENADE.maxRange);
+    // 落点：沿相机水平朝向走 dist 米（不跟准星俯仰，手雷是"扔出去"而不是"指哪打哪"）
+    this.camera.getWorldDirection(tmpFwd);
+    const flat = Math.hypot(tmpFwd.x, tmpFwd.z) || 1;
+    tmpAim.set(
+      this.camera.position.x + (tmpFwd.x / flat) * dist,
+      0,
+      this.camera.position.z + (tmpFwd.z / flat) * dist
+    );
+    this.ctx.projectiles.throwCherry(tmpMuzzle, tmpAim, def, { dist, y: 0, point: tmpAim });
+    this.ctx.sfx.throwCherry();
+
+    this.recoil = Math.min(1.6, this.recoil + 0.9);
+    this.ctx.particles.muzzle(tmpMuzzle, def.color);
+    this.ctx.onFire(def);
+    this.ctx.hud.setAmmo(this.ammo[index], def.ammo, true);
+  }
+
   // 套盾：钱够 + 盾已碎 + 充能 ≥1 才生效。盾还在时按下去只播拒绝音（不叠加、不刷新）。
   raiseShield(def, index) {
     const walls = this.ctx.wallNuts;
     if (!walls) return;
+    // 独占规则：只有手上举着坚果才能套盾
+    if (this.current !== index) return;
+    // 手上是坚果但盾被切走时收起了：盾血还在就直接展开，不花阳光也不花充能
+    if (walls.hp > 0 && !walls.active) {
+      walls.deploy();
+      this.ctx.hud.showBanner('盾已举起 · ' + Math.ceil(walls.hp) + ' 盾血', 1.2);
+      return;
+    }
     if (walls.active && walls.hp > 0) {
       this.ctx.sfx.deny();
       this.ctx.hud.showBanner('坚果还在', 1.0);
@@ -1021,12 +1137,6 @@ export class WeaponSystem {
     this.ctx.hud.setCharges(index, Math.floor(this.charges[index]), def.maxCharges);
     this.ctx.hud.showBanner('坚果墙 · ' + def.shieldHp + ' 盾血', 1.2);
     this.ctx.onFire(def);
-  }
-
-  // 开一枪后：充能植物要额外扣盾血（C2，防止开盾站桩白嫖）
-  spendShieldOnShot() {
-    const walls = this.ctx.wallNuts;
-    if (walls && walls.active && walls.hp > 0) walls.spendShot();
   }
 
   particlesAtMuzzle(def, shots) {
@@ -1160,17 +1270,17 @@ export class WeaponSystem {
     for (let i = 0; i < WEAPONS.length; i++) {
       this.ammo[i] = WEAPONS[i].starter ? Infinity : 0;
     }
-    this.slots.fill(-1);
-    this.activeSlot = -1;
-    this.replacePrompt = null;
+    this.slots = this.makeSlots();
+    this.mountPea();
+    this.activeSlot = null;
+    this.charge = 0;
     for (let i = 0; i < WEAPONS.length; i++) {
       this.charges[i] = WEAPONS[i].maxCharges ? WEAPONS[i].maxCharges : Infinity;
     }
     if (this.ctx.wallNuts) this.ctx.wallNuts.clear();
     this.ctx.hud.setSlots(this.slots);
-    this.ctx.hud.setReplacePrompt(false);
     // 重开一局若不走武器 update（例如暂停中清 HUD），圆形准星会残留到下一局第一帧
     this.ctx.hud.setCrosshair(false);
-    this.equip(0, true);
+    this.equip(this.slots.peaGun[0], true);
   }
 }

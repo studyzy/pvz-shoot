@@ -71,9 +71,17 @@ describe('config 与文档一致', () => {
       } else {
         if (w.damage !== undefined) expect(w.damage, w.id + ' damage').toBeGreaterThan(0);
       }
-      if (!w.starter) expect(w.ammo, w.id + ' 拾取武器必须有弹药').toBeGreaterThan(0);
-      // 充能植物（坚果）必须有充能上限，否则植物栏角标没有数可画
-      if (w.maxCharges) expect(w.recharge, w.id + ' 充能植物必须有回复速度').toBeGreaterThan(0);
+      // 除豌豆（常驻、无限免费）和坚果（充能制）外，其余武器都必须自带弹匣
+      if (w.id === 'pea') {
+        expect(w.ammo, w.id + ' 豌豆不靠弹匣').toBeUndefined();
+        expect(w.cost, w.id + ' 豌豆必须免费').toBe(0);
+      } else if (w.kind === 'shield') {
+        expect(w.ammo, w.id + ' 护盾不走弹匣').toBeUndefined();
+        expect(w.maxCharges, w.id + ' 充能植物必须有充能上限').toBeGreaterThan(0);
+        expect(w.recharge, w.id + ' 充能植物必须有回复速度').toBeGreaterThan(0);
+      } else {
+        expect(w.ammo, w.id + ' 拾取武器必须有弹药').toBeGreaterThan(0);
+      }
     }
   });
 

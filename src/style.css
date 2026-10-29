@@ -493,8 +493,6 @@ body.desktop .desktop-hint { display: flex; }
   gap: 12px;
 }
 
-.weapon-dock { display: flex; gap: 8px; align-items: flex-end; }
-
 /* 武器槽（吃鸡式）：独立一条，不占底部植物栏那一行的宽度。
    桌面/平板竖排在植物栏上方；触屏横屏改成横排，避免和开火键抢右侧空间。 */
 .slot-dock {
@@ -527,14 +525,40 @@ body.desktop .desktop-hint { display: flex; }
   transform: translateY(-2px);
 }
 .slot-btn.locked { opacity: .55; filter: grayscale(.4); }
-/* "替换哪一格？"：整条槽位闪一下，提示玩家按键决定 */
-.slot-dock.replacing .slot-btn {
-  animation: slotPrompt .9s ease-in-out infinite;
-  border-color: rgba(255, 176, 58, .9);
+/* 角色槽的边框配色：枪（蓝）/ 大杀器（橙）/ 手雷（红）/ 护盾（黄）。
+   槽位本身带角色，玩家看颜色就知道哪个格子该装什么。 */
+/* 豌豆常驻槽：永远亮着、边框更“钉死”，和可换的枪②区分开 */
+.slot-btn.role-peaGun { border-color: rgba(126, 211, 33, .62); }
+.slot-btn.role-peaGun .wkey { color: rgba(174, 240, 110, .95); }
+.slot-btn.role-gun { border-color: rgba(143, 214, 255, .5); }
+.slot-btn.role-demo { border-color: rgba(255, 150, 80, .55); }
+.slot-btn.role-grenade { border-color: rgba(232, 69, 47, .55); }
+.slot-btn.role-shield { border-color: rgba(255, 210, 63, .55); }
+body.touch .slot-btn.role-grenade .wkey { color: rgba(255, 160, 140, .9); }
+body.touch .slot-btn.role-shield .wkey { color: rgba(255, 225, 140, .9); }
+
+/* 手雷蓄力条：只在按住 G 时出现，位置在准星下方，不挡视野 */
+.charge-bar {
+  position: absolute;
+  left: 50%;
+  bottom: calc(30% + var(--safe-b));
+  width: 148px;
+  height: 7px;
+  margin-left: -74px;
+  border-radius: 4px;
+  background: rgba(6, 16, 8, .55);
+  border: 1px solid rgba(255, 255, 255, .28);
+  overflow: hidden;
+  opacity: 0;
+  transition: opacity .1s linear;
+  pointer-events: none;
 }
-@keyframes slotPrompt {
-  0%, 100% { box-shadow: 0 0 0 rgba(255, 176, 58, 0), 0 3px 0 rgba(0, 0, 0, .35); }
-  50% { box-shadow: 0 0 14px rgba(255, 176, 58, .75), 0 3px 0 rgba(0, 0, 0, .35); }
+.charge-bar.on { opacity: 1; }
+.charge-fill {
+  height: 100%;
+  width: 0;
+  border-radius: 4px;
+  background: linear-gradient(90deg, #ffd23f, #ff7a1a, #e8452f);
 }
 
 .weapon-btn {
@@ -1043,14 +1067,6 @@ body.desktop #orientationBtn { display: none; }
     pointer-events: none;
   }
 
-  body.touch .weapon-dock {
-    position: absolute;
-    right: calc(var(--fire-size) + 24px + var(--safe-r));
-    bottom: calc(18px + var(--safe-b));
-    align-items: flex-end;
-    gap: 6px;
-  }
-
   body.touch .weapon-btn {
     width: var(--weapon-w);
     height: var(--weapon-h);
@@ -1143,9 +1159,5 @@ body.desktop #orientationBtn { display: none; }
     --weapon-w: 42px;
     --weapon-h: 50px;
     --joy-size: 110px;
-  }
-  body.touch .weapon-dock {
-    right: calc(var(--fire-size) + 18px + var(--safe-r));
-    gap: 4px;
   }
 }

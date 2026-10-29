@@ -110,16 +110,6 @@ describe('坚果墙 · 免伤盾基础', () => {
     expect(w.absorb(30)).toBe(true);
   });
 
-  it('C2：开火扣盾血，扣到 0 时盾碎', () => {
-    const w = game.wallNuts;
-    w.raise();
-    expect(w.spendShot()).toBe(false);
-    expect(w.hp).toBe(w.maxHp - 1);
-    w.hp = 1;
-    expect(w.spendShot()).toBe(true);
-    expect(w.active).toBe(false);
-  });
-
   it('盾壳颜色随血量变化（满血绿、低血清空 active）', () => {
     const w = game.wallNuts;
     w.raise();
@@ -166,6 +156,21 @@ describe('坚果墙 · 接入 Player', () => {
     expect(w.hp).toBe(w.maxHp - 20);
   });
 
+  it('盾收起时 damage() 正常扣玩家血（收起≠破盾）', () => {
+    const w = game.wallNuts;
+    w.raise();
+    w.hp = 300;
+    w.stow(); // 切走武器 → 收起
+    const before = game.player.hp;
+    expect(game.player.damage(20)).toBe(true);
+    expect(game.player.hp).toBe(before - 20);
+    expect(w.hp).toBe(300); // 盾血毫发无损
+    w.deploy(); // 切回来 → 展开
+    game.player.invuln = 0; // 上一击的命中无敌帧会挡住 absorb，先跳过
+    expect(game.player.damage(20)).toBe(false);
+    expect(w.hp).toBe(280);
+  });
+
   it('盾碎了之后 damage() 正常扣血', () => {
     const w = game.wallNuts;
     w.raise();
@@ -195,6 +200,7 @@ describe('坚果墙 · WeaponSystem 套盾分支', () => {
     g.readyToFire(game, 999);
     const W = game.weapons;
     const sun = game.sun;
+    W.pickup(WALLNUT_IDX); // 坚果进 5 号护盾槽
     W.equip(WALLNUT_IDX);
     const charges = W.charges[WALLNUT_IDX];
     W.cooldown = 0;
@@ -235,6 +241,7 @@ describe('坚果墙 · WeaponSystem 套盾分支', () => {
     const g = await import('../helpers/game.js');
     g.readyToFire(game, 999);
     const W = game.weapons;
+    W.pickup(WALLNUT_IDX);
     W.charges[WALLNUT_IDX] = 0;
     W.equip(WALLNUT_IDX);
     W.cooldown = 0;
@@ -264,12 +271,131 @@ describe('坚果墙 · WeaponSystem 套盾分支', () => {
     expect(W.charges[WALLNUT_IDX]).toBe(WEAPONS[WALLNUT_IDX].maxCharges);
   });
 
-  it('开火后额外扣盾血（spendShieldOnShot）', () => {
+  it('收回而不是破盾：切走盾收起、盾血保留，切回来自动重新展开', async () => {
+    const g = await import('../helpers/game.js');
+    g.readyToFire(game, 999);
     const W = game.weapons;
-    game.wallNuts.raise();
-    const before = game.wallNuts.hp;
-    W.spendShieldOnShot();
-    expect(game.wallNuts.hp).toBe(before - 1);
+    W.pickup(WALLNUT_IDX);
+    W.equip(WALLNUT_IDX);
+    W.cooldown = 0;
+    W.tryFire(WEAPONS[WALLNUT_IDX]); // 举手 → 套盾
+    expect(game.wallNuts.active).toBe(true);
+    game.wallNuts.hp = 250; // 挨了几下
+
+    W.equip(0); // 切走：收起
+    expect(game.wallNuts.active).toBe(false);
+    expect(game.wallNuts.shell.visible).toBe(false);
+    expect(game.wallNuts.hp).toBe(250); // 盾血还在
+
+    const sunBefore = game.sun;
+    W.equip(WALLNUT_IDX); // 切回来：自动展开，不花阳光
+    expect(game.wallNuts.active).toBe(true);
+    expect(game.wallNuts.hp).toBe(250);
+    expect(game.sun).toBe(sunBefore);
+  });
+
+  it('收起期间不承伤：伤害正常打到玩家身上', async () => {
+    const g = await import('../helpers/game.js');
+    g.readyToFire(game, 999);
+    const W = game.weapons;
+    W.pickup(WALLNUT_IDX);
+    W.equip(WALLNUT_IDX);
+    W.cooldown = 0;
+    W.tryFire(WEAPONS[WALLNUT_IDX]);
+    game.wallNuts.hp = 300;
+    W.equip(0); // 收起
+
+    expect(game.wallNuts.absorb(30)).toBe(false); // 盾不接这一下
+    expect(game.wallNuts.hp).toBe(300);
+
+    W.equip(WALLNUT_IDX); // 再展开
+    expect(game.wallNuts.absorb(30)).toBe(true); // 盾又接了
+    expect(game.wallNuts.hp).toBe(270);
+  });
+
+  it('盾血归零才算破：破盾后切回来也不会白给', async () => {
+    const g = await import('../helpers/game.js');
+    g.readyToFire(game, 999);
+    const W = game.weapons;
+    W.pickup(WALLNUT_IDX);
+    W.equip(WALLNUT_IDX);
+    W.cooldown = 0;
+    W.tryFire(WEAPONS[WALLNUT_IDX]);
+    game.wallNuts.hp = 1;
+    game.wallNuts.absorb(999); // 打穿
+    expect(game.wallNuts.hp).toBe(0);
+    expect(game.wallNuts.active).toBe(false);
+
+    W.equip(0);
+    W.equip(WALLNUT_IDX);
+    expect(game.wallNuts.active).toBe(false); // 盾已破，切回来不会自动展开
+  });
+
+  it('手上举着坚果时按下去：盾已收起则免费重新展开，不扣阳光', async () => {
+    const g = await import('../helpers/game.js');
+    g.readyToFire(game, 999);
+    const W = game.weapons;
+    W.pickup(WALLNUT_IDX);
+    W.equip(WALLNUT_IDX);
+    W.cooldown = 0;
+    W.tryFire(WEAPONS[WALLNUT_IDX]);
+    game.wallNuts.hp = 200;
+    game.wallNuts.stow(); // 手动收起
+    const sunBefore = game.sun;
+    const chargesBefore = W.charges[WALLNUT_IDX];
+    W.cooldown = 0;
+    W.tryFire(WEAPONS[WALLNUT_IDX]);
+    expect(game.wallNuts.active).toBe(true);
+    expect(game.wallNuts.hp).toBe(200);
+    expect(game.sun).toBe(sunBefore);
+    expect(W.charges[WALLNUT_IDX]).toBe(chargesBefore);
+  });
+
+  it('独占：按住 1/2/3/4 任意一个都会把盾收起来', async () => {
+    const g = await import('../helpers/game.js');
+    const W = game.weapons;
+    const others = [0, 5, 3, 2]; // 豌豆 / 三线 / 玉米炮 / 樱桃
+    for (const idx of others) {
+      W.equip(0);
+      g.readyToFire(game, 999);
+      W.charges[WALLNUT_IDX] = WEAPONS[WALLNUT_IDX].maxCharges;
+      if (!WEAPONS[idx].starter) W.pickup(idx);
+      W.pickup(WALLNUT_IDX);
+      W.equip(WALLNUT_IDX);
+      W.cooldown = 0;
+      W.tryFire(WEAPONS[WALLNUT_IDX]);
+      expect(game.wallNuts.active, '盾应在坚果上（' + WEAPONS[idx].id + ' 轮）').toBe(true);
+      W.equip(idx);
+      expect(game.wallNuts.active, WEAPONS[idx].id + ' 应收起盾').toBe(false);
+      expect(game.wallNuts.hp, WEAPONS[idx].id + ' 盾血应保留').toBeGreaterThan(0);
+    }
+  });
+
+  it('独占：手持坚果时开不了枪（没有弹丸、不产生伤害）', async () => {
+    const g = await import('../helpers/game.js');
+    g.readyToFire(game, 999);
+    const W = game.weapons;
+    W.pickup(WALLNUT_IDX);
+    W.equip(WALLNUT_IDX);
+    const spawn = vi.spyOn(game.projectiles, 'spawnPea');
+    W.cooldown = 0;
+    W.tryFire(WEAPONS[WALLNUT_IDX]);
+    expect(spawn).not.toHaveBeenCalled();
+    spawn.mockRestore();
+  });
+
+  it('clear() 才是真正抹掉盾血（重开一局走这条）', async () => {
+    const g = await import('../helpers/game.js');
+    g.readyToFire(game, 999);
+    const W = game.weapons;
+    W.pickup(WALLNUT_IDX);
+    W.equip(WALLNUT_IDX);
+    W.cooldown = 0;
+    W.tryFire(WEAPONS[WALLNUT_IDX]);
+    expect(game.wallNuts.active).toBe(true);
+    game.wallNuts.clear();
+    expect(game.wallNuts.active).toBe(false);
+    expect(game.wallNuts.hp).toBe(0);
   });
 });
 

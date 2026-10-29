@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { WEAPONS } from '../config.js';
+import { WEAPONS, PEA_ID } from '../config.js';
 import { toon, glowTexture } from '../world/materials.js';
 import { rand, shuffle, TAU } from '../utils.js';
 
@@ -173,9 +173,13 @@ export class WeaponPickups {
     this.bag = [];
     this.items = [];
     this.ringGeo = new THREE.TorusGeometry(0.62, 0.05, 6, 24);
+    // 地面会刷出的武器：不含坚果（护盾靠阳光充能，不是捡的）与初始豌豆（免费且无限）。
+    // 樱桃/玉米炮/火豌豆虽然也在植物栏，但它们同样是战利品池里的正常成员。
     this.lootIndices = [];
     for (let i = 0; i < WEAPONS.length; i++) {
-      if (!WEAPONS[i].starter) this.lootIndices.push(i);
+      const w = WEAPONS[i];
+      if (w.kind === 'shield' || w.id === PEA_ID) continue;
+      this.lootIndices.push(i);
     }
     for (let i = 0; i < MAX_SPOTS; i++) this.items.push(this.makeItem());
   }
@@ -330,9 +334,8 @@ export class WeaponPickups {
       item.group.visible = dist2 < 30 * 30;
 
       if (item.pickCooldown > 0) item.pickCooldown = Math.max(0, item.pickCooldown - dt);
-      // 槽满的"替换哪一格？"还在等玩家选：别反复触发 pickup
-      const pending = this.ctx.weapons && this.ctx.weapons.replacePrompt;
-      if (!player.dead && !pending && !(item.pickCooldown > 0)) {
+      // 槽位带角色后不再有"等玩家选替换哪一格"的中间态，pickup 是同步完成的
+      if (!player.dead && !(item.pickCooldown > 0)) {
         if (dist2 < PICK_RADIUS * PICK_RADIUS) {
           const def = WEAPONS[item.index];
           if (this.ctx.weapons.pickup(item.index)) {

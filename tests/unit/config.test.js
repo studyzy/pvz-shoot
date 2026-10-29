@@ -104,11 +104,40 @@ describe('config / WEAPONS 数据完整性', () => {
   });
 });
 
-describe('config / starter 与 loot 的区分', () => {
-  it('starter 武器花阳光：cost >= 0 且没有 ammo', () => {
-    for (const w of WEAPONS.filter((x) => x.starter)) {
-      expect(w.cost, w.id).toBeGreaterThanOrEqual(0);
-      expect(w.ammo, w.id).toBeUndefined();
+describe('config / 角色槽', () => {
+  it('只有豌豆是 starter：它常驻 1 号枪槽，无限且免费', () => {
+    expect(STARTER_WEAPONS.map((w) => w.id)).toEqual(['pea']);
+    const pea = WEAPONS.find((w) => w.id === 'pea');
+    expect(pea.cost).toBe(0);
+    expect(pea.slot).toBe('peaGun');
+    expect(pea.ammo).toBeUndefined();
+  });
+
+  it('每把武器都有 slot，且落在这五种角色里', () => {
+    const roles = new Set(['peaGun', 'gun', 'demo', 'grenade', 'shield']);
+    for (const w of WEAPONS) expect(roles.has(w.slot), w.id + ' -> ' + w.slot).toBe(true);
+  });
+
+  it('五个角色槽的成员分布正确', () => {
+    const by = (role) => WEAPONS.filter((w) => w.slot === role).map((w) => w.id).sort();
+    expect(by('peaGun')).toEqual(['pea']);
+    // 寒冰/火豌豆 已并入枪②，和双发/三线/机枪/仙人掌互为候选
+    expect(by('gun')).toEqual(['cactus', 'firepea', 'gatling', 'repeater', 'snow', 'threepeater']);
+    expect(by('demo')).toEqual(['cob', 'jalapeno', 'melon']);
+    expect(by('grenade')).toEqual(['cherry']);
+    expect(by('shield')).toEqual(['wallnut']);
+  });
+
+  it('除豌豆与坚果外，所有武器都自带弹匣（坚果是充能制，不走 ammo）', () => {
+    for (const w of WEAPONS) {
+      if (w.id === 'pea') continue;
+      if (w.id === 'wallnut') {
+        expect(w.ammo, w.id).toBeUndefined();
+        expect(w.maxCharges, w.id).toBeGreaterThan(0);
+        continue;
+      }
+      expect(w.ammo, w.id).toBeGreaterThan(0);
+      expect(w.cost, w.id).toBeGreaterThan(0);
     }
   });
 
@@ -116,14 +145,10 @@ describe('config / starter 与 loot 的区分', () => {
     expect(WEAPONS.find((w) => w.id === 'pea').cost).toBe(0);
   });
 
-  it('非 starter 武器自带一梭子弹药、有模型与配色，打空后按 cost 用阳光续弹', () => {
-    for (const w of WEAPONS.filter((x) => !x.starter)) {
-      expect(w.starter, w.id).toBe(false);
-      expect(w.ammo, w.id).toBeGreaterThan(0);
+  it('每把武器都有模型与配色（视图模型构建依赖它）', () => {
+    for (const w of WEAPONS.filter((x) => x.id !== 'pea')) {
       expect(typeof w.model, w.id).toBe('string');
       expect(typeof w.color, w.id).toBe('number');
-      // 续弹单价必须为正数（枪免费捡，子弹用阳光买）
-      expect(w.cost, w.id).toBeGreaterThan(0);
     }
   });
 
@@ -132,10 +157,6 @@ describe('config / starter 与 loot 的区分', () => {
     expect(LOOT_WEAPONS.every((w) => !w.starter)).toBe(true);
     expect(STARTER_WEAPONS.length + LOOT_WEAPONS.length).toBe(WEAPONS.length);
     expect(new Set([...STARTER_WEAPONS, ...LOOT_WEAPONS])).toEqual(new Set(WEAPONS));
-  });
-
-  it('植物栏恰好 6 格（HUD 按 starter 渲染 1-6 快捷键）', () => {
-    expect(STARTER_WEAPONS.map((w) => w.id)).toEqual(['pea', 'snow', 'cherry', 'cob', 'wallnut', 'firepea']);
   });
 
   it('坚果墙是充能制护盾：maxCharges/recharge/盾血都有值，且气球能穿透', () => {
@@ -168,19 +189,18 @@ describe('config / starter 与 loot 的区分', () => {
     }
   });
 
-  it('战利品池覆盖五种只可拾取的植物', () => {
+  it('LOOT_WEAPONS 是"非 starter"的全集（豌豆除外，坚果在里面但地面不刷）', () => {
     expect(LOOT_WEAPONS.map((w) => w.id).sort()).toEqual(
-      ['cactus', 'gatling', 'jalapeno', 'melon', 'repeater', 'threepeater'].sort(),
+      ['cactus', 'cherry', 'cob', 'firepea', 'gatling', 'jalapeno', 'melon', 'repeater', 'snow', 'threepeater', 'wallnut'].sort(),
     );
   });
 
-  it('地面拾取只刷非 starter（与 WeaponPickups.lootIndices 语义一致）', () => {
-    // WeaponPickups 的随机池来自非 starter 的索引，若某 starter 武器被误改成可拾取，植物栏/战利品格会错位
-    const lootIds = WEAPONS.filter((w) => !w.starter).map((w) => w.id);
-    expect(lootIds).not.toContain('pea');
-    expect(lootIds).not.toContain('snow');
-    expect(lootIds).not.toContain('cherry');
-    expect(lootIds).not.toContain('cob');
+  it('地面不刷豌豆（常驻 1 号槽）与坚果（靠阳光充能）', () => {
+    // WeaponPickups.lootIndices 单独排除了这两把，和 starter 标记无关
+    expect(WEAPONS.filter((w) => !w.starter).map((w) => w.id)).not.toContain('pea');
+    const nut = WEAPONS.find((w) => w.id === 'wallnut');
+    expect(nut.kind).toBe('shield');
+    expect(nut.maxCharges).toBeGreaterThan(0);
   });
 });
 

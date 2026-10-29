@@ -28,6 +28,7 @@ export const SUN_SKY = {
 export const WEAPONS = [
   {
     id: 'pea',
+    slot: 'peaGun',
     name: '豌豆射手',
     short: '豌豆',
     desc: '无限弹药',
@@ -44,11 +45,13 @@ export const WEAPONS = [
   },
   {
     id: 'snow',
+    slot: 'gun',
     name: '寒冰射手',
     short: '寒冰',
     desc: '减速僵尸',
-    starter: true,
+    starter: false,
     model: 'shooter',
+    ammo: 60,
     cost: 2,
     cooldown: 0.26,
     damage: 19,
@@ -62,13 +65,17 @@ export const WEAPONS = [
   },
   {
     id: 'cherry',
+    slot: 'grenade',
     // 爆炸是球形的，天上地下都炸得到：气球也吃满伤
     aerial: 'explosion',
     name: '樱桃炸弹',
     short: '樱桃',
-    desc: '范围爆炸',
-    starter: true,
+    desc: '蓄力投掷 · 范围爆炸',
+    starter: false,
     model: 'cherry',
+    // 手雷槽：按住 G 蓄力、松手投出（见 GRENADE）
+    grenade: true,
+    ammo: 4,
     cost: 22,
     cooldown: 1.3,
     damage: 210,
@@ -83,13 +90,15 @@ export const WEAPONS = [
   },
   {
     id: 'cob',
+    slot: 'demo',
     // 爆炸是球形的，天上地下都炸得到：气球也吃满伤
     aerial: 'explosion',
     name: '玉米加农炮',
     short: '玉米炮',
     desc: '远程重炮',
-    starter: true,
+    starter: false,
     model: 'cob',
+    ammo: 8,
     cost: 26,
     cooldown: 1.9,
     damage: 165,
@@ -102,6 +111,7 @@ export const WEAPONS = [
   // 以下植物只能从地图地面拾取，自带弹药、不消耗阳光
   {
     id: 'repeater',
+    slot: 'gun',
     name: '双发射手',
     short: '双发',
     desc: '一次两发',
@@ -121,6 +131,7 @@ export const WEAPONS = [
   },
   {
     id: 'threepeater',
+    slot: 'gun',
     name: '三线射手',
     short: '三线',
     desc: '三向散射',
@@ -140,6 +151,7 @@ export const WEAPONS = [
   },
   {
     id: 'gatling',
+    slot: 'gun',
     name: '机枪射手',
     short: '机枪',
     desc: '超高射速',
@@ -157,6 +169,7 @@ export const WEAPONS = [
   },
   {
     id: 'cactus',
+    slot: 'gun',
     name: '仙人掌',
     short: '仙人掌',
     desc: '一发穿透三只',
@@ -177,6 +190,7 @@ export const WEAPONS = [
   },
   {
     id: 'melon',
+    slot: 'demo',
     // 爆炸是球形的，天上地下都炸得到：气球也吃满伤
     aerial: 'explosion',
     name: '西瓜投手',
@@ -198,16 +212,18 @@ export const WEAPONS = [
   },
   {
     id: 'jalapeno',
+    slot: 'demo',
     // 爆炸是球形的，天上地下都炸得到：气球也吃满伤
     aerial: 'explosion',
     name: '火爆辣椒',
     short: '辣椒',
-    desc: '引燃一片',
+    desc: '近距离连发',
     starter: false,
     model: 'pepper',
     cost: 20,
     ammo: 6,
-    cooldown: 1.5,
+    // 三个大杀器的取舍：玉米炮远程精准 / 西瓜半径最大 / 辣椒射程最短但能连发
+    cooldown: 0.9,
     damage: 240,
     kind: 'hitscan',
     radius: 5.2,
@@ -217,20 +233,22 @@ export const WEAPONS = [
   },
   {
     id: 'wallnut',
+    slot: 'shield',
     name: '坚果墙',
     short: '坚果',
     desc: '免伤护盾',
-    starter: true,
+    starter: false,
     model: 'wallnut',
+    // 护盾不是弹匣制：靠 maxCharges/recharge 充能，所以不带 ammo
     cost: 25,
     cooldown: 1.0,
     damage: 0,
     kind: 'shield',
     // 盾血：被打光就碎，罩内玩家完全不掉血。厚度按「僵尸咬击 1.28 秒 + 0.32 秒无敌」实测算过。
     shieldHp: 400,
-    // 罩内移速倍率（重甲感）与每开一枪额外扣的盾血（防止开盾站桩白嫖）
+    // 罩内移速倍率（重甲感）。盾与手持强绑定：切走坚果就破盾，所以不存在
+    // "开着盾用别的枪站桩" —— 原来那条"每开一枪扣 1 点盾血"的约束因此不再需要。
     shieldMoveMul: 0.88,
-    shieldShotCost: 1,
     // 气球从头顶俯冲，护盾不挡 —— 否则开盾对空中单位也无敌
     aerialGuard: false,
     // 植物栏充能：一颗 25 阳光，最多囤 10 颗，0.6 秒回一颗
@@ -242,11 +260,13 @@ export const WEAPONS = [
   },
   {
     id: 'firepea',
+    slot: 'gun',
     name: '火豌豆射手',
     short: '火豌豆',
     desc: '高伤 · 燃烧破甲',
-    starter: true,
+    starter: false,
     model: 'fire',
+    ammo: 80,
     cost: 2,
     cooldown: 0.17,
     damage: 20,
@@ -264,17 +284,47 @@ export const WEAPONS = [
   },
 ];
 
+// 取消植物栏：所有武器都按 `slot` 归入 5 个角色槽，数字键 12345 就是全部切枪键。
+// `starter` 现在的含义只剩"开局就装备"，只有豌豆为 true（它常驻 1 号枪槽）。
 export const STARTER_WEAPONS = WEAPONS.filter((w) => w.starter);
 export const LOOT_WEAPONS = WEAPONS.filter((w) => !w.starter);
 
-// 武器槽（吃鸡式）：拾取的战利品进这几个槽，可以同时持有、互相切换。
-// 3 格的理由：刚好够「一把对空 + 一把破甲 + 一把清群」，再多「选」这个动作就消失了。
+// 武器槽（吃鸡式）：每把武器按 `WEAPONS[].slot` 归入一个角色槽。
+// 槽位本身带角色 —— 玩家的「分类」就是槽位本身，不再需要额外一张分类表。
+// 注意：`starter` 仍然是"植物栏那 6 格"，和槽位是两套编排；武器可以同时出现在两处。
 export const WEAPON_SLOTS = {
-  count: 3,
+  peaGun: 1, // 枪①：豌豆射手常驻，永远不变、不能替换（阳光见底时的承重墙）
+  gun: 1, // 枪②：唯一可换的枪槽，捡到什么就顶掉上一把
+  grenade: 1, // 手雷 ×1：樱桃炸弹（蓄力投掷）
+  demo: 1, // 大杀器 ×1：玉米炮 / 西瓜 / 辣椒
+  shield: 1, // 坚果护盾 ×1：坚果墙（充能制，只换展示位置）
   // 抬枪时长：只影响视图模型动画，不重置开火冷却（否则换枪能躲冷却）
   swapAnim: 0.35,
-  // 槽满时弹「替换哪一格？」的等待秒数，超时则拾取物留在地上
-  replacePick: 2.5,
+};
+
+// 豌豆射手常驻 1 号枪槽：它不进战利品池、不能被替换
+export const PEA_ID = 'pea';
+
+// 数字键 1-5 依次对应五个槽位。取消植物栏之后这就是全部切枪键，没有第二套。
+// 顺序按"最常用 → 最不常用"排：保底豌豆、主枪、大杀器、手雷、护盾。
+const SLOT_KEYS = [
+  { role: 'peaGun', pos: 0 },
+  { role: 'gun', pos: 0 },
+  { role: 'demo', pos: 0 },
+  { role: 'grenade', pos: 0 },
+  { role: 'shield', pos: 0 },
+];
+export const SLOT_ORDER = SLOT_KEYS.map((k) => k.role);
+export { SLOT_KEYS };
+
+// 切枪键从 1 开始：第 i 个槽 = 数字键 (i + 1)
+export const SLOT_KEY_BASE = 1;
+
+// 樱桃炸弹改成蓄力投掷：按住 G 蓄力，松手投出，蓄得越久扔得越远。
+export const GRENADE = {
+  minRange: 4,
+  maxRange: 20,
+  chargeTime: 0.9,
 };
 
 export const ZOMBIES = {

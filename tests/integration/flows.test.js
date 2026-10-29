@@ -378,7 +378,7 @@ describe('3. 暂停 / 恢复 / 回菜单', () => {
     expect(game.zombies.zombies.length).toBe(0);
     expect(game.zombies.queue.length).toBe(0);
     expect(game.zombies.state).toBe('idle');
-    expect(game.weapons.slots).toEqual([-1, -1, -1]);
+    expect(game.weapons.slots).toEqual({ peaGun: [0], gun: [-1], demo: [-1], grenade: [-1], shield: [-1] });
   });
 
   it('pauseMapBtn 也能回到主菜单', () => {
@@ -525,9 +525,11 @@ describe('5. 射击 → 击杀 → 掉阳光 → 拾取', () => {
     expect($('sunValue').textContent).toBe('300');
   });
 
-  it('阳光不足时开火被拒：hud.sunPill 出现 deny，且不扣阳光', async () => {
+  it('弹匣打空且阳光不够续弹：hud.sunPill 出现 deny，且不扣阳光', async () => {
     game.start();
-    game.weapons.equip(2); // 樱桃炸弹 cost 22
+    game.weapons.pickup(3); // 玉米炮进大杀器槽
+    game.weapons.equip(3);
+    game.weapons.ammo[3] = 0;
     game.sun = 5;
     game.hud.setSun(5, true);
     game.weapons.cooldown = 0;
@@ -666,6 +668,7 @@ describe('6. 爆头', () => {
     const p = game.player.pos;
     const zombie = spawnZombieAt(game, 'normal', p.x, p.z - 8, { speedMul: 0 });
     // 玉米炮是 hitscan：瞄准点就是命中点，不受弹道/辅助瞄准影响
+    game.weapons.pickup(3); // 玉米炮进大杀器槽
     game.weapons.equip(3);
     game.weapons.cooldown = 0;
     game.sun = 999;
@@ -682,7 +685,9 @@ describe('6. 爆头', () => {
     expect(game.stats.kills).toBe(1);
     expect(game.stats.score).toBe(Math.round(ZOMBIES.normal.score * 1.5));
     expect($('scoreLabel').textContent).toBe('150');
-    expect(game.sun).toBe(999 - WEAPONS[3].cost);
+    // 玉米炮是弹匣制：弹匣内开火不扣阳光，只有打空后自动续弹才花钱
+    expect(game.sun).toBe(999);
+    expect(game.weapons.ammo[3]).toBe(WEAPONS[3].ammo - 1);
     expect(game.sunOrbs.orbs.filter((o) => o.active).length).toBe(1);
   });
 
@@ -697,6 +702,7 @@ describe('6. 爆头', () => {
     const handle = vi.spyOn(game.zombies, 'handleKill');
     const p = game.player.pos;
     const zombie = spawnZombieAt(game, 'normal', p.x, p.z - 8, { speedMul: 0 });
+    game.weapons.pickup(3);
     game.weapons.equip(3);
     game.weapons.cooldown = 0;
     game.sun = 999;
@@ -807,23 +813,33 @@ describe('8. 地面武器拾取', () => {
   it('走到点位自动拾取：进武器槽、弹药、开火扣弹药不扣阳光、打空后花阳光续弹', async () => {
     game.start();
     giveSun(999);
+    // 地面刷新是随机的；这条用例要验证「有弹匣的地面武器」完整链路，钉死成双发射手
+    game.pickups.bag.length = 0;
+    game.pickups.nextWeapon = () => WEAPONS.findIndex((w) => w.id === 'repeater');
+    game.pickups.reset();
     const spot = game.map.pickupSpots[0];
     const item = game.pickups.items[0];
     expect(item.active).toBe(true);
     const index = item.index;
     const def = WEAPONS[index];
+    expect(def.id).toBe('repeater');
+    expect(def.ammo).toBeGreaterThan(0);
 
     game.player.pos.x = spot[0];
     game.player.pos.z = spot[1];
     game.update(1 / 60);
 
-    expect(game.weapons.slots[0]).toBe(index);
-    expect(game.weapons.activeSlot).toBe(0);
+    const at = game.weapons.slotIndexOf(index);
+    expect(at).toBeTruthy();
+    expect(game.weapons.activeSlot).toEqual(at);
     expect(game.weapons.current).toBe(index);
     expect(game.weapons.ammo[index]).toBe(def.ammo);
     expect(item.active).toBe(false);
     expect(hidden(game.hud.slotDock)).toBe(false);
-    expect(game.hud.slotButtons[0].classList.contains('empty')).toBe(false);
+    // 找到这个角色对应的那格 UI，它不该是空的
+    const cellIdx = game.hud.slotLayout.findIndex((c) => c.role === at.role && c.pos === at.pos);
+    expect(cellIdx).toBeGreaterThanOrEqual(0);
+    expect(game.hud.slotButtons[cellIdx].classList.contains('empty')).toBe(false);
     expect(hidden($('ammoChip'))).toBe(false);
     expect($('ammoNow').textContent).toBe(String(def.ammo));
     expect($('ammoMax').textContent).toBe(String(def.ammo));
@@ -848,7 +864,7 @@ describe('8. 地面武器拾取', () => {
     game.update(1 / 60);
     game.controls.setFiring(false);
     expect(game.weapons.ammo[index]).toBe(0);
-    expect(game.weapons.slots).toContain(index);
+    expect(game.weapons.slotIndexOf(index)).toBeTruthy();
 
     const sunBeforeReload = game.sun;
     game.weapons.cooldown = 0;
@@ -859,7 +875,7 @@ describe('8. 地面武器拾取', () => {
     // 续弹扣 def.cost * def.ammo，随后正常打出这一发
     expect(game.sun).toBe(sunBeforeReload - def.cost * def.ammo);
     expect(game.weapons.ammo[index]).toBe(def.ammo - 1);
-    expect(game.weapons.slots).toContain(index);
+    expect(game.weapons.slotIndexOf(index)).toBeTruthy();
     expect(game.weapons.locked).toBe(false);
   });
 
@@ -880,26 +896,33 @@ describe('8. 地面武器拾取', () => {
     expect(item.group.position.z).toBe(spot[1]);
   });
 
-  it('三把不同植物可以同时持有（吃鸡式 3 槽），槽满才弹替换提示', () => {
+  it('豌豆常驻 1 号槽；枪②只一格，捡到新枪顶掉上一把；大杀器独立成槽', () => {
     game.start();
-    game.weapons.pickup(4);
-    game.weapons.pickup(6);
-    game.weapons.pickup(8);
-    expect(game.weapons.slots).toEqual([4, 6, 8]);
-    expect(game.weapons.replacePrompt).toBe(null);
-    // 第 4 把：不吞，弹提示
-    expect(game.weapons.pickup(7)).toBe(false);
-    expect(game.weapons.replacePrompt.index).toBe(7);
-    expect(game.weapons.slots).toEqual([4, 6, 8]);
-    // 选 0 号槽替换
-    game.weapons.resolveReplace(0);
-    expect(game.weapons.slots).toEqual([7, 6, 8]);
-    expect(game.weapons.ammo[4]).toBe(0);
+    const W = game.weapons;
+    game.pickups.dropAt = vi.fn();
+    game.ctx.pickups = game.pickups;
+    // 豌豆永远在 1 号枪槽
+    expect(W.slots.peaGun).toEqual([0]);
+    W.pickup(4); // 双发 → 枪②
+    expect(W.slots.gun).toEqual([4]);
+    W.pickup(8); // 西瓜 → 大杀器
+    expect(W.slots.gun).toEqual([4]);
+    expect(W.slots.demo).toEqual([8]);
+    // 再捡机枪：顶掉枪②的双发，豌豆和大杀器都不动
+    expect(W.pickup(6)).toBe(true);
+    expect(W.slots.gun).toEqual([6]);
+    expect(W.slots.peaGun).toEqual([0]);
+    expect(W.slots.demo).toEqual([8]);
+    expect(W.ammo[4]).toBe(0);
+    // 大杀器也只有一个位：辣椒顶掉西瓜
+    expect(W.pickup(9)).toBe(true);
+    expect(W.slots.demo).toEqual([9]);
+    expect(W.ammo[8]).toBe(0);
   });
 });
 
 describe('9. 武器切换', () => {
-  it('按 5/6 切到坚果/火豌豆（回归：曾错误地落到地面拾取武器上）', () => {
+  it('按 1-5 切五个角色槽（豌豆/枪/大杀器/手雷/护盾），没有植物栏了', () => {
     game.start();
     giveSun(999);
     const W = game.weapons;
@@ -907,74 +930,87 @@ describe('9. 武器切换', () => {
     const nut = idx('wallnut');
     const fire = idx('firepea');
 
+    // 先把手里的东西摆好：火豌豆进枪②、坚果进护盾槽
+    W.pickup(fire);
+    W.pickup(nut);
+    key('Digit1');
+    game.update(1 / 60);
+    expect(W.current).toBe(0); // 1 = 常驻豌豆
+
+    key('Digit2');
+    game.update(1 / 60);
+    expect(W.current).toBe(fire);
+
     key('Digit5');
     game.update(1 / 60);
     expect(W.current).toBe(nut);
     expect(W.models[nut].group.visible).toBe(true);
     expect(game.hud.weaponButtons[4].btn.classList.contains('active')).toBe(true);
-    // 绝不能切到双发射手（曾经因为把 starter 序号当成数组下标而落到这里）
-    expect(W.current).not.toBe(idx('repeater'));
 
-    key('Digit6');
+    // 空槽按了没反应，不会打断当前武器
+    key('Digit3');
     game.update(1 / 60);
-    expect(W.current).toBe(fire);
-    expect(W.models[fire].group.visible).toBe(true);
-    expect(W.current).not.toBe(idx('threepeater'));
+    expect(W.current).toBe(nut);
+    key('Digit4');
+    game.update(1 / 60);
+    expect(W.current).toBe(nut);
 
-    // 切到火豌豆后真的能开火（扣阳光、产生弹丸）
+    // 切回火豌豆后真的能开火（弹匣制：扣弹药，不直接扣阳光）
+    key('Digit2');
+    game.update(1 / 60);
     game.zombies.queue = [];
     game.zombies.state = 'idle';
     const sunBefore = game.sun;
+    const ammoBefore = W.ammo[fire];
     const peaBefore = game.projectiles.peas.filter((p) => p.active).length;
     W.cooldown = 0;
     game.controls.setFiring(true);
     game.update(1 / 60);
     game.controls.setFiring(false);
-    expect(game.sun).toBe(sunBefore - WEAPONS[fire].cost);
+    expect(W.ammo[fire]).toBe(ammoBefore - 1);
+    expect(game.sun).toBe(sunBefore);
     expect(game.projectiles.peas.filter((p) => p.active).length).toBeGreaterThan(peaBefore);
   });
 
-  it('按 1/2/3/4 切换到对应 starter 武器，按 7 切回武器槽', () => {
+  it('数字键与槽位一一对应：1 豌豆 / 2 枪② / 3 大杀器 / 4 手雷 / 5 护盾', () => {
     game.start();
     giveSun(999);
+    const W = game.weapons;
+    W.pickup(6); // 机枪 → 枪②
+    W.pickup(8); // 西瓜 → 大杀器
+    W.pickup(2); // 樱桃 → 手雷
+
+    key('Digit1');
+    game.update(1 / 60);
+    expect(W.current).toBe(0);
 
     key('Digit2');
     game.update(1 / 60);
-    expect(game.weapons.current).toBe(1);
-    expect(game.weapons.models[1].group.visible).toBe(true);
-    expect(game.weapons.models[0].group.visible).toBe(false);
-    expect(game.hud.weaponButtons[1].btn.classList.contains('active')).toBe(true);
+    expect(W.current).toBe(6);
+
+    key('Digit3');
+    game.update(1 / 60);
+    expect(W.current).toBe(8);
 
     key('Digit4');
     game.update(1 / 60);
-    expect(game.weapons.current).toBe(3);
+    expect(W.current).toBe(2);
 
+    // Tab 在这几个槽之间循环（护盾空，跳过）
     key('Digit1');
     game.update(1 / 60);
-    expect(game.weapons.current).toBe(0);
-
-    // 先捡一把战利品，再切走，按 7 切回那个槽
-    game.weapons.pickup(5);
-    const loot = game.weapons.slots[0];
-    key('Digit1');
+    key('Tab');
     game.update(1 / 60);
-    expect(game.weapons.current).toBe(0);
-    key('Digit7');
+    expect(W.current).toBe(6);
+    key('Tab');
     game.update(1 / 60);
-    expect(game.weapons.current).toBe(loot);
-    expect(game.hud.slotButtons[0].classList.contains('active')).toBe(true);
+    expect(W.current).toBe(8);
   });
 
   it('未拾取的战利品空位不能被装备', () => {
     game.start();
     game.weapons.equip(4); // repeater 没捡过
     expect(game.weapons.current).toBe(0);
-  });
-
-  it('点击植物栏按钮同样切换', () => {
-    game.start();
-    click(game.hud.weaponButtons[2].btn);
-    expect(game.weapons.current).toBe(2);
   });
 
   it('暂停中点击植物栏不切枪', () => {
@@ -1461,16 +1497,15 @@ describe('15. 浏览器事件与生命周期细节', () => {
   });
 });
 
-describe('14. 武器槽（吃鸡式）端到端', () => {
+describe('14. 武器角色槽端到端', () => {
   it('捡起→丢下→再捡回：丢下的枪仍在原地，可被重新拾取', () => {
     game.start();
     giveSun(999);
     const W = game.weapons;
     W.pickup(5);
-    expect(W.slots[0]).toBe(5);
-    const dropped = game.pickups.items.find((it) => it.dropped);
-    W.dropSlot(0);
-    expect(W.slots[0]).toBe(-1);
+    expect(W.slots.gun[0]).toBe(5);
+    W.dropSlot('gun', 0);
+    expect(W.slots.gun[0]).toBe(-1);
     const onGround = game.pickups.items.find((it) => it.dropped && it.active);
     expect(onGround).toBeTruthy();
     expect(onGround.index).toBe(5);
@@ -1478,62 +1513,85 @@ describe('14. 武器槽（吃鸡式）端到端', () => {
     game.player.pos.x = onGround.group.position.x;
     game.player.pos.z = onGround.group.position.z;
     for (let i = 0; i < 60 * 2; i++) game.update(1 / 60);
-    expect(W.slots[0]).toBe(5);
-    void dropped;
+    expect(W.slots.gun[0]).toBe(5);
   });
 
-  it('槽满替换提示期间不会反复触发拾取（阻止玩家在同一个点疯狂踩）', () => {
+  it('同角色槽满了就替换，不弹窗；旧枪掉在地上，豌豆槽不动', () => {
     game.start();
     giveSun(999);
     const W = game.weapons;
-    W.pickup(4);
-    W.pickup(6);
-    W.pickup(8);
+    W.pickup(4); // 双发 → 枪②
     const item = game.pickups.items[0];
     item.active = true;
     item.dropped = true;
-    item.index = 7;
+    item.index = 7; // 仙人掌
     item.pickCooldown = 0;
     game.player.pos.x = item.group.position.x;
     game.player.pos.z = item.group.position.z;
     game.update(1 / 60);
-    expect(W.replacePrompt).toBeTruthy();
-    // 再走几帧，拾取物还在（没被吞）
-    for (let i = 0; i < 10; i++) game.update(1 / 60);
-    expect(item.active).toBe(true);
-    // 选一格替换后才拿走
-    W.resolveReplace(2);
-    expect(W.slots).toEqual([4, 6, 7]);
+    // 一步到位：顶掉枪②，拾取物被拿走
+    expect(W.slots.gun).toEqual([7]);
+    expect(W.slots.peaGun).toEqual([0]);
+    expect(item.active).toBe(false);
+    expect(W.ammo[4]).toBe(0);
+    // 被换下来的枪掉在脚边，可以再捡
+    expect(game.pickups.items.some((it) => it.dropped && it.index === 4)).toBe(true);
   });
 
-  it('Tab 循环切槽与 G 丢弃都走真实按键路径', () => {
+  it('Tab 循环切槽、Backspace 丢弃都走真实按键路径', () => {
     game.start();
     giveSun(999);
     const W = game.weapons;
+    game.pickups.dropAt = vi.fn();
+    game.ctx.pickups = game.pickups;
     W.pickup(4);
     W.pickup(8);
     key('Digit1');
     game.update(1 / 60);
     expect(W.current).toBe(0);
+    // Tab：豌豆 → 枪② → 大杀器
     key('Tab');
     game.update(1 / 60);
     expect(W.current).toBe(4);
     key('Tab');
     game.update(1 / 60);
     expect(W.current).toBe(8);
-    key('KeyG');
+    // G 现在是手雷蓄力键，丢弃改到 Backspace
+    key('Backspace');
     game.update(1 / 60);
-    expect(W.slots).toEqual([4, -1, -1]);
-    expect(W.current).toBe(0);
+    expect(W.slots.demo).toEqual([-1]);
+    expect(W.slots.gun).toEqual([4]);
+    expect(W.slots.peaGun).toEqual([0]);
+  });
+
+  it('12345 走真实按键切到对应角色槽', () => {
+    game.start();
+    giveSun(999);
+    const W = game.weapons;
+    W.pickup(6); // 机枪 → 枪②
+    W.pickup(8); // 西瓜 → 大杀器
+    key('Digit3');
+    game.update(1 / 60);
+    key('Digit1');
+    game.update(1 / 60);
+    expect(W.current).toBe(0); // 1 = 常驻豌豆
+    key('Digit2');
+    game.update(1 / 60);
+    expect(W.current).toBe(6);
+    key('Digit3');
+    game.update(1 / 60);
+    expect(W.current).toBe(8);
+    expect(game.hud.slotButtons[2].classList.contains('active')).toBe(true);
   });
 
   it('重开一局会清空所有槽位', () => {
     game.start();
     giveSun(999);
     game.weapons.pickup(5);
-    game.weapons.pickup(6);
+    game.weapons.pickup(8);
     game.start();
-    expect(game.weapons.slots).toEqual([-1, -1, -1]);
+    // 重开清空所有临时槽，但豌豆常驻槽保留
+    expect(game.weapons.slots).toEqual({ peaGun: [0], gun: [-1], demo: [-1], grenade: [-1], shield: [-1] });
     expect(game.hud.slotDock.classList.contains('hidden')).toBe(true);
   });
 });

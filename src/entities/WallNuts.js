@@ -13,12 +13,18 @@ const FRAG_HEALTHY = [0xd9a85a, 0xc98c3e, 0x8a5b1c];
 const FRAG_BROKEN = [0xc98c3e, 0x6b4310, 0x3a2408];
 
 /**
- * 坚果墙 = 玩家身上的**免伤护盾状态**，不是场景里的实体。
+ * 坚果墙 = 玩家手上的**免伤护盾状态**，不是场景里的实体。
  *
- * 语义：按坚果 → 脚下长出一颗坚果把自己罩住 → 罩内僵尸伤害全部打到盾上 → 盾血归零即碎。
+ * 语义：手持坚果按下去 → 脚下长出一颗坚果把自己罩住 → 罩内僵尸伤害全部打到盾上 → 盾血归零即碎。
+ * 五个武器槽是**独占**的：手上只能举一个。**切走坚果 = 把盾收起来（stow）**，不是破盾——
+ *   - `active` 表示「盾现在展开着」（决定罩壳可见、是否代玩家承伤、是否吃移速惩罚）
+ *   - `hp`     表示「这面盾还剩多少血」，**收起时原样保留**
+ * 所以：切走 → 收起（不承伤、人开始正常掉血）；切回坚果 → 自动重新展开，盾血接着用。
+ * 只有 `hp` 掉到 0 才是真的破盾（`breakShield()`）。
+ *
  * 三条防无敌点的硬约束：
  *   C1 盾有血（400），同屏僵尸越多破得越快，所以它是「买 9~24 秒」而不是「无敌」
- *   C2 罩内移速 ×0.88，且每开一枪额外扣 1 点盾血，开盾站桩要付代价
+ *   C2 罩内移速 ×0.88；盾与手持强绑定，开盾期间拿不了枪，所以不存在「开着盾站桩输出」
  *   C3 气球（空中单位）从头顶俯冲，伤害穿透护盾
  */
 export class WallNuts {
@@ -83,6 +89,23 @@ export class WallNuts {
     return true;
   }
 
+  // 收起：盾不展开、不承伤，但盾血保留，切回坚果能接着用
+  stow() {
+    if (!this.active) return false;
+    this.active = false;
+    if (this.shell) this.shell.visible = false;
+    return true;
+  }
+
+  // 展开：盾血还在才谈得上重新举起来（已经破了就要重新花阳光套）
+  deploy() {
+    if (this.active || this.hp <= 0) return false;
+    this.active = true;
+    if (this.shell) this.shell.visible = true;
+    return true;
+  }
+
+  // 彻底清空（重开一局、reset 用）：这里才把盾血一起抹掉
   clear() {
     this.active = false;
     this.hp = 0;
@@ -107,20 +130,6 @@ export class WallNuts {
     }
     this.applyColor();
     return true;
-  }
-
-  // C2：开火消耗盾血。返回 true 表示盾被这一枪打碎了。
-  spendShot() {
-    if (!this.active || this.hp <= 0) return false;
-    const cost = WALLNUT.shieldShotCost || 1;
-    this.hp -= cost;
-    if (this.hp <= 0) {
-      this.hp = 0;
-      this.breakShield();
-      return true;
-    }
-    this.applyColor();
-    return false;
   }
 
   breakShield() {

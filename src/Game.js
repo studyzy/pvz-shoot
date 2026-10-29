@@ -135,15 +135,10 @@ export class Game {
     this.hud.onChangeMap = () => this.backToMenu();
     this.hud.onMapSelect = (id) => this.selectMap(id);
     this.hud.onMute = (m) => this.sfx.setMuted(m);
-    this.hud.onWeaponSelect = (i) => {
-      if (this.state === 'playing') this.weapons.equip(i);
-    };
-    // 点武器槽：替换提示期间当作"选这一格替换"，否则就是切枪
-    this.hud.onSlotSelect = (slot) => {
+    // 点武器槽：槽位带角色，点了就是切到那一格（空格子什么都不做）
+    this.hud.onSlotSelect = (role, pos) => {
       if (this.state !== 'playing') return;
-      const w = this.weapons;
-      if (w.replacePrompt) w.resolveReplace(slot);
-      else w.equipSlot(slot);
+      this.weapons.equipSlot(role, pos);
     };
 
     this.hud.buildMapSelect(MAPS, this.mapId);

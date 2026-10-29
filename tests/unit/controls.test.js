@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { mountIndexHtml, installPointerLock, installGlobals } from '../helpers/env.js';
 import { HUD } from '../../src/ui/HUD.js';
 import { Controls } from '../../src/input/Controls.js';
-import { WEAPONS, STARTER_WEAPONS } from '../../src/config.js';
+import { WEAPONS, SLOT_KEYS } from '../../src/config.js';
 
 // jsdom 没有 PointerEvent：手工构造带 pointerId / pointerType / clientX 的事件。
 function pointerEvent(type, props) {
@@ -131,44 +131,26 @@ describe('Controls', () => {
       expect(c.consumeJump()).toBe(false);
     });
 
-    it('Digit1-6 切到对应植物（weaponRequest 是 WEAPONS 的全局下标，不是 starter 序号）', () => {
+    it('Digit1-5 切五个角色槽（植物栏已取消，只有这一套键）', () => {
       const c = make();
-      // 植物栏 6 格：豌豆/寒冰/樱桃/玉米炮/坚果/火豌豆。
-      // 坚果和火豌豆必须追加在 WEAPONS 末尾（10/11），所以 5/6 号键不能写成 n-1，
-      // 否则会指到地面拾取的双发(4)/三线(5)——坚果和火豌豆就永远按不出来。
-      const expected = STARTER_WEAPONS.map((w) => WEAPONS.indexOf(w));
-      expect(expected).toEqual([0, 1, 2, 3, 10, 11]);
-      for (let n = 1; n <= STARTER_WEAPONS.length; n++) {
+      // SLOT_KEYS 的顺序：豌豆 / 枪② / 大杀器 / 手雷 / 护盾
+      expect(SLOT_KEYS.map((k) => k.role)).toEqual(['peaGun', 'gun', 'demo', 'grenade', 'shield']);
+      for (let n = 1; n <= SLOT_KEYS.length; n++) {
         keydown('Digit' + n);
-        expect(c.consumeWeaponRequest(), 'Digit' + n).toBe(expected[n - 1]);
-        expect(c.consumeWeaponRequest()).toBe(-1);
+        expect(c.consumeSlotRequest(), 'Digit' + n).toBe(n - 1);
+        expect(c.consumeSlotRequest()).toBe(-1);
       }
-      // 回归：第 5/6 格绝不能落到地面拾取武器上
-      keydown('Digit5');
-      expect(c.consumeWeaponRequest()).toBe(10);
-      expect(WEAPONS[10].id).toBe('wallnut');
-      keydown('Digit6');
-      expect(c.consumeWeaponRequest()).toBe(11);
-      expect(WEAPONS[11].id).toBe('firepea');
-      // Digit5 不再兼职切战利品
-      keydown('Digit5');
-      expect(c.consumeLootRequest()).toBe(false);
-      c.consumeWeaponRequest();
+      // 6-9 / 0 不再是任何键位
+      for (const n of [6, 7, 8, 9, 0]) {
+        keydown('Digit' + n);
+        expect(c.consumeSlotRequest(), 'Digit' + n).toBe(-1);
+      }
 
       keydown('KeyQ');
       expect(c.consumeLootRequest()).toBe(true);
-
-      // 7/8/9 是武器槽，不是植物栏
-      keydown('Digit7');
-      expect(c.consumeWeaponRequest()).toBe(-1);
-      expect(c.consumeSlotRequest()).toBe(0);
-      keydown('Digit8');
-      expect(c.consumeSlotRequest()).toBe(1);
-      keydown('Digit9');
-      expect(c.consumeSlotRequest()).toBe(2);
     });
 
-    it('Tab / Shift+Tab 循环切槽，G / Backspace 丢弃', () => {
+    it('Tab / Shift+Tab 循环切槽，Backspace 丢弃', () => {
       const c = make();
       keydown('Tab');
       expect(c.consumeSlotCycle()).toBe(1);
@@ -176,18 +158,19 @@ describe('Controls', () => {
       const ev = keydown('Tab', { shiftKey: true });
       expect(c.consumeSlotCycle()).toBe(-1);
       expect(ev.defaultPrevented).toBe(true);
+      // G 已经让给手雷蓄力：不再触发丢弃
       keydown('KeyG');
-      expect(c.consumeDropRequest()).toBe(true);
       expect(c.consumeDropRequest()).toBe(false);
       keydown('Backspace');
       expect(c.consumeDropRequest()).toBe(true);
+      expect(c.consumeDropRequest()).toBe(false);
     });
 
-    it('Digit0 / 超出槽位数的 Digit 与其它键不产生武器请求', () => {
+    it('Digit0 / 超出槽位数的 Digit 与其它键不产生槽位请求', () => {
       const c = make();
       keydown('Digit0');
+      keydown('Digit9');
       keydown('KeyZ');
-      expect(c.weaponRequest).toBe(-1);
       expect(c.slotRequest).toBe(-1);
       expect(c.consumeLootRequest()).toBe(false);
     });
@@ -198,7 +181,7 @@ describe('Controls', () => {
       expect(ev.defaultPrevented).toBe(true);
       keydown('Digit2');
       expect(c.jumpQueued).toBe(false);
-      expect(c.weaponRequest).toBe(-1);
+      expect(c.slotRequest).toBe(-1);
       expect(c.keys.size).toBe(0);
     });
 
@@ -244,7 +227,7 @@ describe('Controls', () => {
       c.update();
       c.setFiring(true);
       c.jumpQueued = true;
-      c.weaponRequest = 2;
+      c.slotRequest = 2;
       c.lootRequest = true;
       c.lookX = 3;
       c.move.x = 1;
@@ -254,7 +237,7 @@ describe('Controls', () => {
       expect(c.keys.size).toBe(0);
       expect(c.firing).toBe(false);
       expect(c.firePressed).toBe(false);
-      expect(c.weaponRequest).toBe(-1);
+      expect(c.slotRequest).toBe(-1);
       expect(c.lootRequest).toBe(false);
       expect(c.move).toEqual({ x: 0, y: 0 });
       expect(hide).toHaveBeenCalledTimes(1);

@@ -5,7 +5,6 @@ import { WEAPONS } from '../../src/config.js';
 import { formatNum } from '../../src/utils.js';
 
 const $ = (id) => document.getElementById(id);
-const starterWeapons = WEAPONS.filter((w) => w.starter);
 const click = (el) => el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
 
 describe('HUD 投掷物准星', () => {
@@ -55,100 +54,75 @@ describe('HUD', () => {
   });
 
   describe('buildDock', () => {
-    it('为每个 starter 武器生成一格，序号从 1 连续递增，data-index 指向 WEAPONS 下标', () => {
-      expect(starterWeapons.length).toBeGreaterThan(0);
-      expect(hud.weaponButtons).toHaveLength(starterWeapons.length);
-
-      const btns = [...hud.weaponDock.querySelectorAll('button.weapon-btn')];
-      expect(btns).toHaveLength(starterWeapons.length);
-      // 底部这一行只有植物栏；武器槽在独立的 slot-dock 里
-      expect(hud.weaponDock.children).toHaveLength(starterWeapons.length);
-
-      btns.forEach((btn, slot) => {
-        const def = starterWeapons[slot];
-        expect(btn.querySelector('.wkey').textContent).toBe(String(slot + 1));
-        expect(btn.querySelector('.wname').textContent).toBe(def.short);
-        expect(btn.getAttribute('aria-label')).toBe(def.name);
-        expect(Number(btn.dataset.index)).toBe(WEAPONS.indexOf(def));
-        expect(btn.querySelector('svg')).toBeTruthy(); // 每个植物都有图标
-        const cost = btn.querySelector('.wcost');
-        if (def.cost === 0) {
-          expect(cost.textContent).toBe('∞');
-          expect(cost.classList.contains('free')).toBe(true);
-        } else {
-          expect(cost.textContent).toBe(String(def.cost));
-          expect(cost.classList.contains('free')).toBe(false);
-        }
-      });
-    });
-
-    it('武器槽独立成一条：3 格、键位 7/8/9、初始整条隐藏', () => {
-      // 槽位不再占底部植物栏那一行（6 格 + 3 槽在 iPhone 横屏会溢出）
-      expect(hud.slotButtons.length).toBe(3);
+    it('五个角色槽：豌豆(1) 枪(2) 大杀器(3) 手雷(4) 护盾(5)，初始整条隐藏', () => {
+      expect(hud.slotButtons.length).toBe(5);
       expect(hud.slotDock.classList.contains('hidden')).toBe(true);
-      expect(hud.weaponDock.querySelector('.slot-btn')).toBeNull();
+      // 植物栏容器已删除：槽位是唯一的武器按钮来源
+      expect(document.getElementById('weaponDock')).toBeNull();
       expect(hud.slotDock.parentElement.classList.contains('dock')).toBe(true);
       const keys = hud.slotButtons.map((b) => b.querySelector('.wkey').textContent);
-      expect(keys).toEqual(['7', '8', '9']);
+      expect(keys).toEqual(['1', '2', '3', '4', '5']);
+      const roles = hud.slotButtons.map((b) => b.dataset.role);
+      expect(roles).toEqual(['peaGun', 'gun', 'demo', 'grenade', 'shield']);
       for (const b of hud.slotButtons) expect(b.classList.contains('empty')).toBe(true);
     });
 
-    it('点击植物格用 WEAPONS 下标回调 onWeaponSelect，并阻止默认行为/冒泡', () => {
-      const onWeaponSelect = vi.fn();
-      hud.onWeaponSelect = onWeaponSelect;
-      const btn = hud.weaponButtons[2].btn;
-      const ev = new MouseEvent('click', { bubbles: true, cancelable: true });
-      btn.dispatchEvent(ev);
-      expect(onWeaponSelect).toHaveBeenCalledWith(hud.weaponButtons[2].index);
-      expect(ev.defaultPrevented).toBe(true);
-      expect(ev.bubbles).toBe(true);
-    });
-
-    it('点击武器槽回调 onSlotSelect（传槽号，不是武器下标）', () => {
+    it('点击槽位回调 onSlotSelect(role, pos)', () => {
       const onSlotSelect = vi.fn();
       hud.onSlotSelect = onSlotSelect;
-      hud.setSlots([7, -1, -1]);
+      hud.setSlots({ peaGun: [0], gun: [7], demo: [-1], grenade: [-1], shield: [-1] });
       click(hud.slotButtons[0]);
-      expect(onSlotSelect).toHaveBeenCalledWith(0);
-      click(hud.slotButtons[2]);
-      expect(onSlotSelect).toHaveBeenCalledWith(2);
+      expect(onSlotSelect).toHaveBeenCalledWith('peaGun', 0);
+      click(hud.slotButtons[1]);
+      expect(onSlotSelect).toHaveBeenCalledWith('gun', 0);
+      click(hud.slotButtons[3]);
+      expect(onSlotSelect).toHaveBeenCalledWith('grenade', 0);
     });
 
-    it('setSlots：有枪的槽显示图标/名称/弹药，空槽是虚线占位；全空时整条隐藏', () => {
-      hud.setSlots([7, -1, 9]);
+    it('setSlots：按角色填格子，空槽显示角色名；全空时整条隐藏', () => {
+      hud.setSlots({ peaGun: [0], gun: [7], demo: [8], grenade: [-1], shield: [-1] });
       expect(hud.slotDock.classList.contains('hidden')).toBe(false);
-      expect(hud.slotButtons[0].classList.contains('empty')).toBe(false);
-      expect(hud.slotButtons[1].classList.contains('empty')).toBe(true);
-      expect(hud.slotButtons[1].querySelector('.slot-name').textContent).toBe('空');
-      // 仙人掌
-      expect(hud.slotButtons[0].querySelector('.slot-name').textContent).toBe('仙人掌');
-      expect(hud.slotButtons[0].querySelector('.slot-icon').innerHTML).toContain('svg');
-      hud.setSlots([-1, -1, -1]);
+      expect(hud.slotButtons[0].querySelector('.slot-name').textContent).toBe('豌豆');
+      // 仙人掌在枪②
+      expect(hud.slotButtons[1].classList.contains('empty')).toBe(false);
+      expect(hud.slotButtons[1].querySelector('.slot-name').textContent).toBe('仙人掌');
+      expect(hud.slotButtons[1].querySelector('.slot-icon').innerHTML).toContain('svg');
+      // 西瓜进大杀器槽，空的手雷槽显示它属于哪个角色
+      expect(hud.slotButtons[2].querySelector('.slot-name').textContent).toBe('西瓜');
+      expect(hud.slotButtons[3].classList.contains('empty')).toBe(true);
+      expect(hud.slotButtons[3].querySelector('.slot-name').textContent).toBe('手雷');
+      hud.setSlots({ peaGun: [-1], gun: [-1], demo: [-1], grenade: [-1], shield: [-1] });
       expect(hud.slotDock.classList.contains('hidden')).toBe(true);
     });
 
-    it('setActiveSlot 只高亮非空的那一格', () => {
-      hud.setSlots([7, -1, 9]);
-      hud.setActiveSlot(2);
+    it('setActiveSlot 只高亮对应的那一格（按 role+pos 匹配）', () => {
+      hud.setSlots({ peaGun: [0], gun: [7], demo: [8], grenade: [-1], shield: [-1] });
+      hud.setActiveSlot({ role: 'demo', pos: 0 });
       expect(hud.slotButtons[2].classList.contains('active')).toBe(true);
       expect(hud.slotButtons[0].classList.contains('active')).toBe(false);
-      hud.setActiveSlot(-1);
+      hud.setActiveSlot({ role: 'grenade', pos: 0 });
+      // 空格子不会被点亮
+      expect(hud.slotButtons[3].classList.contains('active')).toBe(false);
+      hud.setActiveSlot(null);
       expect(hud.slotButtons[2].classList.contains('active')).toBe(false);
     });
 
     it('setSlotAmmo 写角标，0 发时标记 locked', () => {
-      hud.setSlots([7, -1, -1]);
-      hud.setSlotAmmo(0, 12);
-      expect(hud.slotButtons[0].querySelector('.wammo').textContent).toBe('12');
-      hud.setSlotAmmo(0, 0);
-      expect(hud.slotButtons[0].classList.contains('locked')).toBe(true);
+      hud.setSlots({ peaGun: [0], gun: [7], demo: [-1], grenade: [-1], shield: [-1] });
+      hud.setSlotAmmo({ role: 'gun', pos: 0 }, 12);
+      expect(hud.slotButtons[1].querySelector('.wammo').textContent).toBe('12');
+      hud.setSlotAmmo({ role: 'gun', pos: 0 }, 0);
+      expect(hud.slotButtons[1].classList.contains('locked')).toBe(true);
     });
 
-    it('setReplacePrompt 给整条槽位加闪烁类', () => {
-      hud.setReplacePrompt(true);
-      expect(hud.slotDock.classList.contains('replacing')).toBe(true);
-      hud.setReplacePrompt(false);
-      expect(hud.slotDock.classList.contains('replacing')).toBe(false);
+    it('setCharge 控制蓄力条的显隐与填充宽度', () => {
+      hud.setCharge(0);
+      expect(hud.chargeBar.classList.contains('on')).toBe(false);
+      hud.setCharge(0.5);
+      expect(hud.chargeBar.classList.contains('on')).toBe(true);
+      expect(hud.chargeFill.style.width).toBe('50%');
+      hud.setCharge(2); // 夹到 1
+      expect(hud.chargeFill.style.width).toBe('100%');
     });
   });
 
@@ -344,18 +318,23 @@ describe('HUD', () => {
       expect(hud.waveLabel.textContent).toBe('第 4 波');
     });
 
-    it('updateAffordability 阳光低于费用时给按钮加 poor 类', () => {
-      const minCost = Math.min(...starterWeapons.map((w) => w.cost));
-      const expensive = starterWeapons.filter((w) => w.cost > minCost);
+    it('updateAffordability 阳光低于费用时给有武器的槽加 poor 类（空槽不加）', () => {
+      // 豌豆常驻 1 号槽（免费），2 号枪槽放一把双发
+      const repeater = WEAPONS.findIndex((w) => w.id === 'repeater');
+      hud.setSlots({ peaGun: [0], gun: [repeater], demo: [-1], grenade: [-1], shield: [-1] });
       hud.updateAffordability(0);
       hud.weaponButtons.forEach((entry) => {
+        if (entry.index < 0) {
+          expect(entry.btn.classList.contains('poor')).toBe(false);
+          return;
+        }
         expect(entry.btn.classList.contains('poor')).toBe(WEAPONS[entry.index].cost > 0);
       });
-      expect(expensive.length).toBeGreaterThan(0);
       expect(hud.weaponButtons[0].btn.classList.contains('poor')).toBe(false); // 豌豆免费
 
       hud.setSun(30);
       hud.weaponButtons.forEach((entry) => {
+        if (entry.index < 0) return;
         expect(entry.btn.classList.contains('poor')).toBe(WEAPONS[entry.index].cost > 30);
       });
       hud.setSun(999);
@@ -376,10 +355,10 @@ describe('HUD', () => {
     });
 
     it('setAmmo 会同步当前激活槽的角标（不再有单独的战利品格）', () => {
-      hud.setSlots([7, -1, -1]);
-      hud.setActiveSlot(0);
+      hud.setSlots({ peaGun: [0], gun: [7], demo: [-1], grenade: [-1], shield: [-1] });
+      hud.setActiveSlot({ role: 'gun', pos: 0 });
       hud.setAmmo(9, 40, true, false);
-      expect(hud.slotButtons[0].querySelector('.wammo').textContent).toBe('9');
+      expect(hud.slotButtons[1].querySelector('.wammo').textContent).toBe('9');
     });
 
     it('setAmmo(locked) 标记缺阳光：chip 加 locked', () => {
@@ -567,10 +546,9 @@ describe('HUD', () => {
 
       // reset() 先清缓存再写回初始值，所以缓存停在初始值上（不是 -1 哨兵）
       expect(hud.cache).toEqual({ hp: 100, sun: -1, score: 0, kills: 0, wave: 1, ammo: -1 });
-      expect(hud.slotState).toEqual([-1, -1, -1]);
-      expect(hud.activeSlotIndex).toBe(-1);
+      expect(hud.slotState).toEqual({ peaGun: [-1], gun: [-1], demo: [-1], grenade: [-1], shield: [-1] });
+      expect(hud.activeSlotIndex).toBe(null);
       expect(hud.slotDock.classList.contains('hidden')).toBe(true);
-      expect(hud.slotDock.classList.contains('replacing')).toBe(false);
       expect(hud.ammoChip.classList.contains('hidden')).toBe(true);
       expect(hud.hpText.textContent).toBe('100');
       expect(hud.hpFill.style.width).toBe('100%');

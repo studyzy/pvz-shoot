@@ -48,14 +48,14 @@ npm run preview   # 预览构建产物
 | `src/entities/WallNuts.js` | **坚果免伤盾**：玩家身上的一个状态（不是场景实体）。`absorb()` 拦伤害、盾血/破盾动画、罩壳跟随 |
 | `src/entities/SunOrbs.js` | 阳光球池、弹跳、磁吸、拾取 |
 | `src/entities/WeaponPickups.js` | 地面植物拾取物池：按地图点位刷新、发光/名称牌、靠近自动拾取、重生 |
-| `src/weapons/WeaponSystem.js` | 手持植物视图模型、瞄准辅助、开火、切枪、后坐/摇摆、命中判定入口 |
+| `src/weapons/WeaponSystem.js` | 手持植物视图模型、瞄准辅助、开火、切枪、**角色槽（peaGun/gun/demo/grenade/shield）**、手雷蓄力、后坐/摇摆、命中判定入口 |
 | `src/weapons/ProjectileSystem.js` | 豌豆池、樱桃抛物线、爆炸、爆头判定 |
 | `src/fx/Particles.js` | InstancedMesh 粒子池、爆炸球壳/冲击环、临时点光源 |
 | `src/audio/Sfx.js` | WebAudio 音效：开火/命中/僵尸吼叫走 CC0 采样（`SAMPLES` 表驱动），UI 提示音仍用 `tone()` / `noise()` 合成 |
 | `src/fx/audio.js` | 采样素材的内嵌出口（导出名占位，构建时由 `vite.config.js` 的 `embed-audio` 插件填入 `public/audio/*.wav` 的原始字节） |
 | `public/audio/` | 16 个 CC0 音效（`gun1/gun2/boom/bp/z1..z6/pop1/slime/slime2/splash5/bubble/freeze`）+ `LICENSE-audio.txt`（来源、裁剪参数、许可）；只有这份和 `src/fx/audio.js` 会被打进包里 |
 | `src/input/Controls.js` | 键鼠 + 触屏输入、平台识别、虚拟摇杆、指针锁定 |
-| `src/ui/HUD.js` | DOM HUD、植物栏、横幅、命中标记、开始/暂停/结算界面 |
+| `src/ui/HUD.js` | DOM HUD、**5 个角色槽底栏**、蓄力条、横幅、命中标记、开始/暂停/结算界面 |
 | `src/style.css` | 全部界面样式与响应式/安全区适配 |
 | `public/models/` | `zombie.glb`（660 KB：7.8k 三角面、50 骨骼、16 段动画）+ `skeleton.glb`（1.4 MB：5.3k 三角面、41 骨骼、13 段动画）+ 两份 `LICENSE-*.txt`，构建时原样拷贝到 `dist/models/` |
 | `docs/GAMEPLAY.md` | 玩家向完整数值文档；**改数值后同步更新** |
@@ -109,9 +109,11 @@ npm run preview   # 预览构建产物
 
 爆炸走 `ZombieManager.damageArea()`，按距离衰减（中心 100%，边缘 45%），并在内部完成击杀结算。
 
-地面拾取的植物走另一条线：`WeaponPickups` 检测玩家距离 → `WeaponSystem.pickup(index)` → 进一个**武器槽**（`slots[]`，最多 `WEAPON_SLOTS.count = 3` 个）→ 立即装备。**枪免费捡，子弹用阳光买**：开火扣弹药；打空后 `tryReload()` 自动扣 `cost × ammo` 续一整梭子，阳光不够则 `locked`（枪不丢，HUD 变暗显示"缺阳光"），攒够后自动续弹。
+地面拾取的植物走另一条线：`WeaponPickups` 检测玩家距离 → `WeaponSystem.pickup(index)` → 按 `def.slot` 进对应的**角色槽** → 立即装备。**枪免费捡，子弹用阳光买**：开火扣弹药；打空后 `tryReload()` 自动扣 `cost × ammo` 续一整梭子，阳光不够则 `locked`（枪不丢，HUD 变暗显示"缺阳光"），攒够后自动续弹。
 
-**武器槽（吃鸡式）**：`slots[i]` 存武器 index（-1 空），`activeSlot` 是当前激活的槽（-1 = 手上是植物栏里的初始植物）。`pickup()` 的返回值是**「拾取物该不该消失」**：`true` = 拿走了，`false` = 暂时没拿走（槽满、正在等玩家选替换哪一格），此时 `WeaponPickups` **必须让物品留在地上**。槽满时 `replacePrompt` 计时 `WEAPON_SLOTS.replacePick` 秒，超时取消。丢弃走 `dropSlot()` → `ctx.pickups.dropAt()` 把枪交回地面（`Game` 构造里 `ctx.pickups = this.pickups`，漏了这一步丢枪会凭空消失）。
+**角色槽（吃鸡式）**：`slots` 是 `{ peaGun: [-1], gun: [-1], demo: [-1], grenade: [-1], shield: [-1] }`，每格存武器 index（-1 空）；`activeSlot` 是当前激活的 `{role, pos}`（`null` = 手上这把不在任何槽里）。`pickup()` 的返回值是**「拾取物该不该消失」**：`true` = 拿走了；`false` = 没拿走（豌豆槽拒绝外来武器、或未知武器），此时 `WeaponPickups` **必须让物品留在地上**。同角色**每格只有一个位置**，再捡就顶掉，旧枪清弹药后 `dropAt()` 掉在脚边——**没有替换弹窗**。丢弃走 `dropSlot(role, pos)` → `ctx.pickups.dropAt()`（`Game` 构造里 `ctx.pickups = this.pickups`，漏了这一步丢枪会凭空消失）。
+
+**手雷（樱桃）**是唯一不吃 `tryFire` 那套的武器：`update()` 里走 `updateGrenade()` —— 按住蓄力累加 `this.charge`（封顶 `GRENADE.chargeTime`），松手按比例换算成 4～20 米投掷距离后调 `throwCherry()`。蓄力条由 `HUD.setCharge()` 画（`#chargeBar`）。
 
 ---
 
@@ -123,14 +125,16 @@ npm run preview   # 预览构建产物
 - 改完数值同步 `docs/GAMEPLAY.md`，否则文档会骗人。
 - 阳光经济（`docs/GAMEPLAY.md` §4）：初始 60、上限 300、每颗 5、未拾取 18 秒消失；掉落数量在 `ZombieManager.handleKill`，天降参数在 `config.js` 的 `SUN_SKY`（30 秒 1 颗，占收入 4~8%，主收入仍是击杀）。
 - **豌豆 `cost: 0` 是承重墙**：保证阳光见底时仍有枪可用，不会出现"没钱且打不动"的死锁。不要改成收费。
-- 武器分两类：`starter: true` 进植物栏、每发按 `cost` 花阳光；`starter: false` 只能地面拾取、免费拿、自带一梭子 `ammo`，打空后按 `cost × ammo` 用阳光续弹。
-- **新增武器必须写在 `WEAPONS` 数组末尾**：植物栏/战利品的 index 是按数组下标算的，`tests/unit/weaponsystem.test.js` 里有大量 `pickup(5)`、`equip(7)` 的硬编码下标。往中间插一个会让几十个用例一起红。
-- **数字键 1-6 → `WEAPONS` 全局下标必须走 `STARTER_WEAPONS` 换算**（`Controls` 里 `WEAPONS.indexOf(STARTER_WEAPONS[n-1])`），**不能写 `n-1`**：坚果/火豌豆因为要追加在数组末尾，实际在 10/11。写成 `n-1` 时 5/6 会指到地面拾取的双发(4)/三线(5)，坚果和火豌豆就永远按不出来——踩过，而且当时的用例把错误行为写死了（`expect(...).toBe(n-1)`），所以测试没报。新增植物时如果它不在「前 N 个」里，这条换算就是唯一正确路径。
+- **已取消植物栏**：只有豌豆 `starter: true`（常驻 1 号槽，无限免费）；其余全部靠拾取、自带弹匣 `ammo`，打空后按 `cost × ammo` 用阳光续弹。坚果是唯一例外——不吃 `ammo`，走 `maxCharges`/`recharge` 充能。
+- **新增武器必须写在 `WEAPONS` 数组末尾**：战利品与槽位的 index 是按数组下标算的，`tests/unit/weaponsystem.test.js` 里有大量 `pickup(5)`、`equip(7)` 的硬编码下标。往中间插一个会让几十个用例一起红。
 - **护甲只写在 `config.js` 的 `ARMOR_MATERIALS` 表里**：`absorption`（吸收比例）、`burnImmune`（燃烧烧不动）、`pierceBlock`（挡穿透）。僵尸用 `armor: { material, hp }` 挂上。不要给某把武器写"对铁桶减伤"的特例——那是这张表推出来的。
 - **对空是白名单**：`WEAPONS[].aerial` 不写 = 打不到空中目标；`'explosion'` = 爆炸类；数字 = 伤害倍率（火豌豆 0.25）。判定必须在三处一致：`ProjectileSystem.update`、`WeaponSystem.raycastZombies`、`ZombieManager.damageArea`，漏一处就会出现"玉米炮能打、豌豆也能"的破绽。
 - **充能制植物**（目前只有坚果）：`maxCharges` + `recharge`，`WeaponSystem.charges[]` 是浮点（每帧累加），HUD 显示 `Math.floor`。没有 `maxCharges` 的植物恒为 `Infinity`，走原来的路径。
-- **战利品一律走 `slots[]`，不要再用 `carried`**（已删除）。判断"有没有这把枪"用 `slotOf(index)`，不要看 `ammo[index] > 0`——打空但没丢的枪仍在槽里。
-- **武器槽不能平铺进底部那一行**：底部 6 格 + 3 槽在 iPhone 横屏 844px 下必然溢出（6 格已经只余 19px）。槽位是独立的 `slot-dock`（桌面竖排在开火上方的右侧、触屏横排），且触屏下 `.dock` 是 `inset: 0` 的绝对层，`body.touch .slot-dock` **必须自己定位**。
+- **战利品一律走 `slots`，不要再用 `carried` / 植物栏**（都已删除）。`slots` 是**按角色分组**的对象 `{ peaGun: [-1], gun: [-1], demo: [-1], grenade: [-1], shield: [-1] }`，每格存武器 index。判断"有没有这把枪"用 `slotIndexOf(index)`（返回 `{role, pos}` 或 `null`），不要看 `ammo[index] > 0`——打空但没丢的枪仍在槽里。
+- **槽位由 `WEAPONS[].slot` 决定归属**，五种角色：`peaGun`（豌豆常驻）、`gun`（唯一可换的枪②）、`demo`（大杀器）、`grenade`（手雷）、`shield`（坚果）。**每格只有一个位置**，同角色再捡就顶掉，旧枪 `dropAt()` 掉在脚边。**没有 `replacePrompt` 弹窗**（已删除，别再引回来）。
+- **`peaGun` 是承重墙**：豌豆射手开局由 `mountPea()` 装进 1 号枪槽，`pickup()` 拒绝任何其他武器进来，`dropSlot()` 也拒绝把它丢出去。这是"阳光见底仍打得起"的保底，不要为了灵活性放开。
+- **数字键映射走 `config.js` 的 `SLOT_KEYS`**（`1→peaGun, 2→gun, 3→demo, 4→grenade, 5→shield`）+ `SLOT_KEY_BASE = 1`，不要在 `Controls` 里写 `n - 7` 之类的算术；丢弃是 `Backspace`。
+- **底部植物栏已取消**：`#weaponDock` / `HUD.weaponDock` / `onWeaponSelect` / `Controls.weaponRequest` / `trySwitch` 全部删掉了，别再加回来。5 个角色槽就是唯一的武器 UI（`slot-dock`，桌面竖排在开火上方右侧、触屏横排）。触屏下 `.dock` 是 `inset: 0` 的绝对层，`body.touch .slot-dock` **必须自己定位**。
 
 ### 5.2 僵尸模型与材质
 
@@ -175,7 +179,7 @@ npm run preview   # 预览构建产物
 
 - 平台识别在 `Controls` 构造函数：`(pointer: coarse) || (hover: none)` 且 `maxTouchPoints > 0`；首次触摸会调用 `onModeChange` 动态切换。
 - `Game` 会给 `<body>` 加 `touch` / `desktop` 类；CSS 用它们隐藏虚拟开火/跳跃并显示键位提示。
-- 触屏横屏：左下固定摇杆，右半屏拖动视角；右下大号开火、开火正上方跳跃、开火左侧植物栏（参考吃鸡手游），按钮均为 DOM 且已 `stopPropagation`；竖屏由 `#orientationGate` 拦截。
+- 触屏横屏：左下固定摇杆，右半屏拖动视角；右下大号开火、开火正上方跳跃、开火左侧武器槽（参考吃鸡手游），按钮均为 DOM 且已 `stopPropagation`；竖屏由 `#orientationGate` 拦截。
   **新增全屏或大面积可点击元素时务必设 `pointer-events: none`（除非确实要点击），否则会挡住瞄准。**
 - 桌面：点击开始后 `requestPointerLock`；`Esc` 解锁会触发 `onLockChange` → 自动暂停。恢复必须由用户点击按钮（浏览器手势要求）。
 - 不要给触摸设备调用 `requestPointerLock`。
@@ -225,8 +229,9 @@ npm run preview   # 预览构建产物
 - 地图元数据（`name/tag/desc/startLabel`）写在 `src/world/maps.js` 的 `MAPS`，HUD 的选图卡片由它驱动。
 - 薄墙用圆形碰撞体近似时，圆心间距必须小于 `2 × (r + 僵尸半径 × 0.8)`，否则僵尸会从圆与圆之间穿过去（雪地矮墙用 0.85 米间距 / r = 0.6）。
 - 拾取点位写在各自地图的 `pickupSpots`；`WeaponPickups` 池上限 `MAX_SPOTS = 10`，点位超过 10 要同时改。
-- 拾取物只刷新 `starter: false` 的武器；拾取距离、重生时间在 `WeaponPickups.js` 顶部常量。
-- 拾取植物在 `WeaponSystem` 里占一个**武器槽**（共 3 个）；槽满时弹替换提示而不是直接吞。打空不丢枪，`tryReload()` 自动续弹，钱不够则 `locked`。
+- 地面刷新池是**除豌豆与坚果外的所有武器**（`lootIndices`）；拾取距离、重生时间在 `WeaponPickups.js` 顶部常量。
+- 拾取植物在 `WeaponSystem` 里按 `def.slot` 进对应**角色槽**（见 5.1）；同角色已满就直接顶掉，旧枪掉在脚边。打空不丢枪，`tryReload()` 自动续弹，钱不够则 `locked`。
+- **地面刷新池排除豌豆和坚果**（`WeaponPickups.lootIndices`）：豌豆常驻枪槽，坚果靠阳光充能，都不该出现在地上。
 - 新增拾取植物必须给 `model`（视图模型分支）、`ammo`、`color`，并在 `WeaponSystem.buildViewModels` 的 `builders` 里有对应构建函数。
 
 ---
@@ -238,7 +243,7 @@ npm run preview   # 预览构建产物
 1. 在 `config.js` 的 `WEAPONS` 加一项（`id/name/short/cost/cooldown/damage/kind/speed/radius/color/auto/recoil`）。
 2. 在 `WeaponSystem.buildViewModels` 里为新 `id` 建视图模型，返回 `{ group, muzzle, basePos, baseRot, baseScale, fireKick }`。
 3. 在 `tryFire()` 里按 `kind` 分支：`pea`（弹丸）、`lob`（抛物线）、`hitscan`（即时命中）；新机制就扩展 `ProjectileSystem`。
-4. 在 `HUD.js` 的 `ICONS` 加 SVG 图标，植物栏会自动多一格（`WEAPONS` 驱动）。
+4. 在 `HUD.js` 的 `ICONS` 加 SVG 图标；在 `config.js` 给它写 `slot`，它就会出现在对应角色槽的可替换候选里。
 5. 更新 `docs/GAMEPLAY.md` 的武器表与说明。
 
 ### 新增一张地图
@@ -308,16 +313,16 @@ __game.renderer.info.render     // draw call / 三角面
 ### 改动后的最低验收
 
 - `npm run build` 通过；控制台无 error / pageerror。
-- 桌面（1440×860）：选地图 → 开始 → 指针锁定 → WASD 移动 → 鼠标转视角 → 左键射击 → 1-6 切植物 → 7/8/9 切武器槽 → Tab 循环 → G 丢枪 → 空格跳 → Esc 暂停/继续。
-- 武器槽：连捡 3 把依次填满；第 4 把弹「替换哪一格？」、2.5 秒不选则取消；丢下的枪在脚边可再捡回；重开一局清空。
-- iPhone 横屏（844×390）、iPad（1024×768）：选图卡片不溢出；虚拟摇杆、右侧拖动、开火、跳跃、植物栏都可用；HUD 不被安全区裁切。
+- 桌面（1440×860）：选地图 → 开始 → 指针锁定 → WASD 移动 → 鼠标转视角 → 左键射击 → 1-5 切五个角色槽 → Tab 循环 → Backspace 丢枪 → 空格跳 → Esc 暂停/继续。
+- 武器槽：按 1 永远回到豌豆；捡一把枪进 2 号槽、再捡一把顶掉它且旧枪掉在脚边；3/4/5 分别是玉米炮/樱桃/坚果；按住开火键蓄力投樱桃；丢下的枪在脚边可再捡回；重开一局清空（豌豆槽保留）。
+- iPhone 横屏（844×390）、iPad（1024×768）：选图卡片不溢出；虚拟摇杆、右侧拖动、开火、跳跃、5 个武器槽都可用；HUD 不被安全区裁切。
 - 竖屏（390×844）：显示「请横屏游玩」拦截层，不进入游戏；横过来后拦截层消失、可正常开始。
 - 地图：菜单能切换后院/雪地，背景、雾、相机随之切换；雪地能看到田字四柱、两侧矮墙、两端基地、四角砖台、围墙与雪山。
 - 高低差：走上四角砖台会自动踏步；两侧 0.85 米矮墙可以跳上去站稳；田字四柱 3.6 米不能跳上；走出边缘会下落；僵尸从北端基地沿通道接近，不会卡死。
-- 拾取：踩到发光植物自动拾取，第 5 格出现图标与弹药数；打空后枪不丢，阳光够自动续弹、不够则变暗显示「缺阳光」；9-14 秒后原点位刷新。
+- 拾取：踩到发光植物自动进对应角色槽并出现图标与弹药数；2 号槽再捡就顶掉上一把、旧枪掉在脚边；打空后枪不丢，阳光够自动续弹、不够则变暗显示「缺阳光」；9-14 秒后原点位刷新。
 - 武器：豌豆命中/爆头、寒冰减速变蓝、樱桃落地爆炸、玉米炮即时爆炸；双发/三线散射、机枪射速、仙人掌穿透、西瓜爆炸、辣椒范围灼烧。
-- 坚果墙：按 5 套盾 → 僵尸贴脸打、玩家血条纹丝不动；盾血条变色并在 25% 以下闪烁；盾碎时碎裂音 + 白闪；气球从头顶咬能穿透护盾；罩内移速变慢、连射时盾血肉眼可见地掉。
-- 火豌豆：按 6 切到火豌豆 → 弹丸拖火星、命中后僵尸身上冒火苗；打橄榄球僵尸明显快于豌豆。
+- 坚果墙：捡到坚果后按 5 切到护盾槽、左键套盾 → 僵尸贴脸打、玩家血条纹丝不动；罩壳变色并在 25% 以下闪烁；盾碎时碎裂音 + 白闪；气球从头顶咬能穿透护盾；罩内移速变慢；**手持坚果时开不了枪；切到 1/2/3/4 盾收起（人开始掉血、盾血保留），切回来自动重新举起**。
+- 火豌豆：捡到火豌豆后按 2 切到它 → 弹丸拖火星、命中后僵尸身上冒火苗；打橄榄球僵尸明显快于豌豆。
 - 护甲：打铁桶/橄榄球时头盔先掉（碎裂音），铁桶对豌豆减伤、橄榄球被火豌豆烧穿；仙人掌穿透打不动铁桶。
 - 气球：豌豆打它穿过去（地面打出点点、无伤害）；换玉米炮/樱桃一发带走；跳到它高度以下能躲开撕咬；站上雪地矮墙 + 水平 3 米内用豌豆也能打到。
 - 流程：击杀掉阳光并拾取（18 秒内没捡会消失）、天降阳光每 30 秒落 1 颗、清波加分、暂停/恢复、死亡结算、再来一局。
@@ -349,7 +354,7 @@ CI（`.github/workflows/ci.yml`）在每次 push 到 main 和每个 PR 上跑三
 - 只有后院 / 雪地 / 沙城三张无尽地图，没有关卡章节/剧情。
 - 没有通用地形/斜坡系统：地图只有轴对齐的平顶平台（雪地的田字四柱/矮墙/砖台、沙城的 A/B 点观景台），靠 `platforms` 采样支撑；没有斜坡、楼梯、可破坏物。
 - **僵尸不会跳**：能站上去的高台必须给僵尸留活路——沙城观景台只有 0.4 米且不挂 `colliders`，`FlowField.blockPlatforms` 默认也跳过 ≤0.6 米的平台，否则玩家站上去就无敌。
-- 拾取植物是弹匣制（打空用阳光续弹），但**没有手动换弹键**；豌豆无限且免费，其它植株每发花阳光。
+- 拾取植物是弹匣制（打空用阳光续弹），但**没有手动换弹键**；豌豆无限且免费且常驻 1 号槽，其它植物靠捡、打完用阳光续。
 - 僵尸和骷髅全是近战，没有远程/投掷单位。
 - **普通**骷髅只在雪地图出现、同屏最多 3 只——它单只 9 个 draw call（僵尸 2 个），详见 5.3.1。想提高上限先想办法合并它的蒙皮网格。巨型骷髅 Boss 不受此限（每波 1 只）。
 - 僵尸用的是 Quaternius `Idle/Walk/Idle_Attack/Death/HitReact` 五段动画，攻击节奏由代码控制（`attackTimer` 1.28 秒）而不是动画事件对齐；没有 IK、没有动画事件回调，脚在急转弯时仍会轻微滑步。要完全贴合得接 IK 或动画事件。
@@ -357,8 +362,10 @@ CI（`.github/workflows/ci.yml`）在每次 push 到 main 和每个 PR 上跑三
 - 爆炸位置本身不判遮挡（范围伤害照算），但豌豆和投掷物会被地图 `walls` 挡住；辅助瞄准不预判移动。
 - 僵尸默认不做网格寻路；雪地用 1 米网格流场绕开田字四柱（`IceWorld.updateNav`），其他地图仍是直线追击 + 分离 + 碰撞推出，并带贴墙滑动。
 - 割草机是装饰，不会触发清场。
-- 地面武器最多**同时带 3 把**（吃鸡式武器槽），可以主动丢弃（G）。续弹自动完成，**没有手动换弹键**、没有换弹动画。
-- **坚果是免伤盾不是无敌**：盾血 400、撑多久取决于场上僵尸数量；罩内移速 ×0.88、每开一枪额外扣 1 点盾血、气球伤害穿透护盾。这三条是刻意的，删掉任何一条它都会变成"开着盾站桩打"的无敌点。
+- 武器槽是**角色制**的：1 豌豆（常驻）/ 2 枪 / 3 大杀器 / 4 手雷 / 5 护盾。2~5 可换，豌豆永不变。可主动丢弃（Backspace）。续弹自动完成，**没有手动换弹键**、没有换弹动画。
+- **坚果是免伤盾不是无敌**：盾血 400、撑多久取决于场上僵尸数量；罩内移速 ×0.88、**手持坚果期间开不了枪**、气球伤害穿透护盾。这三条是刻意的，删掉任何一条它都会变成"开着盾站桩打"的无敌点。
+- **五个槽是独占的，但「收起」不等于「破盾」**：`equip()` 一开始调 `syncShieldWithHand()` —— 切走坚果走 `wallNuts.stow()`（`active=false`，罩壳隐藏，**`hp` 原样保留**，玩家开始正常承伤）；切回坚果走 `deploy()` 免费重新举起。只有 `hp` 掉到 0 才是 `breakShield()`。`clear()` 才是真正抹掉盾血，只给重开一局用。
+- 原来的 `shieldShotCost`（开火扣盾血）和 `WallNuts.spendShot()` 已删除——独占到"手持坚果就不能开枪"之后它们成了死代码，别再按"开盾时还能开枪"的前提加回来。
 - **气球是纯高度层级**：不吃地面碰撞体（在飞）、不被墙挡住；站上 ≥1.5 米高台用任何武器都能打到，这是刻意的零成本解法，别当漏洞修。
 - 同屏僵尸硬上限 14（移动端性能）。
 - 测试跑在 jsdom 里，WebGL 是替身：渲染效果、真机手感、真实 glb 贴图要靠 `npm run test:e2e` 或人工验收，不要用 jsdom 测试冒充"渲染正常"。

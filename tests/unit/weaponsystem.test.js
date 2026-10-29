@@ -15,6 +15,7 @@ const DT = 1 / 60;
 let THREE;
 let WEAPONS;
 let WEAPON_SLOTS;
+let GRENADE;
 let TUNING;
 let game;
 let W;
@@ -26,7 +27,7 @@ async function boot() {
   // vite 会在 request 队列里提前加载真 three，替身就不生效了（实测）。
   H = await import('../helpers/game.js');
   THREE = await import('three');
-  ({ WEAPONS, TUNING, WEAPON_SLOTS } = await import('../../src/config.js'));
+  ({ WEAPONS, TUNING, WEAPON_SLOTS, GRENADE } = await import('../../src/config.js'));
   // readyGame：等 zombieModel 就绪，spawnZombieAt 才不会拿到 null 场景
   const created = await H.readyGame();
   game = created.game;
@@ -75,9 +76,10 @@ function probeProjectiles() {
 // 不在这里清会让 pickup/drop 类用例互相污染（那些用例以前只需清 carried 一个变量）。
 function arm(sun = 999) {
   H.readyToFire(game, sun);
-  W.slots.fill(-1);
-  W.activeSlot = -1;
-  W.replacePrompt = null;
+  W.slots = W.makeSlots();
+  W.mountPea();
+  W.activeSlot = null;
+  W.charge = 0;
   W.locked = false;
   for (let i = 0; i < WEAPONS.length; i++) {
     if (!WEAPONS[i].starter) W.ammo[i] = 0;
@@ -131,9 +133,9 @@ describe('装备与切换', () => {
     expect(W.root.parent).toBe(game.camera); // 视图模型挂在相机上
   });
 
-  it('ammo 初始化：starter 无限、地面拾取 0', () => {
-    expect(W.ammo[0]).toBe(Infinity);
-    expect(W.ammo[1]).toBe(Infinity);
+  it('ammo 初始化：只有豌豆无限，其它武器要靠拾取才有弹药', () => {
+    expect(W.ammo[0]).toBe(Infinity); // 豌豆常驻 1 号槽
+    expect(W.ammo[1]).toBe(0); // 寒冰现在是枪②的候选，不再白给
     expect(W.ammo[4]).toBe(0); // repeater
     expect(W.ammo[9]).toBe(0); // jalapeno
   });
@@ -148,28 +150,31 @@ describe('装备与切换', () => {
     expect(W.current).toBe(0);
   });
 
-  it('equip 切换到 starter 武器：视图模型、HUD、swapAnim、click 音效', () => {
+  it('equip 切到槽里的武器：视图模型、HUD、swapAnim、click 音效', () => {
     arm();
     W.current = 0;
+    W.pickup(5); // 三线进枪②
+    W.equip(0);
     const click = vi.spyOn(game.sfx, 'click');
     const setWeapon = vi.spyOn(game.hud, 'setWeapon');
     const setAmmo = vi.spyOn(game.hud, 'setAmmo');
-    W.equip(2);
-    expect(W.current).toBe(2);
-    expect(W.models[2].group.visible).toBe(true);
+    W.equip(5);
+    expect(W.current).toBe(5);
+    expect(W.models[5].group.visible).toBe(true);
     expect(W.models[0].group.visible).toBe(false);
     expect(W.swapAnim).toBe(1);
-    expect(setWeapon).toHaveBeenCalledWith(2);
-    // starter 武器：弹药条隐藏
-    expect(setAmmo).toHaveBeenLastCalledWith(0, 0, false);
+    expect(setWeapon).toHaveBeenCalledWith(5);
+    // 三线是弹匣制：弹药条显示 满/满
+    expect(setAmmo).toHaveBeenLastCalledWith(WEAPONS[5].ammo, WEAPONS[5].ammo, true, false);
     expect(click).toHaveBeenCalled();
   });
 
   it('equip(silent) 不播 click 音效', () => {
     arm();
+    W.pickup(5);
     const click = vi.spyOn(game.sfx, 'click');
-    W.equip(1, true);
-    expect(W.current).toBe(1);
+    W.equip(5, true);
+    expect(W.current).toBe(5);
     expect(click).not.toHaveBeenCalled();
     W.equip(0, true);
   });
@@ -183,54 +188,48 @@ describe('装备与切换', () => {
     expect(W.models[4].group.visible).toBe(false);
   });
 
-  it('trySwitch 只在 starter 武器里循环，跳过地面拾取武器', () => {
+  it('豌豆常驻 1 号枪槽：开局就在、不能被丢弃、被任何拾取顶掉', () => {
     arm();
-    W.current = 0;
-    W.trySwitch(1);
-    expect(W.current).toBe(1);
-    W.trySwitch(1);
-    expect(W.current).toBe(2);
-    W.trySwitch(1);
-    expect(W.current).toBe(3);
-    // 植物栏现在 6 格：玉米炮之后是坚果(10)、火豌豆(11)，仍然跳过地面拾取的 4..9
-    W.trySwitch(1);
-    expect(W.current).toBe(10);
-    W.trySwitch(1);
-    expect(W.current).toBe(11);
-    W.trySwitch(1);
-    expect(W.current).toBe(0); // 回到第一把 starter，不会落到 repeater(4)
-    W.trySwitch(-1);
-    expect(W.current).toBe(11);
+    expect(W.slots.peaGun).toEqual([0]);
+    // 直接往豌豆槽里塞别的东西也不行
+    expect(W.pickup(1)).toBe(true);
+    expect(W.slots.peaGun).toEqual([0]);
+    expect(W.pickup(2)).toBe(true); // 樱桃进手雷槽
+    expect(W.slots.peaGun).toEqual([0]);
+    // 豌豆不许丢
+    const dropAt = vi.fn();
+    game.pickups.dropAt = dropAt;
+    game.ctx.pickups = game.pickups;
+    expect(W.dropSlot('peaGun', 0)).toBe(false);
+    expect(W.slots.peaGun).toEqual([0]);
+    expect(dropAt).not.toHaveBeenCalled();
+    W.dropSlot('grenade', 0);
   });
 
-  it('手持战利品时 trySwitch 从第一把 starter 开始数', () => {
+  it('pickup：越界返回 false；植物栏的植物能捡进对应角色槽；豌豆槽永不被顶替', () => {
     arm();
-    W.pickup(5);
-    expect(W.current).toBe(5);
-    W.trySwitch(1);
-    expect(W.current).toBe(1);
-    W.dropLoot();
-  });
-
-  it('pickup 只接受非 starter，starter / 越界返回 false', () => {
-    arm();
-    expect(W.pickup(0)).toBe(false);
-    expect(W.pickup(2)).toBe(false);
-    expect(W.slots.every((s) => s === -1)).toBe(true);
     expect(W.pickup(999)).toBe(false);
-    void WEAPONS;
+    // 豌豆常驻 1 号枪槽，任何拾取都不能动它
+    expect(W.slots.peaGun[0]).toBe(0);
+    expect(W.pickup(1)).toBe(true);
+    expect(W.slots.peaGun).toEqual([0]);
+    // 樱桃 → 手雷槽
+    expect(W.pickup(2)).toBe(true);
+    expect(W.slots.grenade[0]).toBe(2);
+    W.dropSlot('grenade', 0);
   });
 
-  it('pickup：进一个空槽、满弹、清锁定、装备、HUD 回调', () => {
+  it('pickup：按 slot 归入角色槽、满弹、清锁定、装备、HUD 回调', () => {
     arm();
-    const def = WEAPONS[5];
+    const def = WEAPONS[5]; // 三线射手 → gun
     const setSlots = vi.spyOn(game.hud, 'setSlots');
     const banner = vi.spyOn(game.hud, 'showBanner');
     const pickupSfx = vi.spyOn(game.sfx, 'pickup');
     W.locked = true;
     expect(W.pickup(5)).toBe(true);
-    expect(W.slots[0]).toBe(5);
-    expect(W.activeSlot).toBe(0);
+    expect(W.slots.gun[0]).toBe(5);
+    expect(W.slots.peaGun[0]).toBe(0);
+    expect(W.activeSlot).toEqual({ role: 'gun', pos: 0 });
     expect(W.ammo[5]).toBe(def.ammo);
     expect(W.locked).toBe(false);
     expect(W.current).toBe(5);
@@ -241,57 +240,52 @@ describe('装备与切换', () => {
     W.dropLoot();
   });
 
-  it('三把枪可以同时持有，依次填 0/1/2 号槽，互不影响弹药', () => {
+  it('枪②只一格：捡第二把枪顶掉第一把；大杀器进自己的槽，互不影响', () => {
     arm();
-    W.pickup(4);
-    W.pickup(6);
-    W.pickup(8);
-    expect(W.slots).toEqual([4, 6, 8]);
-    expect(W.ammo[4]).toBe(WEAPONS[4].ammo);
+    game.pickups.dropAt = vi.fn();
+    game.ctx.pickups = game.pickups;
+    W.pickup(4); // 双发 → gun[0]
+    expect(W.slots.gun).toEqual([4]);
+    W.pickup(8); // 西瓜 → demo[0]
+    expect(W.slots.gun).toEqual([4]); // 大杀器不占枪槽
+    W.pickup(6); // 机枪 → 顶掉枪②里的双发
+    expect(W.slots.gun).toEqual([6]);
+    expect(W.ammo[4]).toBe(0);
     expect(W.ammo[6]).toBe(WEAPONS[6].ammo);
-    expect(W.ammo[8]).toBe(WEAPONS[8].ammo);
-    // 切槽各自装备
-    W.equipSlot(1);
-    expect(W.current).toBe(6);
-    W.equipSlot(2);
+    expect(W.slots.demo).toEqual([8]);
+    expect(W.slots.peaGun).toEqual([0]);
+    W.equipSlot('demo', 0);
     expect(W.current).toBe(8);
-    for (let s = 0; s < W.slots.length; s++) W.dropSlot(s);
+    W.dropSlot('demo', 0);
+    W.dropSlot('gun', 0);
   });
 
-  it('槽满时不吞武器：弹替换提示，pickup 返回 false', () => {
+  it('同角色槽满了就替换：旧枪掉在脚边、不弹窗', () => {
     arm();
-    W.pickup(4);
-    W.pickup(6);
-    W.pickup(8);
+    const dropAt = vi.fn();
+    game.pickups.dropAt = dropAt;
+    game.ctx.pickups = game.pickups;
+    W.pickup(4); // 双发 → gun[0]
     const banner = vi.spyOn(game.hud, 'showBanner');
-    const setReplace = vi.spyOn(game.hud, 'setReplacePrompt');
-    expect(W.pickup(7)).toBe(false);
-    expect(W.replacePrompt).toBeTruthy();
-    expect(W.replacePrompt.index).toBe(7);
-    expect(W.slots).toEqual([4, 6, 8]); // 没被偷偷替换
+    expect(W.pickup(5)).toBe(true); // 三线顶掉双发
+    expect(W.slots.gun).toEqual([5]);
+    expect(W.ammo[4]).toBe(0);
+    expect(W.current).toBe(5);
+    expect(dropAt).toHaveBeenCalledWith(4, expect.any(Number), expect.any(Number));
     expect(banner).toHaveBeenCalled();
-    expect(setReplace).toHaveBeenCalledWith(true);
-    // 选 1 号槽替换
-    expect(W.resolveReplace(1)).toBe(true);
-    expect(W.slots).toEqual([4, 7, 8]);
-    expect(W.ammo[6]).toBe(0); // 被替换掉的旧枪清零
-    expect(W.current).toBe(7);
-    expect(W.replacePrompt).toBe(null);
-    expect(setReplace).toHaveBeenLastCalledWith(false);
-    for (let s = 0; s < W.slots.length; s++) W.dropSlot(s);
+    expect(W.replacePrompt).toBeUndefined();
   });
 
-  it('替换提示超时：取消替换，枪留在地上（slots 不变）', () => {
+  it('手上是大杀器时捡枪，照样只顶掉枪②，不影响大杀器', () => {
     arm();
+    game.pickups.dropAt = vi.fn();
+    game.ctx.pickups = game.pickups;
     W.pickup(4);
-    W.pickup(6);
     W.pickup(8);
-    W.pickup(7);
-    expect(W.replacePrompt).toBeTruthy();
-    W.update(WEAPON_SLOTS.replacePick + 0.1, game.controls);
-    expect(W.replacePrompt).toBe(null);
-    expect(W.slots).toEqual([4, 6, 8]);
-    for (let s = 0; s < W.slots.length; s++) W.dropSlot(s);
+    W.equipSlot('demo', 0);
+    expect(W.pickup(5)).toBe(true);
+    expect(W.slots.gun).toEqual([5]);
+    expect(W.slots.demo).toEqual([8]);
   });
 
   it('重复拾取同一把：补满原槽弹药，不占新格子', () => {
@@ -300,7 +294,7 @@ describe('装备与切换', () => {
     W.ammo[4] = 12;
     expect(W.pickup(4)).toBe(true);
     expect(W.ammo[4]).toBe(WEAPONS[4].ammo);
-    expect(W.slots).toEqual([4, -1, -1]);
+    expect(W.slots.gun).toEqual([4]);
     W.dropLoot();
   });
 
@@ -311,28 +305,31 @@ describe('装备与切换', () => {
     game.ctx.pickups = game.pickups;
     W.pickup(5);
     const banner = vi.spyOn(game.hud, 'showBanner');
-    expect(W.dropSlot(0)).toBe(true);
-    expect(W.slots).toEqual([-1, -1, -1]);
+    expect(W.dropSlot('gun', 0)).toBe(true);
+    expect(W.slots.gun).toEqual([-1]);
     expect(W.ammo[5]).toBe(0);
     expect(W.current).toBe(0);
     expect(dropAt).toHaveBeenCalledWith(5, expect.any(Number), expect.any(Number));
     expect(banner).toHaveBeenCalledWith(`${WEAPONS[5].name} 已丢下`, 1.4);
   });
 
-  it('dropSlot 空槽 / 越界是空操作', () => {
+  it('dropSlot 空槽 / 越界 / 未知角色都是空操作', () => {
     arm();
-    expect(W.dropSlot(0)).toBe(false);
-    expect(W.dropSlot(-1)).toBe(false);
-    expect(W.dropSlot(99)).toBe(false);
+    expect(W.dropSlot('gun', 0)).toBe(false);
+    expect(W.dropSlot('gun', -1)).toBe(false);
+    expect(W.dropSlot('gun', 99)).toBe(false);
+    expect(W.dropSlot('nope', 0)).toBe(false);
   });
 
   it('dropLoot 只丢当前手上的那个槽', () => {
     arm();
+    game.pickups.dropAt = vi.fn();
+    game.ctx.pickups = game.pickups;
     W.pickup(4);
     W.pickup(6);
-    W.equipSlot(0);
+    W.equipSlot('gun', 0);
     W.dropLoot();
-    expect(W.slots).toEqual([-1, 6, -1]);
+    expect(W.slots.gun).toEqual([-1]);
   });
 
   it('dropLoot 在手持初始植物时是空操作', () => {
@@ -344,8 +341,8 @@ describe('装备与切换', () => {
     game.ctx.pickups = game.pickups;
     W.dropLoot();
     expect(dropAt).not.toHaveBeenCalled();
-    expect(W.slots[0]).toBe(4);
-    W.dropSlot(0);
+    expect(W.slots.gun[0]).toBe(4);
+    W.dropSlot('gun', 0);
   });
 
   it('cycleSlot 跳过空槽与没有枪的格子', () => {
@@ -359,12 +356,16 @@ describe('装备与切换', () => {
     expect(W.current).toBe(8);
     W.cycleSlot(-1);
     expect(W.current).toBe(4);
-    for (let s = 0; s < W.slots.length; s++) W.dropSlot(s);
+    for (const role of Object.keys(W.slots)) {
+      for (let pos = 0; pos < W.slots[role].length; pos++) W.dropSlot(role, pos);
+    }
   });
 
   it('equipSlot / equip 不会装备"不在槽里的战利品"', () => {
     arm();
-    expect(W.equipSlot(0)).toBe(false);
+    expect(W.equipSlot('gun', 0)).toBe(false);
+    expect(W.equipSlot('gun', 99)).toBe(false);
+    expect(W.equipSlot('nope', 0)).toBe(false);
     W.equip(6); // 6 号枪没捡过，不该被装备
     expect(W.current).toBe(0);
   });
@@ -377,9 +378,10 @@ describe('装备与切换', () => {
     W.recoil = 1;
     W.reset();
     expect(W.current).toBe(0);
-    expect(W.slots).toEqual([-1, -1, -1]);
-    expect(W.activeSlot).toBe(-1);
-    expect(W.replacePrompt).toBe(null);
+    expect(W.slots).toEqual({ peaGun: [0], gun: [-1], demo: [-1], grenade: [-1], shield: [-1] });
+    // 重开后手上是常驻的豌豆，占位符指向 1 号枪槽
+    expect(W.activeSlot).toEqual({ role: 'peaGun', pos: 0 });
+    expect(W.charge).toBe(0);
     expect(W.cooldown).toBe(0);
     expect(W.recoil).toBe(0);
     expect(W.ammo[0]).toBe(Infinity);
@@ -388,10 +390,12 @@ describe('装备与切换', () => {
 });
 
 describe('开火：阳光与冷却', () => {
-  it('阳光不足：不花钱、不进入冷却、HUD deny 提示', () => {
+  it('弹匣打空且阳光不够续弹：不花钱、不进入冷却、HUD deny 提示', () => {
     clearField();
     arm(5);
-    W.current = 2; // 樱桃 cost 22
+    W.pickup(3); // 玉米炮进大杀器槽
+    W.ammo[3] = 0;
+    W.cooldown = 0;
     const deny = vi.spyOn(game.sfx, 'deny');
     const denySun = vi.spyOn(game.hud, 'denySun');
     lookForward();
@@ -400,25 +404,29 @@ describe('开火：阳光与冷却', () => {
     expect(W.cooldown).toBe(0);
     expect(deny).toHaveBeenCalled();
     expect(denySun).toHaveBeenCalled();
+    W.dropSlot('demo', 0);
     W.current = 0;
   });
 
-  it('starter 武器开火扣阳光并进入冷却', () => {
+  it('弹匣武器（寒冰）开火扣弹药、不直接扣阳光，并进入冷却', () => {
     clearField();
     arm(100);
-    W.current = 1; // 寒冰 cost 2
+    W.pickup(1); // 寒冰进枪②
     const def = WEAPONS[1];
+    const before = W.ammo[1];
     lookForward();
     const probe = probeProjectiles();
     try {
       fireOnce();
-      expect(game.sun).toBe(100 - def.cost);
+      expect(W.ammo[1]).toBe(before - 1);
+      expect(game.sun).toBe(100); // 弹匣内开火不扣阳光
       expect(W.cooldown).toBeCloseTo(def.cooldown, 9);
       expect(probe.peas.length).toBe(1);
       expect(probe.peas[0].def).toBe(def);
     } finally {
       probe.restore();
     }
+    W.dropSlot('gun', 0);
     W.current = 0;
   });
 
@@ -456,7 +464,7 @@ describe('开火：阳光与冷却', () => {
       expect(game.sun).toBe(500);
       // 枪留在手里，不会自动丢弃
       expect(W.locked).toBe(false);
-      expect(W.slots).toContain(idx);
+      expect(W.slotIndexOf(idx)).toBeTruthy();
 
       // 再开火：自动续一整梭子并立刻打出一发
       W.cooldown = 0;
@@ -464,7 +472,7 @@ describe('开火：阳光与冷却', () => {
       const reloadCost = def.cost * def.ammo;
       expect(game.sun).toBe(500 - reloadCost);
       expect(W.ammo[idx]).toBe(def.ammo - 1);
-      expect(W.slots).toContain(idx);
+      expect(W.slotIndexOf(idx)).toBeTruthy();
       expect(W.locked).toBe(false);
       expect(probe.peas.length).toBeGreaterThanOrEqual(1);
     } finally {
@@ -486,7 +494,7 @@ describe('开火：阳光与冷却', () => {
       fireOnce();
       // 打不出去、钱不够、但枪还在
       expect(probe.peas.length).toBe(0);
-      expect(W.slots).toContain(idx);
+      expect(W.slotIndexOf(idx)).toBeTruthy();
       expect(W.locked).toBe(true);
 
       // 补足阳光后再开火就自动续弹
@@ -513,7 +521,7 @@ describe('开火：阳光与冷却', () => {
       lookForward();
       fireOnce();
       expect(probe.peas.length).toBe(0);
-      expect(W.slots).toContain(4);
+      expect(W.slotIndexOf(4)).toBeTruthy();
       expect(W.locked).toBe(true);
     } finally {
       probe.restore();
@@ -808,7 +816,7 @@ describe('开火：弹道分支', () => {
     }
   });
 
-  it('樱桃（lob）：走 throwCherry 且不调 spawnPea，播放投掷音效', () => {
+  it('樱桃（手雷）：蓄力期间不投出，松手才走 throwCherry，且不调 spawnPea', () => {
     clearField();
     arm(999);
     W.current = 2;
@@ -817,61 +825,77 @@ describe('开火：弹道分支', () => {
     const throwSfx = vi.spyOn(game.sfx, 'throwCherry');
     const probe = probeProjectiles();
     try {
-      fireOnce();
+      game.controls.setFiring(true);
+      game.update(DT);
+      game.update(DT);
+      // 还按着：一颗都没扔出去
+      expect(probe.cherries.length).toBe(0);
+      expect(W.charge).toBeGreaterThan(0);
+      // 松手：投出
+      game.controls.setFiring(false);
+      game.update(DT);
       expect(probe.cherries.length).toBe(1);
       expect(probe.peas.length).toBe(0);
       expect(probe.cherries[0].def).toBe(WEAPONS[2]);
       expect(throwSfx).toHaveBeenCalled();
+      expect(W.charge).toBe(0);
     } finally {
       probe.restore();
       W.current = 0;
     }
   });
 
-  it('樱桃没有辅助目标时落点取准星正前方那片地（水平距离，23° 俯角约 3.9 米）', () => {
+  it('手雷蓄得越久扔得越远：短蓄力约 minRange、蓄满约 maxRange', () => {
+    clearField();
+    arm(999);
+    W.current = 2;
+    lookForward();
+    const probe = probeProjectiles();
+    const rangeAfter = (holdSec) => {
+      W.cooldown = 0;
+      W.charge = 0;
+      game.controls.setFiring(true);
+      const steps = Math.max(1, Math.round(holdSec / DT));
+      for (let i = 0; i < steps; i++) game.update(DT);
+      game.controls.setFiring(false);
+      game.update(DT);
+      const t = probe.cherries[probe.cherries.length - 1].target;
+      return Math.hypot(t.x - game.camera.position.x, t.z - game.camera.position.z);
+    };
+    try {
+      const near = rangeAfter(0.02);
+      const far = rangeAfter(GRENADE.chargeTime + 0.2);
+      expect(near).toBeLessThan(6);
+      expect(near).toBeGreaterThan(3);
+      expect(far).toBeCloseTo(GRENADE.maxRange, 1);
+      expect(far).toBeGreaterThan(near);
+    } finally {
+      probe.restore();
+      W.current = 0;
+    }
+  });
+
+  it('手雷落点沿相机水平朝向走：低头的俯仰不影响投掷距离', () => {
     clearField();
     arm(999);
     W.current = 2;
     W.cooldown = 0;
     lookForward();
-    // 低头 0.4 rad：视线与地面相交的水平距离 = 1.66 / tan(0.4) ≈ 3.9 米
     game.player.pitch = -0.4;
     game.player.applyCamera(game.camera);
     game.camera.updateMatrixWorld(true);
     const probe = probeProjectiles();
     try {
-      fireOnce();
+      W.charge = GRENADE.chargeTime;
+      game.controls.setFiring(false);
+      game.update(DT);
       const target = probe.cherries[0].target;
       const cam = game.camera.position;
       const fwd = game.camera.getWorldDirection(new THREE.Vector3());
-      // 落点就在视线的正下方投影上：方向一致、贴地
       expect(target.y).toBeCloseTo(0, 9);
+      // 水平方向上仍顺着相机朝向
       expect(Math.atan2(target.x - cam.x, -(target.z - cam.z))).toBeCloseTo(Math.atan2(fwd.x, -fwd.z), 5);
-      const horiz = Math.hypot(target.x - cam.x, target.z - cam.z);
-      expect(horiz).toBeCloseTo((cam.y * Math.hypot(fwd.x, fwd.z)) / -fwd.y, 4);
-      expect(horiz).toBeGreaterThan(3);
-      expect(horiz).toBeLessThan(5);
-    } finally {
-      probe.restore();
-      W.current = 0;
-    }
-  });
-
-  it('樱桃正对远处目标时仍按 22 米上限截断', () => {
-    clearField();
-    arm(999);
-    W.current = 2;
-    W.cooldown = 0;
-    game.player.pitch = -0.0001; // 几乎水平：先走「fwd.y < -0.02 不成立」的 16 米分支，再被 22 米上限夹住
-    game.player.recoil = 0;
-    game.player.yaw = 0;
-    game.player.applyCamera(game.camera);
-    const probe = probeProjectiles();
-    try {
-      fireOnce();
-      const target = probe.cherries[0].target;
-      const dist = Math.hypot(target.x - game.camera.position.x, target.z - game.camera.position.z);
-      expect(dist).toBeCloseTo(16, 3);
+      expect(Math.hypot(target.x - cam.x, target.z - cam.z)).toBeCloseTo(GRENADE.maxRange, 1);
     } finally {
       probe.restore();
       W.current = 0;
