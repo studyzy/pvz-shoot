@@ -1,13 +1,14 @@
 import * as THREE from 'three';
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { blobShadowTexture } from '../world/materials.js';
-import { ZOMBIES } from '../config.js';
+import { ZOMBIES, ARMOR_MATERIALS } from '../config.js';
 import { zombieModel, ZOMBIE_SCALE, MODELS, findClip } from './ZombieModel.js';
 import { clamp, rand, TAU } from '../utils.js';
 
 const ICE = new THREE.Color(0x9fe4ff);
 const WHITE = new THREE.Color(0xffffff);
 const tmpV = new THREE.Vector3();
+const hatQuat = new THREE.Quaternion();
 
 let shadowMatShared = null;
 function shadowMaterial() {
@@ -68,11 +69,24 @@ export class Zombie {
     this.rotY = rand(0, TAU);
     this.animSpeed = 0;
 
+    // 材质护甲层：护甲有自己的血，打空就掉下来（acc 网格隐藏）。
+    // material 决定吸收比例、怕不怕火、挡不挡穿透 —— 一条字段解释所有武器的克制关系。
+    const armorDef = this.def.armor || null;
+    this.armorRule = armorDef ? ARMOR_MATERIALS[armorDef.material] : null;
+    this.armorMax = armorDef ? armorDef.hp : 0;
+    this.armorHp = this.armorMax;
+    this.burnTimer = 0;
+    this.burnDps = 0;
+    this.burnTickT = 0;
+    // 空中单位：root 整体抬到 airHeight，命中球跟着抬（getChest/getHead 里加）。
+    this.airHeight = this.def.airborne ? this.def.airHeight || 2.2 : 0;
+    this.airborne = this.airHeight > 0;
+
     this.variant = Math.floor(rand(0, 3));
     this.baseTint = new THREE.Color(0xffffff).offsetHSL(0, 0, rand(-0.03, 0.025));
 
     this.root = new THREE.Group();
-    this.root.position.set(x, 0, z);
+    this.root.position.set(x, this.airHeight, z);
     this.root.scale.setScalar(this.scaleFactor);
 
     const shadow = new THREE.Mesh(new THREE.PlaneGeometry(1.5, 1.5), shadowMaterial());
@@ -189,7 +203,7 @@ export class Zombie {
   // 交通锥 / 铁桶：加在 glb 头顶（模型单位，Y 向上，头骨顶约 1.0）
   buildHat() {
     const acc = this.def.acc;
-    if (acc !== 'cone' && acc !== 'bucket' && acc !== 'club') return;
+    if (acc !== 'cone' && acc !== 'bucket' && acc !== 'club' && acc !== 'helmet' && acc !== 'balloon') return;
 
     const hat = new THREE.Group();
     // 帽子挂到 Head 骨骼上，跟着头部动画一起动（骨骼缺失时才退回挂 body）。
@@ -198,22 +212,31 @@ export class Zombie {
     // 所以这里用 Three.js 的 worldToLocal 把"想要的世界位置"反算成骨骼局部坐标，旋转和缩放都交给引擎。
     // 目标位置按**模型本地单位**给：僵尸头顶 ≈1.186，帽子压在 1.10/1.11。
     const headBone = this.isSkeleton ? this.body.getObjectByName('head') : this.body.getObjectByName('Head');
-    const targetLocalY = acc === 'bucket' ? 1.10 : 1.11;
+    const targetLocalY = acc === 'bucket' ? 1.10 : acc === 'helmet' ? 1.09 : 1.11;
     const targetLocalZ = 0.03;
     let hatY = targetLocalY;
     let hatZ = targetLocalZ;
+    // 骨骼链上的缩放必须"除掉"：glb 里 CharacterArmature 带 100 倍缩放，Head 骨骼自己在它下面，
+    // 直接把帽子 add 到 Head 上，几何体会被这 100 倍放大 —— 交通锥会变成十米宽的巨物。
+    // 把帽子整体缩到 1/骨骼世界缩放，再按骨骼的世界旋转摆正，就能得到"手写世界坐标"的老效果，
+    // 同时还能跟着头部动画动。父节点必须是已经挂上 body 的骨骼（matrixWorld 才是最终的）。
+    let hatScale = 1;
     if (headBone) {
-      // body 的 matrixWorld 要新鲜：builder 里可能还没渲染过一帧
       this.body.updateWorldMatrix(true, false);
       headBone.updateWorldMatrix(true, false);
-      // 目标点：模型本地坐标 → 世界坐标（越过 body 的缩放，用 body 的 matrixWorld 换算）
       const target = new THREE.Vector3(0, targetLocalY, targetLocalZ).applyMatrix4(this.body.matrixWorld);
       const local = headBone.worldToLocal(target);
       hatY = local.y;
       hatZ = local.z;
+      hatScale = 1 / headBone.getWorldScale(new THREE.Vector3()).x;
+      headBone.getWorldQuaternion(hatQuat).invert();
     }
     hat.position.set(0, hatY, hatZ);
-    hat.rotation.set(0.03, 0.1, 0.05);
+    hat.quaternion.copy(hatQuat);
+    hat.rotateX(0.03);
+    hat.rotateY(0.1);
+    hat.rotateZ(0.05);
+    hat.scale.setScalar(hatScale);
 
     const push = (geo, color, opts) => {
       const mat = new THREE.MeshStandardMaterial({
@@ -228,6 +251,8 @@ export class Zombie {
       const m = new THREE.Mesh(geo, mat);
       m.castShadow = true;
       m.receiveShadow = false;
+      // 父级帽子被缩到 1/骨骼缩放后，别让包围盒剔除在动画里误判
+      m.frustumCulled = false;
       hat.add(m);
       this.mats.push(mat);
       this.matBase.push(mat.color.clone());
@@ -241,6 +266,9 @@ export class Zombie {
       const slot = this.isSkeleton ? this.body.getObjectByName('handslotr') : null;
       if (slot) {
         hat.position.set(0, 0, 0);
+        // 和帽子同理：骷髅骨骼也在带缩放的骨架下，不抵掉的话木棒会跟着放大
+        slot.updateWorldMatrix(true, false);
+        hat.scale.setScalar(1 / slot.getWorldScale(new THREE.Vector3()).x);
         hat.rotation.set(Math.PI, 0, 0); // 棒头朝向手腕外，避免穿进小臂
         push(new THREE.CylinderGeometry(0.026, 0.034, 0.62, 10), 0x7d5733, { roughness: 0.85 });
         push(new THREE.CylinderGeometry(0.062, 0.078, 0.24, 10), 0x5b3d22, { roughness: 0.8 });
@@ -263,6 +291,88 @@ export class Zombie {
       shaft2.position.y = 0.02;
       this.body.add(hat);
       this.hat = hat;
+      return;
+    }
+
+    if (acc === 'helmet') {
+      // 橄榄球头盔：深红球壳 + 米白前额横杠 + 三道面罩格栅，再补一对护肩。
+      // 头盔/chinstrap 都是模型单位（头顶 ≈1.19），球壳半径 0.19 刚好扣住脑袋。
+      push(new THREE.SphereGeometry(0.192, 18, 14), 0x9c2f2b, { roughness: 0.55 });
+      const shell = hat.children[hat.children.length - 1];
+      shell.scale.set(1.04, 0.98, 1.08);
+      shell.position.y = 0.015;
+      // 前额横杠
+      push(new THREE.BoxGeometry(0.30, 0.045, 0.05), 0xf2e6d2, { roughness: 0.45 });
+      hat.children[hat.children.length - 1].position.set(0, 0.075, 0.155);
+      // 面罩格栅（三根细圆柱，横向）
+      for (let i = 0; i < 3; i++) {
+        push(new THREE.CylinderGeometry(0.011, 0.011, 0.26, 6), 0x4a4746, { roughness: 0.5, metalness: 0.3 });
+        const bar = hat.children[hat.children.length - 1];
+        bar.rotation.z = Math.PI / 2;
+        bar.position.set(0, -0.02 - i * 0.042, 0.175);
+      }
+      // 护肩：挂在身体上（头盔的帽子组只挂 Head 骨骼，护肩要挂躯干）
+      const shoulder = new THREE.Group();
+      shoulder.position.set(0, 0.98, 0);
+      this.body.add(shoulder);
+      for (let i = 0; i < 2; i++) {
+        const mat = new THREE.MeshStandardMaterial({
+          color: 0x9c2f2b,
+          roughness: 0.55,
+          emissive: 0xffffff,
+          emissiveIntensity: 0,
+          envMap: this.ctx.env || null,
+          envMapIntensity: 0.4,
+        });
+        const pad = new THREE.Mesh(new THREE.SphereGeometry(0.16, 12, 10), mat);
+        pad.scale.set(1, 0.78, 1.12);
+        pad.position.set(i === 0 ? 0.245 : -0.245, 0.02, -0.01);
+        pad.castShadow = true;
+        pad.frustumCulled = false;
+        shoulder.add(pad);
+        this.mats.push(mat);
+        this.matBase.push(mat.color.clone());
+      }
+      this.shoulders = shoulder;
+      (headBone || this.body).add(hat);
+      this.hat = hat;
+      return;
+    }
+
+    if (acc === 'balloon') {
+      // 气球：绑在背后的粉色气球 + 一根细绳。它同时是「这只是在天上」的唯一视觉线索，
+      // 所以气球本体做得比头还大，玩家在远处也能一眼分辨高度。
+      const balloon = new THREE.Group();
+      balloon.position.set(0, 0.72, 0.16);
+      const pushB = (geo, color, opts) => {
+        const mat = new THREE.MeshStandardMaterial({
+          color,
+          roughness: (opts && opts.roughness) !== undefined ? opts.roughness : 0.45,
+          metalness: 0,
+          emissive: 0xffffff,
+          emissiveIntensity: 0,
+          envMap: this.ctx.env || null,
+          envMapIntensity: 0.5,
+        });
+        const m = new THREE.Mesh(geo, mat);
+        m.castShadow = true;
+        m.frustumCulled = false;
+        balloon.add(m);
+        this.mats.push(mat);
+        this.matBase.push(mat.color.clone());
+        return m;
+      };
+      const skin = this.variant % 2 === 0 ? 0xe14d8b : 0x4d9be1;
+      const b = pushB(new THREE.SphereGeometry(0.27, 16, 14), skin);
+      b.scale.set(1, 1.18, 1);
+      b.position.y = 0.95;
+      // 细绳：从气球底部垂到背后
+      pushB(new THREE.CylinderGeometry(0.006, 0.006, 0.72, 4), 0x3a3a3a, { roughness: 0.9 });
+      balloon.children[balloon.children.length - 1].position.set(0, 0.42, 0);
+      this.body.add(balloon);
+      // 注意：气球是**背后的道具**，不是头饰。不能赋给 this.hat —— 那会让「hat 必须高于头骨」
+      // 的配件不变量失真，而且破甲逻辑会去隐藏一只气球。单独存 balloon。
+      this.balloon = balloon;
       return;
     }
 
@@ -303,27 +413,70 @@ export class Zombie {
 //   骷髅（高 2.166）：躯干 0.376–1.425、头 1.193–2.166 → 胸口 0.90、头部 1.68
 // 乘 scaleFactor 后就是世界高度；再乘模型自身的 SKELETON_SCALE/ZOMBIE_SCALE 由 root 统一处理。
 // 注意：这里返回的是**模型局部单位**，调用方（ProjectileSystem / WeaponSystem）会再乘 scaleFactor。
+  // 注意：空中单位的 root.position.y = airHeight，命中球的高度要跟着抬，否则打不到气球。
   getAimPoint(out) {
-    out.set(this.root.position.x, this.chestY * this.scaleFactor, this.root.position.z);
+    out.set(this.root.position.x, this.root.position.y + this.chestY * this.scaleFactor, this.root.position.z);
     return out;
   }
 
   getChest(out) {
-    out.set(this.root.position.x, this.chestY * this.scaleFactor, this.root.position.z);
+    out.set(this.root.position.x, this.root.position.y + this.chestY * this.scaleFactor, this.root.position.z);
     return out;
   }
 
   getHead(out) {
-    out.set(this.root.position.x, this.headY * this.scaleFactor, this.root.position.z);
+    out.set(this.root.position.x, this.root.position.y + this.headY * this.scaleFactor, this.root.position.z);
     return out;
   }
 
-  hit(dmg, slow, head) {
+  get armorAlive() {
+    return this.armorHp > 0;
+  }
+
+  // 伤害结算：先过护甲层，再打血。
+  // opts（可选，第 4 参，不传就是老行为）：
+  //   type  : 'pea' | 'explosion' | 'burn' | 'pierce'
+  //   burn  : { dps, time } 命中挂燃烧（最多一层，重复命中只刷新时间）
+  //   aerialDamage : 对空中目标的伤害倍率（火豌豆 0.25）；null 表示该来源根本打不到空中目标
+  hit(dmg, slow, head, opts) {
     if (!this.alive || this.dying || this.spawnT < 0.5) return false;
-    this.hp -= dmg;
+    const o = opts || null;
+    const type = (o && o.type) || 'pea';
+    let amount = dmg;
+
+    // 护甲：按材质吸收，护甲自己扣血；吸收比例之外的部分才落到血条上。
+    if (this.armorHp > 0 && this.armorRule) {
+      const rule = this.armorRule;
+      // 穿透弹和燃烧会被金属挡掉它的「额外收益」，但伤害本身照算 —— 否则仙人掌打铁桶会变成负效率
+      let armorDmg = amount;
+      if (type === 'burn' && rule.burnImmune) {
+        armorDmg = 0;
+      } else if (type === 'pierce' && rule.pierceBlock) {
+        armorDmg = amount * (1 - rule.absorption);
+      } else if (o && o.armorBreak) {
+        // 火豌豆专用：燃烧直接穿进护甲层，按 2 倍速度烧
+        armorDmg = amount * 2;
+      }
+      const absorbed = rule.absorption;
+      const toArmor = Math.min(this.armorHp, armorDmg);
+      this.armorHp -= toArmor;
+      // 护甲吸收掉的伤害不再落到血条：护甲 HP 本身就代表「挨多少打才掉」，用吸收比例折算。
+      amount = amount * (1 - absorbed) + Math.max(0, armorDmg - toArmor);
+      if (this.armorHp <= 0 && !this.armorBroken) this.breakArmor();
+    }
+
+    this.hp -= amount;
     this.flash = 1;
     this.headHit = !!head;
     if (slow) this.slowTimer = 2.6;
+
+    // 燃烧：最多一层，重复命中只刷新计时（叠层会跟 0.17 秒射速相乘，DPS 直接爆表）
+    if (o && o.burn) {
+      this.burnDps = o.burn.dps;
+      this.burnTimer = o.burn.time;
+      this.burnTickT = Math.min(this.burnTickT || 0.25, 0.25);
+    }
+
     if (this.hp <= 0) {
       this.hp = 0;
       this.startDeath();
@@ -332,8 +485,28 @@ export class Zombie {
     return false;
   }
 
+  // 护甲打穿：头盔/铁桶从模型上掉下来（隐藏 acc 网格），播碎片粒子。
+  breakArmor() {
+    this.armorBroken = true;
+    this.armorHp = 0;
+    if (this.hat) this.hat.visible = false;
+    const p = this.root.position;
+    this.ctx.particles.burst({
+      pos: tmpV.set(p.x, (this.airHeight || 0) + this.headY * this.scaleFactor, p.z),
+      color: this.def.armor && this.def.armor.material === 'buffalo' ? [0x9c2f2b, 0xf2e6d2, 0x6d1f1c] : [0xb9c0c7, 0x878f96, 0xf3efe2],
+      count: 12,
+      speed: 3.2,
+      size: 0.1,
+      life: 0.7,
+      gravity: 10,
+    });
+    if (this.ctx.sfx && this.ctx.sfx.armorBreak) this.ctx.sfx.armorBreak();
+  }
+
   startDeath() {
     this.dying = true;
+    // 气球被打爆有专属的「啵」，别和普通僵尸的扑倒混在一起
+    if (this.airborne && this.ctx.sfx && this.ctx.sfx.balloonPop) this.ctx.sfx.balloonPop();
     this.deathT = 0;
     this.shadow.visible = false;
     const p = this.root.position;
@@ -393,10 +566,44 @@ export class Zombie {
       this.slowTimer = -1;
     }
 
+    // 燃烧：每 0.25 秒结算一跳，跳的时候才吐火苗粒子（每帧吐会把粒子池打爆）
+    if (this.burnTimer > 0) {
+      this.burnTimer -= dt;
+      this.burnTickT -= dt;
+      if (this.burnTickT <= 0.25) {
+        if (this.burnTickT <= 0) {
+          this.burnTickT += 0.25;
+          const died = this.hit(this.burnDps * 0.25, false, false, { type: 'burn' });
+          if (died) {
+            this.ctx.zombies.handleKill(this, false);
+            return;
+          }
+          this.fly_iconT = (this.fly_iconT || 0) + 1;
+          if (this.fly_iconT % 2 === 1) {
+            const p = this.root.position;
+            this.ctx.particles.burst({
+              pos: tmpV.set(p.x, (this.airHeight || 0) + 0.9 * this.scaleFactor, p.z),
+              color: [0xff7a1a, 0xffd23f, 0xff3b1a],
+              count: 2,
+              speed: 1.4,
+              size: 0.07,
+              life: 0.4,
+              gravity: -3,
+              up: 1.2,
+            });
+          }
+        }
+      }
+    }
+
     const dx = player.pos.x - this.root.position.x;
     const dz = player.pos.z - this.root.position.z;
     const dist = Math.hypot(dx, dz);
     const attackRange = 1.15 + this.scaleFactor * 0.55;
+    // 空中单位（气球）要靠俯冲咬人：必须落到玩家头顶附近才能出手（垂直 ≤ 1.6 米）。
+    // 玩家跳起来（+1.04 米）就能躲开这一口 —— 这是气球唯一的弱点窗口。
+    const dy = Math.abs(player.pos.y - this.root.position.y);
+    const inReach = !this.airborne || dy <= 1.6;
 
     const targetRot = Math.atan2(dx, dz);
     this.rotY = turnToward(this.rotY, targetRot, dt * 6);
@@ -448,7 +655,7 @@ export class Zombie {
         this.animSpeed = spd;
       }
       this.attackTimer = Math.max(this.attackTimer, 0.5);
-    } else if (dist <= attackRange + 0.25) {
+    } else if (dist <= attackRange + 0.25 && inReach) {
       this.attackTimer -= dt;
       if (this.attackTimer <= 0) {
         this.attackTimer = 1.28;
@@ -484,7 +691,7 @@ export class Zombie {
       this.detourT = 0;
     }
 
-    for (let i = 0; i < colliders.length; i++) {
+    for (let i = 0; !this.airborne && i < colliders.length; i++) {
       const c = colliders[i];
       const px = this.root.position.x - c.x;
       const pz = this.root.position.z - c.z;

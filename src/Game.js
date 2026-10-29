@@ -9,10 +9,11 @@ import { Particles } from './fx/Particles.js';
 import { SunOrbs } from './entities/SunOrbs.js';
 import { SkySun } from './entities/SkySun.js';
 import { WeaponPickups } from './entities/WeaponPickups.js';
+import { WallNuts } from './entities/WallNuts.js';
 import { Sfx } from './audio/Sfx.js';
 import { HUD } from './ui/HUD.js';
 import { Controls } from './input/Controls.js';
-import { TUNING } from './config.js';
+import { TUNING, WEAPONS } from './config.js';
 import { outdoorEnvironment } from './world/materials.js';
 import { clamp, lerp } from './utils.js';
 
@@ -92,6 +93,12 @@ export class Game {
     ctx.onZombieAttack = (z) => this.onZombieAttack(z);
     ctx.onBossSpawn = (z) => this.onBossSpawn(z);
     ctx.onBossDead = () => this.onBossDead();
+
+    // 坚果免伤盾是玩家身上的状态：必须在 Player 之后、WeaponSystem 之前建好
+    this.wallNuts = new WallNuts(ctx);
+    ctx.wallNuts = this.wallNuts;
+    this.player.shield = this.wallNuts;
+    this.player.shieldMoveMul = (WEAPONS.find((w) => w.id === 'wallnut') || {}).shieldMoveMul || 0.88;
 
     this.weapons = new WeaponSystem(ctx);
     ctx.weapons = this.weapons;
@@ -444,6 +451,7 @@ export class Game {
     this.player.applyCamera(this.camera);
     this.applyShake(dt);
     this.weapons.update(dt, this.controls);
+    this.wallNuts.update(dt);
     if (this.map.updateNav) this.map.updateNav(this.player, dt);
     this.zombies.update(dt, this.player, this.map.colliders);
     this.projectiles.update(dt);

@@ -1,3 +1,5 @@
+import { STARTER_WEAPONS } from '../config.js';
+
 export class Controls {
   constructor(canvas, hud) {
     this.canvas = canvas;
@@ -228,7 +230,8 @@ export class Controls {
       if (e.code === 'Space') this.jumpQueued = true;
       if (e.code.indexOf('Digit') === 0) {
         const n = parseInt(e.code.slice(5), 10);
-        if (n >= 1 && n <= 4) this.weaponRequest = n - 1;
+        // 1-6 = 植物栏（豌豆/寒冰/樱桃/玉米炮/坚果/火豌豆）
+        if (n >= 1 && n <= STARTER_WEAPONS.length) this.weaponRequest = n - 1;
         if (n === 5) this.lootRequest = true;
       }
       if (e.code === 'KeyQ') this.lootRequest = true;

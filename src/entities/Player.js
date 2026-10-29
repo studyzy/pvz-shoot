@@ -55,6 +55,10 @@ export class Player {
 
   damage(amount) {
     if (this.dead || this.invuln > 0) return false;
+    // 坚果墙免伤盾：伤害先落到盾上，玩家一点血不掉。
+    // 必须在 invuln 判定**之后**（否则有盾时无敌帧逻辑就失效了），且**不重置 sinceDamage**
+    // （否则「有盾」和「没盾」在回血计时上无法区分，站在盾里的玩家会永远回不了血）。
+    if (this.shield && this.shield.absorb(amount)) return false;
     this.hp -= amount;
     this.invuln = 0.32;
     this.sinceDamage = 0;
@@ -69,6 +73,11 @@ export class Player {
 
   heal(amount) {
     this.hp = Math.min(this.maxHp, this.hp + amount);
+  }
+
+  // 当前移速倍率：坚果罩内的重甲惩罚（C2）
+  get speedMul() {
+    return this.shield && this.shield.active ? this.shieldMoveMul || 1 : 1;
   }
 
   update(dt, controls, terrain, zombies) {
@@ -105,8 +114,10 @@ export class Player {
     const wishZ = fz * iz + rz * ix;
 
     const accel = this.grounded ? 15 : 4.5;
-    const targetX = wishX * TUNING.playerSpeed;
-    const targetZ = wishZ * TUNING.playerSpeed;
+    // speedMul：坚果罩内的重甲惩罚（≥ 1 是常态，护盾生效时 < 1）
+    const walkSpeed = TUNING.playerSpeed * this.speedMul;
+    const targetX = wishX * walkSpeed;
+    const targetZ = wishZ * walkSpeed;
     const k = 1 - Math.exp(-accel * dt);
     this.vel.x += (targetX - this.vel.x) * k;
     this.vel.z += (targetZ - this.vel.z) * k;

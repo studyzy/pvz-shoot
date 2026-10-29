@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { Zombie } from './Zombie.js';
 import { zombieModel } from './ZombieModel.js';
-import { wavePlan, waveMaxAlive, waveSpawnInterval, zombieHpMul, zombieSpeedMul, SKELETON_MAX_ALIVE, SKELETON_MAPS } from '../config.js';
+import { wavePlan, waveMaxAlive, waveSpawnInterval, waveAirQuota, zombieHpMul, zombieSpeedMul, SKELETON_MAX_ALIVE, SKELETON_MAPS } from '../config.js';
 import { rand, clamp } from '../utils.js';
 
 export class ZombieManager {
@@ -47,6 +47,8 @@ export class ZombieManager {
     this.spawnTimer = 0.35;
     this.state = 'spawning';
     this.maxAlive = waveMaxAlive(n);
+    // 空中单位（气球）的同屏配额：14 只时 2 只。超出的留在队列里等死亡再刷。
+    this.airQuota = waveAirQuota(n);
     this.interval = waveSpawnInterval(n);
     this.ctx.onWaveStart(n);
   }
@@ -165,6 +167,12 @@ export class ZombieManager {
       const alt = this.queue.findIndex((t) => t !== 'boss');
       if (alt === -1) return null;
       type = this.queue.splice(alt, 1)[0];
+    } else if (type === 'balloon' && this.airborneCount() >= (this.airQuota || 1)) {
+      // 气球同屏配额：满了就换别的先刷，气球留在队首下次再来。
+      // 不是为了「保底」（爆炸类武器本身就能打气球），而是为了别让整波阳光全拿去对付天上。
+      const alt = this.queue.findIndex((t) => t !== 'balloon');
+      if (alt === -1) return null;
+      type = this.queue.splice(alt, 1)[0];
     } else {
       type = this.queue.shift();
     }
@@ -235,17 +243,20 @@ export class ZombieManager {
   }
 
   // headTarget + headMul：准星命中的那只吃爆头加成（Zombie.hit 自己会记爆头击杀）。
+  // 距离用 3D 球距离：爆炸是球形的，气球浮在 2.2 米高空照样吃满伤（离地爆心只有约 1.3 米）；
+  // 地面僵尸 y≈0，与爆心高度差约 0.9 米，仍在衰减区起点内，行为和原来的水平距离基本一致。
   damageArea(center, radius, damage, headTarget, headMul) {
     let hits = 0;
+    const cy = center.y === undefined ? 0.9 : center.y;
     for (let i = 0; i < this.zombies.length; i++) {
       const z = this.zombies[i];
       if (!z.alive || z.dying) continue;
       const p = z.root.position;
-      const d = Math.hypot(p.x - center.x, p.z - center.z);
+      const d = Math.hypot(p.x - center.x, p.z - center.z, p.y + 0.9 * z.scaleFactor - cy);
       if (d < radius + z.radius) {
         const falloff = 1 - Math.min(1, Math.max(0, (d - radius * 0.35) / radius)) * 0.55;
         const head = z === headTarget;
-        const dead = z.hit(damage * falloff * (head ? headMul || 1 : 1), false, head);
+        const dead = z.hit(damage * falloff * (head ? headMul || 1 : 1), false, head, { type: 'explosion' });
         z.stagger = 0.18;
         hits++;
         if (dead) this.handleKill(z, head);
@@ -269,9 +280,20 @@ export class ZombieManager {
     const orbs = z.type === 'boss' ? 7
       : z.type === 'bucket' ? 3
       : z.type === 'skeleton' ? 3
+      : z.type === 'football' ? 3
       : z.type === 'cone' ? 2
+      : z.type === 'balloon' ? 2
       : 1;
     this.ctx.sunOrbs.spawn(z.root.position.clone(), orbs);
+  }
+
+  airborneCount() {
+    let n = 0;
+    for (let i = 0; i < this.zombies.length; i++) {
+      const z = this.zombies[i];
+      if (z.airborne && !z.dying) n++;
+    }
+    return n;
   }
 
   aliveCount() {

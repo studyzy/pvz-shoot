@@ -49,6 +49,10 @@ export class ProjectileSystem {
         type: 'pea',
         life: 0,
         pierce: 0,
+        burn: null,
+        armorBreak: false,
+        aerial: 0,
+        trail: 0,
         hits: new Set(),
       });
     }
@@ -103,11 +107,24 @@ export class ProjectileSystem {
     p.type = def.id;
     p.life = 1.6;
     p.pierce = def.pierce || 0;
+    // 对空白名单：0 = 打不到空中目标；1 = 满伤；0.25 = 火豌豆那种打折
+    p.aerial = typeof def.aerial === 'number' ? def.aerial : 0;
+    p.burn = def.burn || null;
+    p.armorBreak = !!def.armorBreak;
+    p.trail = 0;
     p.hits.clear();
     p.mesh.material = this.peaMaterial(def.color);
     p.mesh.position.copy(origin);
     p.mesh.visible = true;
-    p.mesh.scale.setScalar(def.pierce ? 1.05 : def.slow ? 1.15 : 1);
+    p.mesh.scale.setScalar(def.burn ? 1.2 : def.pierce ? 1.05 : def.slow ? 1.15 : 1);
+  }
+
+  // 站在高处往下打：玩家脚底 ≥ 1.5 米（雪地矮墙 0.92 不够，得站砖台/箱子顶），且水平 3 米内。
+  canHitAirFromAbove(z) {
+    const p = this.ctx.player;
+    if (!p || !p.pos) return false;
+    if (p.pos.y < 1.5) return false;
+    return Math.hypot(z.root.position.x - p.pos.x, z.root.position.z - p.pos.z) <= 3;
   }
 
   peaMaterial(color) {
@@ -187,6 +204,22 @@ export class ProjectileSystem {
         continue;
       }
       p.mesh.position.copy(p.pos);
+      // 火豌豆拖火星：复用粒子池，不新增 draw call
+      if (p.burn) {
+        p.trail -= dt;
+        if (p.trail <= 0) {
+          p.trail = 0.03;
+          this.particles.burst({
+            pos: p.pos,
+            color: [0xff7a1a, 0xffd23f],
+            count: 1,
+            speed: 0.5,
+            size: 0.05,
+            life: 0.22,
+            gravity: -1.5,
+          });
+        }
+      }
 
       let bestT = 2;
       let bestZ = null;
@@ -195,6 +228,9 @@ export class ProjectileSystem {
       for (let j = 0; j < this.zombies.zombies.length; j++) {
         const z = this.zombies.zombies[j];
         if (!z.alive || z.dying || z.spawnT < 0.5 || p.hits.has(z)) continue;
+        // 空中白名单：非钥匙弹丸直接跳过空中目标（子弹穿过去，地面打出点点）。
+        // 例外：玩家站在高处（≥1.5 米）且水平 3 米内时，任何弹丸都能打到 —— 从上往下打。
+        if (z.airborne && !(p.aerial > 0) && !this.canHitAirFromAbove(z)) continue;
         // hitRadiusScale：骷髅（含巨型骷髅 Boss）体块比例和僵尸不同，半径要跟着模型走，
         // 默认 1 保持僵尸口径不变。头部球仍然严格小于胸口球。
         const rs = z.hitRadiusScale || 1;
@@ -220,9 +256,15 @@ export class ProjectileSystem {
       }
 
       if (bestZ) {
-        const damage = p.damage * (headshot ? TUNING.headshotMul : 1);
+        // 空中目标：按武器的 aerial 倍率打折（火豌豆 0.25），高位射击给了钥匙但没给满伤
+        const aerialMul = bestZ.airborne && !(p.aerial > 0) ? 1 : bestZ.airborne && p.aerial > 0 ? p.aerial : 1;
+        const damage = p.damage * (headshot ? TUNING.headshotMul : 1) * aerialMul;
         tmpA.copy(p.prev).lerp(p.pos, bestT);
-        const killed = bestZ.hit(damage, p.slow);
+        const killed = bestZ.hit(damage, p.slow, headshot, {
+          type: p.pierce > 0 ? 'pierce' : 'pea',
+          burn: p.burn,
+          armorBreak: p.armorBreak,
+        });
         this.particles.splat(tmpA, p.slow ? 0xa8f0ff : 0x7fbf3f);
         if (headshot) this.sfx.headshot();
         else this.sfx.hit();

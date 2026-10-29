@@ -62,6 +62,8 @@ export const WEAPONS = [
   },
   {
     id: 'cherry',
+    // 爆炸是球形的，天上地下都炸得到：气球也吃满伤
+    aerial: 'explosion',
     name: '樱桃炸弹',
     short: '樱桃',
     desc: '范围爆炸',
@@ -81,6 +83,8 @@ export const WEAPONS = [
   },
   {
     id: 'cob',
+    // 爆炸是球形的，天上地下都炸得到：气球也吃满伤
+    aerial: 'explosion',
     name: '玉米加农炮',
     short: '玉米炮',
     desc: '远程重炮',
@@ -166,11 +170,15 @@ export const WEAPONS = [
     speed: 98,
     color: 0x9be15d,
     pierce: 2,
+    // 对空主钥匙：唯一无条件的空中解法（弹丸不会被跳过）
+    aerial: 1,
     auto: true,
     recoil: 0.85,
   },
   {
     id: 'melon',
+    // 爆炸是球形的，天上地下都炸得到：气球也吃满伤
+    aerial: 'explosion',
     name: '西瓜投手',
     short: '西瓜',
     desc: '大范围爆炸',
@@ -190,6 +198,8 @@ export const WEAPONS = [
   },
   {
     id: 'jalapeno',
+    // 爆炸是球形的，天上地下都炸得到：气球也吃满伤
+    aerial: 'explosion',
     name: '火爆辣椒',
     short: '辣椒',
     desc: '引燃一片',
@@ -204,6 +214,53 @@ export const WEAPONS = [
     color: 0xff5a2a,
     auto: false,
     recoil: 3.2,
+  },
+  {
+    id: 'wallnut',
+    name: '坚果墙',
+    short: '坚果',
+    desc: '免伤护盾',
+    starter: true,
+    model: 'wallnut',
+    cost: 25,
+    cooldown: 1.0,
+    damage: 0,
+    kind: 'shield',
+    // 盾血：被打光就碎，罩内玩家完全不掉血。厚度按「僵尸咬击 1.28 秒 + 0.32 秒无敌」实测算过。
+    shieldHp: 400,
+    // 罩内移速倍率（重甲感）与每开一枪额外扣的盾血（防止开盾站桩白嫖）
+    shieldMoveMul: 0.88,
+    shieldShotCost: 1,
+    // 气球从头顶俯冲，护盾不挡 —— 否则开盾对空中单位也无敌
+    aerialGuard: false,
+    // 植物栏充能：一颗 25 阳光，最多囤 10 颗，0.6 秒回一颗
+    maxCharges: 10,
+    recharge: 0.6,
+    color: 0xc98c3e,
+    auto: false,
+    recoil: 1.6,
+  },
+  {
+    id: 'firepea',
+    name: '火豌豆射手',
+    short: '火豌豆',
+    desc: '高伤 · 燃烧破甲',
+    starter: true,
+    model: 'fire',
+    cost: 2,
+    cooldown: 0.17,
+    damage: 20,
+    kind: 'pea',
+    speed: 78,
+    color: 0xff7a1a,
+    // 燃烧：命中后每秒掉 burn.dps，持续 burn.time 秒，最多一层（不叠层）
+    burn: { dps: 8, time: 3 },
+    // 护甲伤害倍率：只有火系弹丸能穿过护甲层（buffer 头盔被烧穿）
+    armorBreak: true,
+    // 对空：能打气球，但只有 25% 伤害（慢速副钥匙）
+    aerial: 0.25,
+    auto: true,
+    recoil: 0.62,
   },
 ];
 
@@ -227,6 +284,8 @@ export const ZOMBIES = {
     score: 200,
     scale: 1.02,
     acc: 'cone',
+    // 塑料锥：吸伤 35%，对燃烧免疫（烧不掉塑料）
+    armor: { material: 'plastic', hp: 90 },
     radius: 0.48,
   },
   bucket: {
@@ -236,7 +295,32 @@ export const ZOMBIES = {
     score: 350,
     scale: 1.08,
     acc: 'bucket',
+    // 金属桶：吸伤 70%，对燃烧免疫，还吃不到穿透（仙人掌穿不过它）
+    armor: { material: 'metal', hp: 240 },
     radius: 0.52,
+  },
+  // 橄榄球僵尸：快（2.6 m/s，全场第二）、厚甲（buffalo 材质，吸收 50%，怕火）
+  football: {
+    hp: 190,
+    armor: { material: 'buffalo', hp: 140 },
+    speed: 2.6,
+    damage: 16,
+    score: 450,
+    scale: 1.12,
+    acc: 'helmet',
+    radius: 0.55,
+  },
+  // 气球僵尸：悬浮空中 2.2 米，普通弹丸打不到，只有爆炸/仙人掌/火豌豆（弱）能打
+  balloon: {
+    hp: 48,
+    speed: 2.2,
+    damage: 11,
+    score: 300,
+    scale: 1,
+    acc: 'balloon',
+    radius: 0.46,
+    airborne: true,
+    airHeight: 2.2,
   },
   boss: {
     hp: 1450,
@@ -265,6 +349,18 @@ export const ZOMBIES = {
 
 // 普通骷髅（skeleton 类型）的同屏上限：单只 9 个 skinned mesh，比普通僵尸贵 4.5 倍，必须限流。
 // 注意：Boss 也是骷髅模型，但它每波只有 1 只，不吃这条上限。
+// 护甲材质规则：absorption 是吸收比例（按护甲血量折算 → 等效血量 = armor.hp / absorption），
+// burnImmune 表示燃烧烧不动它，pierceBlock 表示穿透弹打不穿。
+export const ARMOR_MATERIALS = {
+  plastic: { absorption: 0.35, burnImmune: true, pierceBlock: false },
+  metal: { absorption: 0.7, burnImmune: true, pierceBlock: true },
+  buffalo: { absorption: 0.5, burnImmune: false, pierceBlock: false },
+};
+
+// 气球同屏配额：占同屏上限的比例（14 只时 = 2 只）。
+// 理由不是「保底」而是「阳光税」：每只气球正常情况下要花 22~40 阳光解决，堆太多会把整波预算吃光。
+export const AIR_QUOTA_RATIO = 0.2;
+
 export const SKELETON_MAX_ALIVE = 3;
 
 // 哪些地图会刷**普通**骷髅（雪地是墓园氛围，最贴切）。
@@ -290,10 +386,16 @@ export function wavePlan(n) {
   const buckets = n >= 3 ? Math.max(1, Math.floor((n - 2) * 0.8)) : 0;
   // 骷髅：第 4 波起掺进来，随波次变多，但整波最多 3 只（它贵）
   const skeletons = n >= 4 ? Math.min(SKELETON_MAX_ALIVE, 1 + Math.floor((n - 4) * 0.5)) : 0;
+  // 橄榄球：第 4 波起，0.6/波（比铁桶的 0.8 更缓 —— 它快一倍，堆太多会劝退）
+  // 气球：第 6 波起，0.7/波（脆，但要花阳光打）
+  const footballs = n >= 4 ? 1 + Math.floor((n - 4) * 0.6) : 0;
+  const balloons = n >= 6 ? 1 + Math.floor((n - 6) * 0.7) : 0;
   for (let i = 0; i < normals; i++) list.push('normal');
   for (let i = 0; i < cones; i++) list.push('cone');
   for (let i = 0; i < buckets; i++) list.push('bucket');
   for (let i = 0; i < skeletons; i++) list.push('skeleton');
+  for (let i = 0; i < footballs; i++) list.push('football');
+  for (let i = 0; i < balloons; i++) list.push('balloon');
   if (n % 5 === 0) list.push('boss');
   for (let i = list.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
@@ -306,6 +408,11 @@ export function wavePlan(n) {
 
 export function waveMaxAlive(n) {
   return Math.min(14, 8 + Math.floor(n / 2));
+}
+
+// 气球同屏上限：占同屏上限的比例（至少 1 只）
+export function waveAirQuota(n) {
+  return Math.max(1, Math.floor(waveMaxAlive(n) * AIR_QUOTA_RATIO));
 }
 
 export function waveSpawnInterval(n) {

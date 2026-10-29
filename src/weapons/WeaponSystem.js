@@ -37,6 +37,9 @@ export class WeaponSystem {
     this.models = [];
     this.current = 0;
     this.ammo = WEAPONS.map((w) => (w.starter ? Infinity : 0));
+    // 充能制植物（坚果）：charges 是当前囤了几颗，recharge 是每颗回复秒数。
+    // 非充能植物恒为 Infinity，走原来的路径，行为零变化。
+    this.charges = WEAPONS.map((w) => (w.maxCharges ? w.maxCharges : Infinity));
     this.carried = -1;
     this.locked = false;
     this.cooldown = 0;
@@ -61,6 +64,8 @@ export class WeaponSystem {
       melon: (def) => this.buildMelon(def),
       cactus: (def) => this.buildCactus(def),
       pepper: (def) => this.buildPepper(def),
+      wallnut: (def) => this.buildWallNut(def),
+      fire: (def) => this.buildFireShooter(def),
     };
     for (let i = 0; i < WEAPONS.length; i++) {
       const def = WEAPONS[i];
@@ -525,6 +530,128 @@ export class WeaponSystem {
     };
   }
 
+  // 坚果墙：手里抱着一颗大坚果，开盾时把盾壳「撑开」到玩家身上
+  buildWallNut(def) {
+    const group = new THREE.Group();
+    const mat = toon(def.color);
+    const dark = toon(shade(def.color, 0.62));
+    const light = toon(0xe0b070);
+
+    const body = new THREE.Mesh(new THREE.SphereGeometry(0.26, 18, 14), mat);
+    body.scale.set(0.92, 1.15, 0.92);
+    group.add(body);
+    addOutline(body, 1.06);
+
+    // 坚果两端的尖 + 三道褶
+    for (let i = 0; i < 2; i++) {
+      const tip = new THREE.Mesh(new THREE.SphereGeometry(0.07, 8, 6), light);
+      tip.scale.set(1, 0.7, 1);
+      tip.position.set(0, i === 0 ? 0.3 : -0.3, 0);
+      group.add(tip);
+    }
+    for (let i = 0; i < 3; i++) {
+      const band = new THREE.Mesh(new THREE.TorusGeometry(0.245, 0.012, 5, 18), dark);
+      band.rotation.x = Math.PI / 2;
+      band.position.y = -0.12 + i * 0.12;
+      group.add(band);
+    }
+    // 一双小眼睛：告诉玩家「这是活着的植物」
+    const eyeMat = toon(0x20140a);
+    for (let i = 0; i < 2; i++) {
+      const eye = new THREE.Mesh(new THREE.SphereGeometry(0.032, 8, 6), eyeMat);
+      eye.position.set(i === 0 ? 0.085 : -0.085, 0.06, -0.2);
+      group.add(eye);
+    }
+
+    const muzzle = new THREE.Object3D();
+    muzzle.position.set(0, 0, -0.3);
+    group.add(muzzle);
+
+    group.position.set(0.42, -0.34, -0.96);
+    group.rotation.set(0.06, 0.3, 0.05);
+    group.scale.setScalar(0.78);
+
+    return {
+      group,
+      muzzle,
+      basePos: group.position.clone(),
+      baseRot: group.rotation.clone(),
+      baseScale: group.scale.x,
+      fireKick: def.recoil * 0.1,
+    };
+  }
+
+  // 火豌豆：豌豆射手的火系变体 —— 圆头 + 橙色火苗冠 + 发光的枪口
+  buildFireShooter(def) {
+    const group = new THREE.Group();
+    const headMat = toon(def.color);
+    const darkMat = toon(shade(def.color, 0.55));
+    const flameMat = toon(0xffd23f);
+
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.135, 14, 12), headMat);
+    head.scale.set(1.05, 1, 1.12);
+    group.add(head);
+    addOutline(head, 1.09);
+
+    const snout = new THREE.Mesh(new THREE.CylinderGeometry(0.058, 0.084, 0.36, 12), headMat);
+    snout.rotation.x = Math.PI / 2 - 0.06;
+    snout.position.set(0, 0.005, -0.29);
+    group.add(snout);
+    addOutline(snout, 1.12);
+
+    // 枪口一圈橙光（开火时像烧红的铁）
+    const lip = new THREE.Mesh(new THREE.TorusGeometry(0.072, 0.016, 6, 14), new THREE.MeshBasicMaterial({ color: 0xffb03a, toneMapped: false }));
+    lip.position.set(0, -0.005, -0.472);
+    group.add(lip);
+
+    // 头顶的火苗：三片大小不一的锥形，交错着像在烧
+    for (let i = 0; i < 3; i++) {
+      const flame = new THREE.Mesh(new THREE.ConeGeometry(0.045 - i * 0.008, 0.13 + i * 0.05, 6), flameMat);
+      flame.position.set((i - 1) * 0.055, 0.16 + i * 0.012, 0.01);
+      flame.rotation.z = (i - 1) * 0.35;
+      group.add(flame);
+    }
+
+    const eyeMat = toon(0x2a1004);
+    for (let i = 0; i < 2; i++) {
+      const eye = new THREE.Mesh(new THREE.SphereGeometry(0.03, 8, 6), eyeMat);
+      eye.position.set(i === 0 ? 0.075 : -0.075, 0.055, -0.06);
+      group.add(eye);
+    }
+
+    const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.05, 0.34, 7), darkMat);
+    stem.position.set(0.02, -0.24, 0.1);
+    stem.rotation.x = 0.25;
+    stem.rotation.z = -0.22;
+    group.add(stem);
+    const leafMat = toon(0x5cb31d);
+    for (let i = 0; i < 2; i++) {
+      const leaf = new THREE.Mesh(new THREE.SphereGeometry(0.09, 8, 6), leafMat);
+      leaf.scale.set(1.5, 0.25, 0.85);
+      leaf.position.set(i === 0 ? 0.13 : -0.12, -0.3 - i * 0.02, 0.13);
+      leaf.rotation.z = i === 0 ? -0.5 : 0.6;
+      leaf.rotation.y = i === 0 ? 0.4 : -0.4;
+      group.add(leaf);
+    }
+
+    const muzzle = new THREE.Object3D();
+    muzzle.position.set(0, 0.005, -0.5);
+    group.add(muzzle);
+
+    group.position.set(0.44, -0.3, -1.0);
+    group.rotation.set(0.04, 0.5, 0.07);
+    group.scale.setScalar(0.8);
+
+    return {
+      group,
+      muzzle,
+      basePos: group.position.clone(),
+      baseRot: group.rotation.clone(),
+      baseScale: group.scale.x,
+      fireKick: def.recoil * 0.12,
+    };
+  }
+
   setAspect(aspect) {
     this.portrait = aspect < 1;
   }
@@ -539,6 +666,8 @@ export class WeaponSystem {
     this.ctx.hud.setWeapon(index);
     if (def.starter) {
       this.ctx.hud.setAmmo(0, 0, false);
+      // 充能植物（坚果）把剩余颗数画在植物栏那格的角标上
+      this.ctx.hud.setCharges(index, this.charges[index], def.maxCharges);
     } else {
       this.ctx.hud.setAmmo(this.ammo[index], def.ammo, true);
     }
@@ -610,6 +739,14 @@ export class WeaponSystem {
     // 相机视野是各弹种共用的「准星」，弹道都按它解算，不再跟着视图模型的摆动走
     this.ctx.hud.setCrosshair(!!WEAPONS[this.current].arc);
 
+    // 充能回复：坚果每 recharge 秒回一颗，最多囤到 maxCharges
+    for (let i = 0; i < WEAPONS.length; i++) {
+      const w = WEAPONS[i];
+      if (!w.maxCharges || this.charges[i] >= w.maxCharges) continue;
+      this.charges[i] = Math.min(w.maxCharges, this.charges[i] + dt / w.recharge);
+      if (i === this.current) this.ctx.hud.setCharges(i, Math.floor(this.charges[i]), w.maxCharges);
+    }
+
     const req = controls.consumeWeaponRequest();
     if (req >= 0) this.equip(req);
     if (controls.consumeLootRequest && controls.consumeLootRequest() && this.carried >= 0) {
@@ -659,6 +796,12 @@ export class WeaponSystem {
     if (this.cooldown > 0) return;
     const index = this.current;
     const starter = !!def.starter;
+
+    // 坚果墙：不是「开火」，是「套盾」。先查盾有没有在、充能够不够，再扣阳光。
+    if (def.kind === 'shield') {
+      this.raiseShield(def, index);
+      return;
+    }
 
     if (starter) {
       if (!this.ctx.spendSun(def.cost)) {
@@ -724,10 +867,46 @@ export class WeaponSystem {
     this.player.addRecoil(def.recoil * 0.0055);
     this.ctx.particles.muzzle(tmpMuzzle, def.color);
     this.ctx.onFire(def);
+    // C2：罩内每开一枪额外扣盾血
+    this.spendShieldOnShot();
 
     if (!starter) {
       this.ctx.hud.setAmmo(this.ammo[index], def.ammo, true);
     }
+  }
+
+  // 套盾：钱够 + 盾已碎 + 充能 ≥1 才生效。盾还在时按下去只播拒绝音（不叠加、不刷新）。
+  raiseShield(def, index) {
+    const walls = this.ctx.wallNuts;
+    if (!walls) return;
+    if (walls.active && walls.hp > 0) {
+      this.ctx.sfx.deny();
+      this.ctx.hud.showBanner('坚果还在', 1.0);
+      return;
+    }
+    if (this.charges[index] < 1) {
+      this.ctx.sfx.deny();
+      this.ctx.hud.showBanner('坚果用完了', 1.0);
+      return;
+    }
+    if (!this.ctx.spendSun(def.cost)) {
+      this.ctx.sfx.deny();
+      this.ctx.hud.denySun();
+      return;
+    }
+    this.charges[index] -= 1;
+    walls.raise();
+    this.cooldown = def.cooldown;
+    this.recoil = Math.min(1.6, this.recoil + 0.5);
+    this.ctx.hud.setCharges(index, Math.floor(this.charges[index]), def.maxCharges);
+    this.ctx.hud.showBanner('坚果墙 · ' + def.shieldHp + ' 盾血', 1.2);
+    this.ctx.onFire(def);
+  }
+
+  // 开一枪后：充能植物要额外扣盾血（C2，防止开盾站桩白嫖）
+  spendShieldOnShot() {
+    const walls = this.ctx.wallNuts;
+    if (walls && walls.active && walls.hp > 0) walls.spendShot();
   }
 
   particlesAtMuzzle(def, shots) {
@@ -806,9 +985,12 @@ export class WeaponSystem {
     tmpOrigin.copy(this.camera.position);
     let best = null;
     let bestScore = Infinity;
+    const aerial = typeof def.aerial === 'number' ? def.aerial : 0;
     for (let i = 0; i < this.ctx.zombies.zombies.length; i++) {
       const z = this.ctx.zombies.zombies[i];
       if (!z.alive || z.dying || z.spawnT < 0.5) continue;
+      // 打不到空中目标就别把准星吸过去（辅助瞄准只会帮人打中，不能帮他锁一个打不中的目标）
+      if (z.airborne && !(aerial > 0) && !this.canHitAirFromAbove(z)) continue;
       z.getChest(tmpChest);
       tmpTo.copy(tmpChest).sub(tmpOrigin);
       const dist = tmpTo.length();
@@ -825,6 +1007,14 @@ export class WeaponSystem {
       }
     }
     return best;
+  }
+
+  // 站在高处（≥1.5 米）且水平 3 米内：任何武器都能打到头顶的气球。与 ProjectileSystem 同一口径。
+  canHitAirFromAbove(z) {
+    const p = this.player;
+    if (!p || !p.pos) return false;
+    if (p.pos.y < 1.5) return false;
+    return Math.hypot(z.root.position.x - p.pos.x, z.root.position.z - p.pos.z) <= 3;
   }
 
   // 准星本来就对着头部球时才把瞄点抬到头上，否则仍锁胸口：辅助瞄准永远只是“帮人打中”，不白送爆头。
@@ -851,6 +1041,10 @@ export class WeaponSystem {
       this.ammo[i] = WEAPONS[i].starter ? Infinity : 0;
     }
     this.carried = -1;
+    for (let i = 0; i < WEAPONS.length; i++) {
+      this.charges[i] = WEAPONS[i].maxCharges ? WEAPONS[i].maxCharges : Infinity;
+    }
+    if (this.ctx.wallNuts) this.ctx.wallNuts.clear();
     this.ctx.hud.setLoot(-1);
     // 重开一局若不走武器 update（例如暂停中清 HUD），圆形准星会残留到下一局第一帧
     this.ctx.hud.setCrosshair(false);

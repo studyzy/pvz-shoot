@@ -11,6 +11,8 @@ const ICONS = {
   gatling: '<svg viewBox="0 0 48 48"><circle cx="20" cy="22" r="12" fill="#c2f24e" stroke="#2f5b0e" stroke-width="2.4"/><g fill="#7ea832" stroke="#2f5b0e" stroke-width="1.4"><rect x="27" y="14" width="16" height="4" rx="2"/><rect x="27" y="19.5" width="16" height="4" rx="2"/><rect x="27" y="25" width="16" height="4" rx="2"/></g><circle cx="15" cy="18" r="1.6" fill="#2f5b0e"/><circle cx="24" cy="18" r="1.6" fill="#2f5b0e"/><path d="M14 44c2-7 5-10 5-10" stroke="#3e7a10" stroke-width="3" fill="none" stroke-linecap="round"/></svg>',
   cactus: '<svg viewBox="0 0 48 48"><rect x="19" y="10" width="11" height="31" rx="5.5" fill="#7bcf3a" stroke="#2f6b10" stroke-width="2.4"/><rect x="9" y="20" width="7" height="14" rx="3.5" fill="#7bcf3a" stroke="#2f6b10" stroke-width="2.4"/><rect x="33" y="16" width="7" height="18" rx="3.5" fill="#7bcf3a" stroke="#2f6b10" stroke-width="2.4"/><path d="M13 24h6M29 22h5" stroke="#2f6b10" stroke-width="2.4"/><g stroke="#e9ffc4" stroke-width="1.8" stroke-linecap="round"><path d="M24 14v-3M16 15l-2-2M33 13l2-2M24 34v-3M17 34l-2 2M33 31l2 2"/></g></svg>',
   melon: '<svg viewBox="0 0 48 48"><ellipse cx="24" cy="27" rx="16" ry="13.5" fill="#3fae3a" stroke="#1d5c1a" stroke-width="2.6"/><path d="M12 20c7 4 17 4 24 0M10 27c8 4 20 4 28 0M13 34c7 3 15 3 22 0" stroke="#226b1e" stroke-width="2.2" fill="none"/><path d="M24 15c0-4 3-6 7-6" stroke="#4f9c26" stroke-width="3" fill="none" stroke-linecap="round"/><path d="M31 9c3-2 6-2 8-1-2 3-4 4-8 1z" fill="#63b32c"/></svg>',
+  wallnut: '<svg viewBox="0 0 48 48"><path d="M24 6c9 0 14 7 14 17s-5 19-14 19S10 33 10 23 15 6 24 6z" fill="#c98c3e" stroke="#6b4310" stroke-width="2.6"/><path d="M13 15c3 5 3 13 0 19M35 15c-3 5-3 13 0 19" stroke="#8a5b1c" stroke-width="2.2" fill="none"/><path d="M17 13c2 4 2 9 0 12M31 13c-2 4-2 9 0 12" stroke="#8a5b1c" stroke-width="1.8" fill="none"/><circle cx="20" cy="24" r="2.2" fill="#20140a"/><circle cx="28" cy="24" r="2.2" fill="#20140a"/><path d="M21 31c2 1.6 4 1.6 6 0" stroke="#20140a" stroke-width="2" fill="none" stroke-linecap="round"/><path d="M24 6c0-3 1-4 3-4" stroke="#4f9c26" stroke-width="2.4" fill="none" stroke-linecap="round"/></svg>',
+  firepea: '<svg viewBox="0 0 48 48"><path d="M14 45c2-8 6-12 6-12" stroke="#3e7a10" stroke-width="3.2" fill="none" stroke-linecap="round"/><path d="M20 35c-4.5-2-8.5-1-10 1.4 3 2.2 6.8 2 10-1.4z" fill="#4e9a12"/><circle cx="20" cy="21" r="12.5" fill="#ff7a1a" stroke="#7a2b04" stroke-width="2.6"/><rect x="29.5" y="16.5" width="14" height="9.4" rx="4.7" fill="#ffa03a" stroke="#7a2b04" stroke-width="2.6"/><path d="M20 3c2 5-2 6-1 10 2-2 3-4 3-4 2 5 0 8-2 9-3-2-4-6-2-9-1 3-3 3-3 3 0-4 3-6 5-9z" fill="#ffd23f" stroke="#e0662a" stroke-width="1.4"/><circle cx="26" cy="16.5" r="1.7" fill="#5a2104"/><circle cx="17.5" cy="16.5" r="1.7" fill="#5a2104"/></svg>',
   jalapeno: '<svg viewBox="0 0 48 48"><path d="M27 10c-9-2-17 5-18 15-1 8 5 14 12 13 8-1 13-8 12-16-1-4-3-7-6-9z" fill="#ff5a2a" stroke="#7a1a06" stroke-width="2.6"/><path d="M27 10c0-4 2-6 6-7" stroke="#4f9c26" stroke-width="3.4" fill="none" stroke-linecap="round"/><path d="M33 3c4-1 7 0 8 2-3 1-5 1-8-2z" fill="#63b32c"/><ellipse cx="18" cy="22" rx="2.6" ry="4.4" fill="#ffb3a0" opacity="0.8"/></svg>',
 };
 
@@ -267,6 +269,26 @@ export class HUD {
     if (icon) icon.innerHTML = ICONS[def.id] || ICONS.pea;
     const name = this.lootBtn.querySelector('.loot-name');
     if (name) name.textContent = def.short;
+  }
+
+  // 充能植物（坚果）的剩余颗数：画在植物栏那一格的费用角标上
+  setCharges(index, charges, max) {
+    const key = 'c' + index;
+    if (this.cache[key] === charges) return;
+    this.cache[key] = charges;
+    for (let i = 0; i < this.weaponButtons.length; i++) {
+      const entry = this.weaponButtons[i];
+      if (entry.index !== index) continue;
+      const badge = entry.btn.querySelector('.wcost');
+      if (badge) {
+        badge.textContent = String(charges);
+        badge.classList.toggle('free', charges > 0);
+      }
+      const poor = charges <= 0;
+      if (poor !== entry.btn.classList.contains('poor')) entry.btn.classList.toggle('poor', poor);
+      return;
+    }
+    void max;
   }
 
   setAmmo(ammo, max, visible, locked) {
