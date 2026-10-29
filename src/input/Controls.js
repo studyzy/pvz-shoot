@@ -1,4 +1,4 @@
-import { STARTER_WEAPONS, WEAPON_SLOTS } from '../config.js';
+import { STARTER_WEAPONS, WEAPON_SLOTS, WEAPONS } from '../config.js';
 
 export class Controls {
   constructor(canvas, hud) {
@@ -260,7 +260,12 @@ export class Controls {
       if (e.code.indexOf('Digit') === 0) {
         const n = parseInt(e.code.slice(5), 10);
         // 1-6 = 植物栏（豌豆/寒冰/樱桃/玉米炮/坚果/火豌豆）
-        if (n >= 1 && n <= STARTER_WEAPONS.length) this.weaponRequest = n - 1;
+        // 注意：weaponRequest 是 WEAPONS 的**全局数组下标**，不是 starter 列表里的序号。
+        // 坚果/火豌豆在数组末尾（10/11），因为它们必须追加在末尾以免打乱既有下标；
+        // 直接写 n-1 会让 5/6 指到地面拾取的双发/三线（4/5），坚果和火豌豆永远按不出来。
+        if (n >= 1 && n <= STARTER_WEAPONS.length) {
+          this.weaponRequest = WEAPONS.indexOf(STARTER_WEAPONS[n - 1]);
+        }
         // 7-9 = 武器槽（战利品，槽满才会用到 8/9）
         const slot = n - STARTER_WEAPONS.length - 1;
         if (n > STARTER_WEAPONS.length && slot >= 0 && slot < WEAPON_SLOTS.count) {

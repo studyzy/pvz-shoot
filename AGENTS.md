@@ -124,7 +124,8 @@ npm run preview   # 预览构建产物
 - 阳光经济（`docs/GAMEPLAY.md` §4）：初始 60、上限 300、每颗 5、未拾取 18 秒消失；掉落数量在 `ZombieManager.handleKill`，天降参数在 `config.js` 的 `SUN_SKY`（30 秒 1 颗，占收入 4~8%，主收入仍是击杀）。
 - **豌豆 `cost: 0` 是承重墙**：保证阳光见底时仍有枪可用，不会出现"没钱且打不动"的死锁。不要改成收费。
 - 武器分两类：`starter: true` 进植物栏、每发按 `cost` 花阳光；`starter: false` 只能地面拾取、免费拿、自带一梭子 `ammo`，打空后按 `cost × ammo` 用阳光续弹。
-- **新增武器必须写在 `WEAPONS` 数组末尾**：植物栏/战利品的 index 是按数组下标算的，`tests/unit/weaponsystem.test.js` 里有大量 `pickup(5)`、`equip(7)` 的硬编码下标。往中间插一个会让几十个用例一起红，而且 `1-6` 的快捷键会整体错位。
+- **新增武器必须写在 `WEAPONS` 数组末尾**：植物栏/战利品的 index 是按数组下标算的，`tests/unit/weaponsystem.test.js` 里有大量 `pickup(5)`、`equip(7)` 的硬编码下标。往中间插一个会让几十个用例一起红。
+- **数字键 1-6 → `WEAPONS` 全局下标必须走 `STARTER_WEAPONS` 换算**（`Controls` 里 `WEAPONS.indexOf(STARTER_WEAPONS[n-1])`），**不能写 `n-1`**：坚果/火豌豆因为要追加在数组末尾，实际在 10/11。写成 `n-1` 时 5/6 会指到地面拾取的双发(4)/三线(5)，坚果和火豌豆就永远按不出来——踩过，而且当时的用例把错误行为写死了（`expect(...).toBe(n-1)`），所以测试没报。新增植物时如果它不在「前 N 个」里，这条换算就是唯一正确路径。
 - **护甲只写在 `config.js` 的 `ARMOR_MATERIALS` 表里**：`absorption`（吸收比例）、`burnImmune`（燃烧烧不动）、`pierceBlock`（挡穿透）。僵尸用 `armor: { material, hp }` 挂上。不要给某把武器写"对铁桶减伤"的特例——那是这张表推出来的。
 - **对空是白名单**：`WEAPONS[].aerial` 不写 = 打不到空中目标；`'explosion'` = 爆炸类；数字 = 伤害倍率（火豌豆 0.25）。判定必须在三处一致：`ProjectileSystem.update`、`WeaponSystem.raycastZombies`、`ZombieManager.damageArea`，漏一处就会出现"玉米炮能打、豌豆也能"的破绽。
 - **充能制植物**（目前只有坚果）：`maxCharges` + `recharge`，`WeaponSystem.charges[]` 是浮点（每帧累加），HUD 显示 `Math.floor`。没有 `maxCharges` 的植物恒为 `Infinity`，走原来的路径。

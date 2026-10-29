@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { mountIndexHtml, installPointerLock, installGlobals } from '../helpers/env.js';
 import { HUD } from '../../src/ui/HUD.js';
 import { Controls } from '../../src/input/Controls.js';
+import { WEAPONS, STARTER_WEAPONS } from '../../src/config.js';
 
 // jsdom 没有 PointerEvent：手工构造带 pointerId / pointerType / clientX 的事件。
 function pointerEvent(type, props) {
@@ -130,19 +131,29 @@ describe('Controls', () => {
       expect(c.consumeJump()).toBe(false);
     });
 
-    it('Digit1-6 设置 weaponRequest 0..5（植物栏 6 格）；Digit5 同时仍是战利品键；KeyQ 设 lootRequest', () => {
+    it('Digit1-6 切到对应植物（weaponRequest 是 WEAPONS 的全局下标，不是 starter 序号）', () => {
       const c = make();
-      // 植物栏现在有 6 格：豌豆/寒冰/樱桃/玉米炮/坚果/火豌豆
-      for (let n = 1; n <= 6; n++) {
+      // 植物栏 6 格：豌豆/寒冰/樱桃/玉米炮/坚果/火豌豆。
+      // 坚果和火豌豆必须追加在 WEAPONS 末尾（10/11），所以 5/6 号键不能写成 n-1，
+      // 否则会指到地面拾取的双发(4)/三线(5)——坚果和火豌豆就永远按不出来。
+      const expected = STARTER_WEAPONS.map((w) => WEAPONS.indexOf(w));
+      expect(expected).toEqual([0, 1, 2, 3, 10, 11]);
+      for (let n = 1; n <= STARTER_WEAPONS.length; n++) {
         keydown('Digit' + n);
-        expect(c.consumeWeaponRequest()).toBe(n - 1);
+        expect(c.consumeWeaponRequest(), 'Digit' + n).toBe(expected[n - 1]);
         expect(c.consumeWeaponRequest()).toBe(-1);
       }
-      // Digit5 现在只是第 5 株植物（坚果），不再兼职切战利品
+      // 回归：第 5/6 格绝不能落到地面拾取武器上
       keydown('Digit5');
-      expect(c.consumeWeaponRequest()).toBe(4);
-      expect(c.consumeLootRequest()).toBe(false); // DBG
-
+      expect(c.consumeWeaponRequest()).toBe(10);
+      expect(WEAPONS[10].id).toBe('wallnut');
+      keydown('Digit6');
+      expect(c.consumeWeaponRequest()).toBe(11);
+      expect(WEAPONS[11].id).toBe('firepea');
+      // Digit5 不再兼职切战利品
+      keydown('Digit5');
+      expect(c.consumeLootRequest()).toBe(false);
+      c.consumeWeaponRequest();
 
       keydown('KeyQ');
       expect(c.consumeLootRequest()).toBe(true);

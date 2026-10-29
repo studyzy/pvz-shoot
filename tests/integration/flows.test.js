@@ -899,6 +899,41 @@ describe('8. 地面武器拾取', () => {
 });
 
 describe('9. 武器切换', () => {
+  it('按 5/6 切到坚果/火豌豆（回归：曾错误地落到地面拾取武器上）', () => {
+    game.start();
+    giveSun(999);
+    const W = game.weapons;
+    const idx = (id) => WEAPONS.findIndex((w) => w.id === id);
+    const nut = idx('wallnut');
+    const fire = idx('firepea');
+
+    key('Digit5');
+    game.update(1 / 60);
+    expect(W.current).toBe(nut);
+    expect(W.models[nut].group.visible).toBe(true);
+    expect(game.hud.weaponButtons[4].btn.classList.contains('active')).toBe(true);
+    // 绝不能切到双发射手（曾经因为把 starter 序号当成数组下标而落到这里）
+    expect(W.current).not.toBe(idx('repeater'));
+
+    key('Digit6');
+    game.update(1 / 60);
+    expect(W.current).toBe(fire);
+    expect(W.models[fire].group.visible).toBe(true);
+    expect(W.current).not.toBe(idx('threepeater'));
+
+    // 切到火豌豆后真的能开火（扣阳光、产生弹丸）
+    game.zombies.queue = [];
+    game.zombies.state = 'idle';
+    const sunBefore = game.sun;
+    const peaBefore = game.projectiles.peas.filter((p) => p.active).length;
+    W.cooldown = 0;
+    game.controls.setFiring(true);
+    game.update(1 / 60);
+    game.controls.setFiring(false);
+    expect(game.sun).toBe(sunBefore - WEAPONS[fire].cost);
+    expect(game.projectiles.peas.filter((p) => p.active).length).toBeGreaterThan(peaBefore);
+  });
+
   it('按 1/2/3/4 切换到对应 starter 武器，按 7 切回武器槽', () => {
     game.start();
     giveSun(999);
