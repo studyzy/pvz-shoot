@@ -1,8 +1,12 @@
 import * as THREE from 'three';
 import { glowTexture } from '../world/materials.js';
 import { rand, TAU } from '../utils.js';
+import { TUNING, SUN_SKY } from '../config.js';
 
-const POOL = 18;
+// 池容量：击杀掉落 + 天降同屏，超时会自然回收，留足余量避免静默丢弃
+const POOL = 28;
+// 天降阳光的下落速度（m/s）：从 12 米落地约 2.4 秒，玩家有反应时间
+const FALL_SPEED = 5;
 
 export class SunOrbs {
   constructor(scene) {
@@ -36,6 +40,7 @@ export class SunOrbs {
         phase: rand(0, TAU),
         age: 0,
         magnet: false,
+        sky: false,
       });
     }
     this.onCollect = null;
@@ -56,6 +61,22 @@ export class SunOrbs {
     }
   }
 
+  // 天降阳光：从高空缓缓落下，落地后转为普通待拾取状态
+  spawnSky(x, z) {
+    const orb = this.orbs.find((o) => !o.active);
+    if (!orb) return null;
+    orb.active = true;
+    orb.age = 0;
+    orb.magnet = false;
+    orb.sky = true;
+    orb.pos.set(x, SUN_SKY.height, z);
+    orb.vel.set(0, -FALL_SPEED, 0);
+    orb.phase = rand(0, TAU);
+    orb.group.visible = true;
+    orb.group.position.copy(orb.pos);
+    return orb;
+  }
+
   update(dt, player) {
     const px = player.pos.x;
     const pz = player.pos.z;
@@ -70,7 +91,8 @@ export class SunOrbs {
       const dy = eyeY - o.pos.y;
       const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
 
-      if (dist < 4.6) o.magnet = true;
+      // 天降球在空中不磁吸，必须落到地面后才会被吸走
+      if (!o.sky && dist < TUNING.sunOrbMagnet) o.magnet = true;
 
       if (o.magnet) {
         const inv = 1 / Math.max(0.001, dist);
@@ -82,8 +104,18 @@ export class SunOrbs {
         if (dist < 0.85) {
           o.active = false;
           o.group.visible = false;
-          if (this.onCollect) this.onCollect(5);
+          o.sky = false;
+          if (this.onCollect) this.onCollect(TUNING.sunPerOrb);
           continue;
+        }
+      } else if (o.sky) {
+        // 天降阶段：匀速下落（速度由 spawnSky 设好，靠下面的 addScaledVector 积分），
+        // 不弹跳、不受重力，落地后转为普通阳光
+        o.vel.set(0, -FALL_SPEED, 0);
+        if (o.pos.y <= 0.5) {
+          o.pos.y = 0.5;
+          o.vel.set(0, 0, 0);
+          o.sky = false;
         }
       } else {
         o.vel.y -= 7.5 * dt;
@@ -103,8 +135,9 @@ export class SunOrbs {
       o.group.position.set(o.pos.x, o.pos.y + Math.sin(o.phase) * 0.09, o.pos.z);
       o.group.rotation.y += dt * 1.6;
 
-      if (o.age > 32) {
+      if (o.age > TUNING.sunOrbTtl) {
         o.active = false;
+        o.sky = false;
         o.group.visible = false;
       }
     }
@@ -113,6 +146,7 @@ export class SunOrbs {
   clear() {
     for (let i = 0; i < this.orbs.length; i++) {
       this.orbs[i].active = false;
+      this.orbs[i].sky = false;
       this.orbs[i].group.visible = false;
     }
   }

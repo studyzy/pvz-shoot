@@ -366,6 +366,22 @@ describe('HUD', () => {
       expect(hud.lootBtn.querySelector('.wammo').textContent).toBe('10'); // 隐藏时不改角标
     });
 
+    it('setAmmo(locked) 标记缺阳光：chip 加 locked、角标显示"缺阳光"', () => {
+      const idx = WEAPONS.findIndex((w) => !w.starter);
+      hud.setLoot(idx);
+      const max = WEAPONS[idx].ammo;
+      hud.setAmmo(0, max, true, true);
+      expect(hud.ammoChip.classList.contains('locked')).toBe(true);
+      // 锁定时不再显示 low（两者语义互斥）
+      expect(hud.ammoChip.classList.contains('low')).toBe(false);
+      expect(hud.lootBtn.querySelector('.wammo').textContent).toBe('缺阳光');
+
+      // 续弹成功后解除锁定
+      hud.setAmmo(max, max, true, false);
+      expect(hud.ammoChip.classList.contains('locked')).toBe(false);
+      expect(hud.lootBtn.querySelector('.wammo').textContent).toBe(String(max));
+    });
+
     it('setAmmo 的 low 阈值是 max(2, max*0.2)', () => {
       hud.setLoot(WEAPONS.findIndex((w) => !w.starter));
       // max=10 → 阈值 2

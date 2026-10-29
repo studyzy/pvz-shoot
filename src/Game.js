@@ -7,6 +7,7 @@ import { ProjectileSystem } from './weapons/ProjectileSystem.js';
 import { WeaponSystem } from './weapons/WeaponSystem.js';
 import { Particles } from './fx/Particles.js';
 import { SunOrbs } from './entities/SunOrbs.js';
+import { SkySun } from './entities/SkySun.js';
 import { WeaponPickups } from './entities/WeaponPickups.js';
 import { Sfx } from './audio/Sfx.js';
 import { HUD } from './ui/HUD.js';
@@ -65,6 +66,7 @@ export class Game {
     this.player = new Player(this.sfx);
     this.sunOrbs = new SunOrbs(this.scene);
     this.pickups = new WeaponPickups(ctx);
+    this.skySun = new SkySun({ map: null, sunOrbs: this.sunOrbs });
 
     ctx.player = this.player;
     ctx.particles = this.particles;
@@ -302,6 +304,7 @@ export class Game {
     this.projectiles.clear();
     this.particles.clear();
     this.sunOrbs.clear();
+    this.skySun.reset();
     this.pickups.reset();
     this.stats = { score: 0, kills: 0, wave: 0 };
     this.sun = TUNING.startSun;
@@ -444,6 +447,8 @@ export class Game {
     if (this.map.updateNav) this.map.updateNav(this.player, dt);
     this.zombies.update(dt, this.player, this.map.colliders);
     this.projectiles.update(dt);
+    this.skySun.ctx.map = this.map;
+    this.skySun.update(dt);
     this.sunOrbs.update(dt, this.player);
     this.pickups.update(dt, this.player);
     this.particles.update(dt);

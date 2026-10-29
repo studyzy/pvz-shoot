@@ -37,7 +37,7 @@ export class WeaponSystem {
     this.current = 0;
     this.ammo = WEAPONS.map((w) => (w.starter ? Infinity : 0));
     this.carried = -1;
-    this.pendingDrop = 0;
+    this.locked = false;
     this.cooldown = 0;
     this.recoil = 0;
     this.swapAnim = 0;
@@ -558,7 +558,7 @@ export class WeaponSystem {
     if (this.carried >= 0 && this.carried !== index) this.ammo[this.carried] = 0;
     this.carried = index;
     this.ammo[index] = def.ammo;
-    this.pendingDrop = 0;
+    this.locked = false;
     this.equip(index, true);
     this.ctx.hud.setLoot(index);
     this.ctx.hud.setAmmo(def.ammo, def.ammo, true);
@@ -567,28 +567,45 @@ export class WeaponSystem {
     return true;
   }
 
+  // 收起当前拾取植物，回到豌豆（玩家主动放弃，或新捡一把时替换）
   dropLoot() {
     if (this.carried < 0) return;
     const idx = this.carried;
     const def = WEAPONS[idx];
     this.ammo[idx] = 0;
     this.carried = -1;
-    this.pendingDrop = 0;
+    this.locked = false;
     this.ctx.hud.setLoot(-1);
     this.ctx.hud.setAmmo(0, 0, false);
     if (this.current === idx) this.equip(0, true);
-    this.ctx.hud.showBanner(def.name + ' 弹药耗尽', 1.5);
+    this.ctx.hud.showBanner(def.name + ' 已收起', 1.5);
+  }
+
+  // 打空后用阳光自动续一梭子；阳光不够则锁定，等有钱自动解锁
+  tryReload() {
+    const idx = this.carried;
+    if (idx < 0) return false;
+    const def = WEAPONS[idx];
+    const cost = (def.cost || 0) * def.ammo;
+    if (!this.ctx.spendSun(cost)) {
+      if (!this.locked) {
+        this.locked = true;
+        this.ctx.hud.setAmmo(0, def.ammo, true, true);
+        this.ctx.hud.showBanner('阳光不足 · ' + def.name + ' 待续弹（' + cost + '）', 1.6);
+      }
+      return false;
+    }
+    this.ammo[idx] = def.ammo;
+    this.locked = false;
+    this.ctx.hud.setAmmo(def.ammo, def.ammo, true, false);
+    this.ctx.sfx.pickup();
+    return true;
   }
 
   update(dt, controls) {
     this.cooldown = Math.max(0, this.cooldown - dt);
     this.swapAnim = Math.max(0, this.swapAnim - dt * 4);
     this.recoil = Math.max(0, this.recoil - dt * 6);
-
-    if (this.pendingDrop > 0) {
-      this.pendingDrop -= dt;
-      if (this.pendingDrop <= 0) this.dropLoot();
-    }
 
     const req = controls.consumeWeaponRequest();
     if (req >= 0) this.equip(req);
@@ -648,8 +665,11 @@ export class WeaponSystem {
       }
     } else {
       if (this.ammo[index] <= 0) {
-        this.dropLoot();
-        return;
+        // 打空：阳光够就自动续弹继续打，不够则锁定，下一帧再试
+        if (!this.tryReload()) {
+          this.ctx.sfx.deny();
+          return;
+        }
       }
       this.ammo[index]--;
     }
@@ -696,7 +716,6 @@ export class WeaponSystem {
 
     if (!starter) {
       this.ctx.hud.setAmmo(this.ammo[index], def.ammo, true);
-      if (this.ammo[index] <= 0) this.pendingDrop = 0.45;
     }
   }
 
@@ -817,7 +836,7 @@ export class WeaponSystem {
   reset() {
     this.cooldown = 0;
     this.recoil = 0;
-    this.pendingDrop = 0;
+    this.locked = false;
     for (let i = 0; i < WEAPONS.length; i++) {
       this.ammo[i] = WEAPONS[i].starter ? Infinity : 0;
     }

@@ -344,6 +344,10 @@ body.desktop .desktop-hint { display: flex; }
 .ammo-chip span { opacity: .45; }
 .ammo-chip i { font-style: normal; font-size: 11px; opacity: .6; }
 .ammo-chip.low b { color: #ff8b6e; }
+/* 阳光不够续弹：枪还在，钱不够 */
+.ammo-chip.locked { opacity: .55; }
+.ammo-chip.locked b { color: #8fa0b8; }
+.ammo-chip.locked::after { content: ' 缺阳光'; font-size: 11px; color: #ffb36e; }
 
 #hitmarker {
   position: absolute;

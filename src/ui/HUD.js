@@ -269,17 +269,19 @@ export class HUD {
     if (name) name.textContent = def.short;
   }
 
-  setAmmo(ammo, max, visible) {
+  setAmmo(ammo, max, visible, locked) {
     if (visible && this.lootBtn) {
       const badge = this.lootBtn.querySelector('.wammo');
-      if (badge) badge.textContent = String(ammo);
+      if (badge) badge.textContent = locked ? '缺阳光' : String(ammo);
     }
     if (!this.ammoChip) return;
     this.ammoChip.classList.toggle('hidden', !visible);
     if (!visible) return;
     if (this.ammoNow) this.ammoNow.textContent = String(ammo);
     if (this.ammoMax) this.ammoMax.textContent = String(max);
-    this.ammoChip.classList.toggle('low', ammo <= Math.max(2, max * 0.2));
+    // 阳光不够续弹时锁定：弹药条变暗提示"枪还在，钱不够"
+    this.ammoChip.classList.toggle('locked', !!locked);
+    this.ammoChip.classList.toggle('low', !locked && ammo <= Math.max(2, max * 0.2));
   }
 
   setScore(value) {

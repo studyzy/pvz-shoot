@@ -23,8 +23,9 @@ vi.mock('three', async (importOriginal) => {
 
 const THREE = await import('three');
 const { SunOrbs } = await import('../../src/entities/SunOrbs.js');
+const { SUN_SKY } = await import('../../src/config.js');
 
-const POOL = 18;
+const POOL = 28;
 const BALL_REST = 0.5; // 地面弹跳高度
 const FLOOR_MIN = 0.4; // y 硬下限
 
@@ -48,10 +49,10 @@ function makeOrbs() {
 const activeOrbs = (orbs) => orbs.orbs.filter((o) => o.active);
 
 describe('SunOrbs 构造', () => {
-  it('池大小 18，全部隐藏并挂在场景里，共用同一几何/材质', () => {
+  it('池大小 28，全部隐藏并挂在场景里，共用同一几何/材质', () => {
     const { scene, orbs } = makeOrbs();
     expect(orbs.orbs).toHaveLength(POOL);
-    expect(POOL).toBe(18);
+    expect(POOL).toBe(28);
     expect(scene.children).toHaveLength(POOL);
     for (const o of orbs.orbs) {
       expect(o.active).toBe(false);
@@ -148,11 +149,11 @@ describe('SunOrbs.spawn', () => {
     expect(active[0].group).toBe(orbs.orbs[0].group);
   });
 
-  it('数量不超过池上限 18，池满时多余的丢弃', () => {
+  it('数量不超过池上限 28，池满时多余的丢弃', () => {
     stubRandom(0.5);
     const { orbs } = makeOrbs();
-    orbs.spawn(new THREE.Vector3(0, 0, 0), 10);
-    orbs.spawn(new THREE.Vector3(0, 0, 0), 10);
+    orbs.spawn(new THREE.Vector3(0, 0, 0), 14);
+    orbs.spawn(new THREE.Vector3(0, 0, 0), 14);
     expect(activeOrbs(orbs)).toHaveLength(POOL);
     // 再刷也不会超过并集
     orbs.spawn(new THREE.Vector3(0, 0, 0), 5);
@@ -423,16 +424,16 @@ describe('SunOrbs 磁吸与拾取', () => {
 });
 
 describe('SunOrbs 超时与清理', () => {
-  it('age > 32 自动失活隐藏', () => {
+  it('age > 18 自动失活隐藏（超时消失）', () => {
     const { orbs } = makeOrbs();
     const player = makePlayer(0, 0, 0);
     const o = orbs.orbs[0];
     o.active = true;
     o.pos.set(20, 5, 20);
     o.age = 0;
-    // 32 秒整不消失（严格大于）
-    orbs.update(32, player);
-    expect(o.age).toBeCloseTo(32, 10);
+    // 18 秒整不消失（严格大于）
+    orbs.update(18, player);
+    expect(o.age).toBeCloseTo(18, 10);
     expect(o.active).toBe(true);
     orbs.update(0.01, player);
     expect(o.active).toBe(false);
@@ -474,5 +475,74 @@ describe('SunOrbs 超时与清理', () => {
     orbs.update(1, makePlayer(0, 0, 0));
     expect(activeOrbs(orbs)).toHaveLength(0);
     expect(orbs.onCollect).not.toHaveBeenCalled();
+  });
+});
+describe('SunOrbs 天降阳光', () => {
+
+  it('spawnSky 从高空生成一颗天降态球，初始竖直下落', () => {
+    stubRandom(0.5);
+    const { orbs } = makeOrbs();
+    const o = orbs.spawnSky(5, -3);
+    expect(o).not.toBeNull();
+    expect(o.active).toBe(true);
+    expect(o.sky).toBe(true);
+    expect(o.pos.x).toBe(5);
+    expect(o.pos.z).toBe(-3);
+    expect(o.pos.y).toBeCloseTo(SUN_SKY.height, 6);
+  });
+
+  it('天降球在空中不会被磁吸，必须落地后才可拾取', () => {
+    stubRandom(0.5);
+    const { orbs } = makeOrbs();
+    // 玩家就在正下方：普通球这一帧就会被吸走
+    const player = makePlayer(0, 0, 0);
+    const o = orbs.spawnSky(0, 0);
+    orbs.update(1 / 60, player);
+    expect(o.magnet).toBe(false);
+    expect(o.active).toBe(true);
+    expect(orbs.onCollect).not.toHaveBeenCalled();
+  });
+
+  it('天降球匀速下落：2 秒下降约 10 米（不会因为重复积分而翻倍）', () => {
+    stubRandom(0.5);
+    const { orbs } = makeOrbs();
+    // 玩家放到很远的地方，确保这一帧不会被磁吸
+    const player = makePlayer(100, 0, 100);
+    const o = orbs.spawnSky(0, 0);
+    const y0 = o.pos.y;
+    orbs.update(1, player);
+    orbs.update(1, player);
+    // 5 m/s × 2s = 10m
+    expect(y0 - o.pos.y).toBeCloseTo(10, 6);
+  });
+
+  it('天降球落地后转为普通球，之后可被磁吸拾取', () => {
+    stubRandom(0.5);
+    const { orbs } = makeOrbs();
+    const player = makePlayer(0, 0, 0);
+    const o = orbs.spawnSky(0, 0);
+    // 5 m/s 下落 12 米约 2.4 秒
+    for (let i = 0; i < 200 && o.sky; i++) orbs.update(1 / 60, player);
+    expect(o.sky).toBe(false);
+    expect(o.pos.y).toBeCloseTo(0.5, 6);
+    // 落地后继续 update 就会被吸走
+    for (let i = 0; i < 200 && o.active; i++) orbs.update(1 / 60, player);
+    expect(o.active).toBe(false);
+    expect(orbs.onCollect).toHaveBeenCalledWith(5);
+  });
+
+  it('池满时 spawnSky 返回 null 而不是抛错', () => {
+    stubRandom(0.5);
+    const { orbs } = makeOrbs();
+    orbs.spawn(new THREE.Vector3(0, 0, 0), POOL);
+    expect(orbs.spawnSky(1, 1)).toBeNull();
+  });
+
+  it('clear() 会把天降态标志一并清掉', () => {
+    stubRandom(0.5);
+    const { orbs } = makeOrbs();
+    orbs.spawnSky(2, 2);
+    orbs.clear();
+    for (const o of orbs.orbs) expect(o.sky).toBe(false);
   });
 });

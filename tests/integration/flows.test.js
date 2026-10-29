@@ -270,7 +270,7 @@ describe('1. 菜单与地图选择', () => {
 });
 
 describe('2. 开局', () => {
-  it('点击 startBtn：playing、HUD 显示、阳光 70、第 1 波已排队、请求指针锁定', () => {
+  it('点击 startBtn：playing、HUD 显示、阳光 60、第 1 波已排队、请求指针锁定', () => {
     const waveSpy = vi.spyOn(game.zombies, 'startWave');
     const lockSpy = vi.spyOn(game.controls, 'requestLock');
 
@@ -280,7 +280,7 @@ describe('2. 开局', () => {
     expect(hidden($('hud'))).toBe(false);
     expect(hidden($('startScreen'))).toBe(true);
     expect(game.sun).toBe(TUNING.startSun);
-    expect($('sunValue').textContent).toBe('70');
+    expect($('sunValue').textContent).toBe('60');
     expect(waveSpy).toHaveBeenCalledWith(1);
     expect(game.zombies.wave).toBe(1);
     expect(game.zombies.state).toBe('spawning');
@@ -487,8 +487,9 @@ describe('5. 射击 → 击杀 → 掉阳光 → 拾取', () => {
     expect(zombie.hp).toBe(0);
     expect(game.stats.kills).toBe(1);
     // 开火会花阳光，而且 999 会封顶；拾取前压到 500 才能真的看出 +5
-    game.sun = 500;
-    game.hud.setSun(500, true);
+    // 上限已降到 300，取一个能观察到 +5 的起始值
+    game.sun = 55;
+    game.hud.setSun(55, true);
     const s0 = game.sun;
     expect(game.stats.score).toBe(ZOMBIES.normal.score);
     expect($('killLabel').textContent).toBe('1');
@@ -511,17 +512,17 @@ describe('5. 射击 → 击杀 → 掉阳光 → 拾取', () => {
     }
 
     expect(orb.active).toBe(false);
-    expect(game.sun).toBe(505);
+    expect(game.sun).toBe(s0 + TUNING.sunPerOrb);
     expect(game.sun - s0).toBe(5);
     expect(game.sun).toBeLessThanOrEqual(TUNING.maxSun);
   });
 
-  it('阳光封顶 999', () => {
+  it('阳光封顶 300', () => {
     game.start();
-    giveSun(997);
+    giveSun(297);
     game.addSun(10);
-    expect(game.sun).toBe(999);
-    expect($('sunValue').textContent).toBe('999');
+    expect(game.sun).toBe(300);
+    expect($('sunValue').textContent).toBe('300');
   });
 
   it('阳光不足时开火被拒：hud.sunPill 出现 deny，且不扣阳光', async () => {
@@ -692,7 +693,7 @@ describe('7. 波次推进与 Boss', () => {
 });
 
 describe('8. 地面武器拾取', () => {
-  it('走到点位自动拾取：carried、战利品格、弹药、开火扣弹药不扣阳光、打空 0.45s 回豌豆', async () => {
+  it('走到点位自动拾取：carried、战利品格、弹药、开火扣弹药不扣阳光、打空后花阳光续弹', async () => {
     game.start();
     giveSun(999);
     const spot = game.map.pickupSpots[0];
@@ -719,7 +720,6 @@ describe('8. 地面武器拾取', () => {
     await aimAt(game, 0, 1, -20);
     const sunBefore = game.sun;
     game.weapons.cooldown = 0;
-    game.weapons.pendingDrop = 0;
     game.controls.setFiring(true);
     game.update(1 / 60);
     game.controls.setFiring(false);
@@ -727,7 +727,7 @@ describe('8. 地面武器拾取', () => {
     expect(game.weapons.ammo[index]).toBe(def.ammo - 1);
     expect($('ammoNow').textContent).toBe(String(def.ammo - 1));
 
-    // 打空最后一发：进入 pendingDrop，0.45s 后自动换回豌豆
+    // 打空最后一发：不丢枪，下次开火自动用阳光续一整梭子
     game.weapons.ammo[index] = 1;
     game.weapons.cooldown = 0;
     await aimAt(game, 0, 1, -20);
@@ -735,14 +735,19 @@ describe('8. 地面武器拾取', () => {
     game.update(1 / 60);
     game.controls.setFiring(false);
     expect(game.weapons.ammo[index]).toBe(0);
-    expect(game.weapons.pendingDrop).toBeGreaterThan(0);
+    expect(game.weapons.carried).toBe(index);
 
-    step(game, Math.ceil(0.5 * 60));
-    expect(game.weapons.carried).toBe(-1);
-    expect(game.weapons.current).toBe(0);
-    expect(hidden(game.hud.lootBtn)).toBe(true);
-    expect(hidden($('ammoChip'))).toBe(true);
-    expect($('banner').textContent).toBe(def.name + ' 弹药耗尽');
+    const sunBeforeReload = game.sun;
+    game.weapons.cooldown = 0;
+    await aimAt(game, 0, 1, -20);
+    game.controls.setFiring(true);
+    game.update(1 / 60);
+    game.controls.setFiring(false);
+    // 续弹扣 def.cost * def.ammo，随后正常打出这一发
+    expect(game.sun).toBe(sunBeforeReload - def.cost * def.ammo);
+    expect(game.weapons.ammo[index]).toBe(def.ammo - 1);
+    expect(game.weapons.carried).toBe(index);
+    expect(game.weapons.locked).toBe(false);
   });
 
   it('拾取物 9~14 秒后在原点位刷新', () => {

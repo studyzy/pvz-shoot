@@ -204,18 +204,18 @@ describe('装备与切换', () => {
     expect(W.pickup(999)).toBe(false);
   });
 
-  it('pickup：满弹药、设 carried、清 pendingDrop、装备、HUD 回调', () => {
+  it('pickup：满弹药、设 carried、清锁定、装备、HUD 回调', () => {
     arm();
     const def = WEAPONS[5];
     const setLoot = vi.spyOn(game.hud, 'setLoot');
     const setAmmo = vi.spyOn(game.hud, 'setAmmo');
     const banner = vi.spyOn(game.hud, 'showBanner');
     const pickupSfx = vi.spyOn(game.sfx, 'pickup');
-    W.pendingDrop = 0.3;
+    W.locked = true;
     expect(W.pickup(5)).toBe(true);
     expect(W.carried).toBe(5);
     expect(W.ammo[5]).toBe(def.ammo);
-    expect(W.pendingDrop).toBe(0);
+    expect(W.locked).toBe(false);
     expect(W.current).toBe(5);
     expect(W.models[5].group.visible).toBe(true);
     expect(setLoot).toHaveBeenCalledWith(5);
@@ -255,9 +255,9 @@ describe('装备与切换', () => {
     expect(W.carried).toBe(-1);
     expect(W.ammo[5]).toBe(0);
     expect(W.current).toBe(0);
-    expect(W.pendingDrop).toBe(0);
+    expect(W.locked).toBe(false);
     expect(setLoot).toHaveBeenCalledWith(-1);
-    expect(banner).toHaveBeenCalledWith(`${WEAPONS[5].name} 弹药耗尽`, 1.5);
+    expect(banner).toHaveBeenCalledWith(`${WEAPONS[5].name} 已收起`, 1.5);
   });
 
   it('dropLoot 在没拿战利品时是空操作', () => {
@@ -311,13 +311,13 @@ describe('开火：阳光与冷却', () => {
   it('starter 武器开火扣阳光并进入冷却', () => {
     clearField();
     arm(100);
-    W.current = 1; // 寒冰 cost 3
+    W.current = 1; // 寒冰 cost 2
     const def = WEAPONS[1];
     lookForward();
     const probe = probeProjectiles();
     try {
       fireOnce();
-      expect(game.sun).toBe(97);
+      expect(game.sun).toBe(100 - def.cost);
       expect(W.cooldown).toBeCloseTo(def.cooldown, 9);
       expect(probe.peas.length).toBe(1);
       expect(probe.peas[0].def).toBe(def);
@@ -346,7 +346,7 @@ describe('开火：阳光与冷却', () => {
     }
   });
 
-  it('非 starter：扣弹药不扣阳光，打空后 0.45s 自动 dropLoot', () => {
+  it('非 starter：扣弹药不扣阳光，打空后不丢枪、阳光够自动续弹', () => {
     clearField();
     arm(500);
     const idx = 5;
@@ -359,24 +359,57 @@ describe('开火：阳光与冷却', () => {
       fireOnce();
       expect(W.ammo[idx]).toBe(0);
       expect(game.sun).toBe(500);
-      expect(W.pendingDrop).toBeCloseTo(0.45, 9);
-      W.cooldown = 0;
-      game.update(0.2);
+      // 枪留在手里，不会自动丢弃
+      expect(W.locked).toBe(false);
       expect(W.carried).toBe(idx);
-      game.update(0.3);
-      expect(W.carried).toBe(-1);
-      expect(W.current).toBe(0);
-      // 至少打出去一发（三线射手一次 3 发），且用的是这把武器
+
+      // 再开火：自动续一整梭子并立刻打出一发
+      W.cooldown = 0;
+      fireOnce();
+      const reloadCost = def.cost * def.ammo;
+      expect(game.sun).toBe(500 - reloadCost);
+      expect(W.ammo[idx]).toBe(def.ammo - 1);
+      expect(W.carried).toBe(idx);
+      expect(W.locked).toBe(false);
       expect(probe.peas.length).toBeGreaterThanOrEqual(1);
-      expect(probe.peas[0].def).toBe(def);
     } finally {
       probe.restore();
     }
   });
 
-  it('pendingDrop 期间不会再开火（没弹药直接 dropLoot）', () => {
+  it('打空且阳光不足：锁定不丢枪，补足阳光后自动续弹', () => {
     clearField();
-    arm(500);
+    arm(0);
+    const idx = 5;
+    const def = WEAPONS[idx];
+    W.pickup(idx);
+    const probe = probeProjectiles();
+    try {
+      lookForward();
+      W.ammo[idx] = 0;
+      W.cooldown = 0;
+      fireOnce();
+      // 打不出去、钱不够、但枪还在
+      expect(probe.peas.length).toBe(0);
+      expect(W.carried).toBe(idx);
+      expect(W.locked).toBe(true);
+
+      // 补足阳光后再开火就自动续弹
+      game.sun = def.cost * def.ammo;
+      W.cooldown = 0;
+      fireOnce();
+      expect(W.locked).toBe(false);
+      expect(W.ammo[idx]).toBe(def.ammo - 1);
+      expect(game.sun).toBe(0);
+      expect(probe.peas.length).toBeGreaterThanOrEqual(1);
+    } finally {
+      probe.restore();
+    }
+  });
+
+  it('没弹药且续弹也付不起：只打出拒绝音，枪仍在手', () => {
+    clearField();
+    arm(0);
     W.pickup(4);
     W.ammo[4] = 0;
     W.cooldown = 0;
@@ -385,7 +418,8 @@ describe('开火：阳光与冷却', () => {
       lookForward();
       fireOnce();
       expect(probe.peas.length).toBe(0);
-      expect(W.carried).toBe(-1);
+      expect(W.carried).toBe(4);
+      expect(W.locked).toBe(true);
     } finally {
       probe.restore();
     }

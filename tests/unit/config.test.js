@@ -27,8 +27,10 @@ describe('config / TUNING', () => {
     expect(TUNING.jumpSpeed).toBe(6.6);
     expect(TUNING.maxHealth).toBe(100);
     expect(TUNING.headshotMul).toBe(3);
-    expect(TUNING.startSun).toBe(70);
-    expect(TUNING.maxSun).toBe(999);
+    expect(TUNING.startSun).toBe(60);
+    expect(TUNING.maxSun).toBe(300);
+    expect(TUNING.sunPerOrb).toBe(5);
+    expect(TUNING.sunOrbTtl).toBe(18);
   });
 
   it('数值关系自洽：出生阳光不超过上限、僵尸同屏上限不超过 14', () => {
@@ -105,13 +107,14 @@ describe('config / starter 与 loot 的区分', () => {
     expect(WEAPONS.find((w) => w.id === 'pea').cost).toBe(0);
   });
 
-  it('非 starter 武器自带弹药、模型与配色，且不消耗阳光', () => {
+  it('非 starter 武器自带一梭子弹药、有模型与配色，打空后按 cost 用阳光续弹', () => {
     for (const w of WEAPONS.filter((x) => !x.starter)) {
       expect(w.starter, w.id).toBe(false);
       expect(w.ammo, w.id).toBeGreaterThan(0);
       expect(typeof w.model, w.id).toBe('string');
       expect(typeof w.color, w.id).toBe('number');
-      expect(w.cost, w.id).toBe(0);
+      // 续弹单价必须为正数（枪免费捡，子弹用阳光买）
+      expect(w.cost, w.id).toBeGreaterThan(0);
     }
   });
 
