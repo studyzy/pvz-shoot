@@ -43,7 +43,7 @@ npm run preview   # 预览构建产物
 | `src/world/materials.js` | Toon 材质、程序化草地/雪地/冰面/沙地/天空/沙漠天空/云/光晕/污渍贴图、PMREM 户外环境贴图（`outdoorEnvironment`，支持 backyard/snow/dust） |
 | `src/entities/Player.js` | 第一人称移动、跳跃、平台落脚/踏步、碰撞、生命/回血、镜头位置与后坐力 |
 | `src/entities/Zombie.js` | 单个僵尸：绑定模型骨架、AI、行走/攻击/死亡动画、受击/减速/掉落回调 |
-| `src/entities/ZombieModel.js` | 加载外部 `public/models/zombie.glb`（单网格、无骨骼），导出 `zombieModel` 就绪标志与 `ZOMBIE_SCALE` |
+| `src/entities/ZombieModel.js` | 加载两个外部模型：`zombie.glb`（Quaternius 僵尸，50 骨骼 + 16 段动画）与 `skeleton.glb`（KayKit 骷髅，41 骨骼 + 13 段动画）；导出 `zombieModel` 就绪标志、`MODELS` 缩放表与 `findClip()` |
 | `src/entities/ZombieManager.js` | 波次生成、分离、范围伤害、击杀结算、Boss 跟踪、阳光掉落数量 |
 | `src/entities/SunOrbs.js` | 阳光球池、弹跳、磁吸、拾取 |
 | `src/entities/WeaponPickups.js` | 地面植物拾取物池：按地图点位刷新、发光/名称牌、靠近自动拾取、重生 |
@@ -54,7 +54,7 @@ npm run preview   # 预览构建产物
 | `src/input/Controls.js` | 键鼠 + 触屏输入、平台识别、虚拟摇杆、指针锁定 |
 | `src/ui/HUD.js` | DOM HUD、植物栏、横幅、命中标记、开始/暂停/结算界面 |
 | `src/style.css` | 全部界面样式与响应式/安全区适配 |
-| `public/models/` | `zombie.glb`（约 360 KB：6.2k 三角面 + 3 张 512 WebP），构建时原样拷贝到 `dist/models/` |
+| `public/models/` | `zombie.glb`（660 KB：7.8k 三角面、50 骨骼、16 段动画）+ `skeleton.glb`（1.4 MB：5.3k 三角面、41 骨骼、13 段动画）+ 两份 `LICENSE-*.txt`，构建时原样拷贝到 `dist/models/` |
 | `docs/GAMEPLAY.md` | 玩家向完整数值文档；**改数值后同步更新** |
 
 ---
@@ -84,7 +84,7 @@ npm run preview   # 预览构建产物
 - 相机 `rotation.order = 'YXZ'`；俯仰限制 ±1.42 rad。
 - 武器视图模型是 **相机的子节点**（`weapons.root`），近裁剪面 0.05；位置大约在 `(0.4, -0.3, -0.9)`，缩放 0.6–0.9。
 - 僵尸 `root.position` 在脚底，朝向 +Z（`rotation.y = atan2(dx, dz)`）；模型正面朝 +Z。
-- 命中球：胸口 `y = 0.95 × scale`、半径 `0.46 × scale`；头部 `y = 1.45 × scale`、半径 `0.36 × scale`（见 `Zombie.getChest/getHead` 与 `ProjectileSystem`）。**头部球必须比身体球小**，否则扫掠时头部球总先被碰到，爆头变成“打哪儿都爆头”。
+- 命中球按模型分两套口径（见表 5.3.1）：僵尸胸口 `y = 1.02 × scale`、头部 `y = 1.52 × scale`，半径 `0.46 / 0.36 × scale`；骷髅（含巨型骷髅 Boss）胸口 `0.90`、头部 `1.68`，半径再乘 `hitRadiusScale = 0.8`。见 `Zombie.getChest/getHead` 与 `ProjectileSystem` / `WeaponSystem`。**头部球必须比身体球小**，否则扫掠时头部球总先被碰到，爆头变成“打哪儿都爆头”。
 
 ---
 
@@ -114,29 +114,40 @@ npm run preview   # 预览构建产物
 
 ### 5.2 僵尸模型与材质
 
-- 僵尸是**外部 glb**，不是程序化生成的了：`zombieModel.scene.clone(true)` 克隆，几何体在所有僵尸间共享，**不要 dispose 几何体**，只 dispose 每个僵尸自己的材质（`Zombie.dispose` 遍历 `this.mats`）。
-- 每个僵尸克隆一份材质（同一张 glTF 材质），用于白闪（`emissiveIntensity`）和冰冻（`color` 乘色）；贴图仍然全僵尸共享。
+- 僵尸是**外部 glb**（Quaternius Zombie_Basic，CC0 1.0）：必须用 `SkeletonUtils` 的 `clone()` 克隆（`import { clone as cloneSkinned }`），**不能用 `scene.clone(true)`**——那样所有僵尸会共用同一套骨骼，14 只一起动。几何体在所有僵尸间共享，**不要 dispose 几何体**，只 dispose 每个僵尸自己的材质（`Zombie.dispose` 遍历 `this.mats`）。
+- 每个僵尸克隆一份材质（同一张图集材质），用于白闪（`emissiveIntensity`）和冰冻（`color` 乘色）；贴图仍然全僵尸共享。
 - `envMap` 来自 `Game.setMap` 写入的 `ctx.env`（`outdoorEnvironment(renderer, mapId)`，三张地图各缓存一份），`envMapIntensity` 0.35。
-- glb **没有骨骼**，迈步靠顶点着色器里的"假骨骼"（`WALK_CHUNK`）：按高度把顶点分给大腿/小腿，绕髋、膝做旋转，混合区只有 0.04–0.05，太小会裂、太大像橡皮筋。躯干起伏、侧摆、前倾仍由 `Zombie.update` 的整体 transform 负责。
-- **几何体是 Z-up**（节点上挂着 +90° X 旋转），着色器里高度必须用 `-position.z`，用 `position.y` 会把整个模型撕成薄片（踩过）。
-- 摆动参数通过 `this.walk` 里的 `uPhase` / `uMove` 两个 uniform 驱动，每帧在 `update` 里写；阴影用同一个补丁挂到 `customDepthMaterial`，否则腿动了影子不动。
-- 换模型时改 `public/models/zombie.glb` 并同步 `ZombieModel.js` 的 `ZOMBIE_SCALE`、以及 `getChest`/`getHead` 的高度和 `ProjectileSystem`/`WeaponSystem` 里的命中半径。
-- 配件（交通锥 / 铁桶 / Boss 木棒）是**程序化补回**的：`Zombie.buildHat()` 按 `cfg.acc` 往 `this.body` 上挂一组 `MeshStandardMaterial` 网格，坐标用 glb 的模型单位（头顶约 y=1.0，整体高 1.108）。加新配件就在这个函数里按 `acc` 分支。
+- glb **有 50 根骨骼 + 16 段动画**（`Idle/Walk/Run/Idle_Attack/Death/HitReact/Crawl/…`），迈步、攻击、死亡、受击都由 `AnimationMixer` 播真实骨骼动画，不再是顶点着色器假蒙皮。`Zombie.buildAnimations()` 建 `this.actions`，`play(name, fade)` 切动作；`update` 里按 `moving` / `attackAnim` / 死亡状态切换。
+- **模型是 Y-up**（脚底 y≈0、面朝 +Z、总高 1.194），不需要 Z-up 换算。走路快慢靠 `mixer.timeScale`（`0.75 + speed × 0.22`，夹在 0.8–1.7），避免脚步打滑。
+- 蒙皮网格要关 `frustumCulled`：骨骼动画会让静态包围盒失真，跑动时模型会突然消失。
+- 换模型时改 `public/models/zombie.glb` 并同步 `ZombieModel.js` 的 `ZOMBIE_SCALE`（当前 1.55）、以及 `getChest`/`getHead` 的高度和 `ProjectileSystem`/`WeaponSystem` 里的命中半径。
+- 配件（交通锥 / 铁桶 / Boss 木棒）是**程序化补回**的：`Zombie.buildHat()` 按 `cfg.acc` 挂一组 `MeshStandardMaterial` 网格。交通锥/铁桶挂 `this.body`，坐标用僵尸模型单位（头顶约 y=1.19，整体高 1.194）；**Boss 的木棒挂在骷髅骨骼 `handslotr` 上**（跟着手臂挥动），坐标用骷髅模型单位。加新配件就在这个函数里按 `acc` 分支。
 - 配件材质要同时 `push` 进 `this.mats` 和 `this.matBase`，否则白闪（`applyFlash`）和冰冻（`applyTint`）只会作用在身体上，帽子不跟着变。
-- 每个僵尸只有 **1 个 mesh + 1 个材质**（外加一块 blob 阴影），所以一只僵尸 = 1 个 draw call。压测 31 只同屏：110 draw call / 10 万三角面，仍低于 14 只上限的历史水位。
+- 每个僵尸是 **2 个蒙皮 mesh**（身体 + 眼球）+ 1 个材质（外加一块 blob 阴影），一只僵尸约 2 个 draw call。E2E 实测 14 只同屏：139 draw call / 13.5 万三角面。
 
 ### 5.3 glb 规格与压缩
 
-- 当前 `zombie.glb`：6,258 三角面、单网格、单材质、3 张 512 WebP（baseColor / normal / metallicRoughness），357 KB。原始 AI 模型是 5 万面 + 3 张 4096 PNG（29 MB），**不压缩会直接把无头浏览器和低端 GPU 打爆**。
-- 压缩流程（用 `@gltf-transform/cli`，不要手工改）：
-  ```bash
-  gltf-transform resize in.glb a.glb --width 512 --height 512
-  gltf-transform weld a.glb b.glb
-  gltf-transform simplify b.glb c.glb --ratio 0.12 --error 0.004
-  gltf-transform webp c.glb out.glb --quality 88
-  ```
-- 模型约定：**Y 轴向上、面朝 +Z、脚底在 y=0**，原始高 1.108 米，靠 `ZOMBIE_SCALE = 1.67` 拉到 1.85 米。换模型必须重新确认这四条。
+- 当前 `zombie.glb` 来自 **Quaternius Zombie_Basic（CC0 1.0）**：7,822 三角面、2 个蒙皮 mesh（身体 + 眼球）、1 个 `Atlas` 材质 + 1 张 512×512 图集、50 根骨骼、**16 段动画**，660 KB。原始下载是 959 KB / 32 条动画（16 条是 `CharacterArmature|` 前缀重复项），去掉重复动画后重打包到 660 KB。
+- **带骨骼模型绝对不能跑 `simplify`**：它会破坏 `JOINTS_0` / `WEIGHTS_0` 蒙皮权重，模型会烂掉。7,822 面本身不高，只做 `resize`（可选）和 `webp` 即可。
+- 当前模型的来源与许可留痕见 [docs/ZOMBIE-MODELS.md](docs/ZOMBIE-MODELS.md)：2024-03-17 由 Poly Pizza 以 CC0 1.0 发布，早于 Quaternius QAL v1.0（2026-08-28）生效，按 QAL §7 不溯及既往。**不要换成从 quaternius.com 官方包现下的模型**——那受 QAL §3a「禁止以独立资产形式再分发」约束，本仓库是公开仓库。
+- 模型约定：**Y 轴向上、面朝 +Z、脚底在 y≈0**，原始高 **1.194 米**，靠 `ZOMBIE_SCALE = 1.55` 拉到 1.85 米。换模型必须重新确认这四条。
 - 加载是**异步**的：`ZombieManager` 在 `zombieModel.ready` 之前不刷怪（`update` 里那个 `&& zombieModel.ready` 判断），别删。
+
+### 5.3.1 骷髅（第二个模型）
+
+- `public/models/skeleton.glb` 是 **KayKit Skeleton_Minion（CC0 1.0）**，一个模型供两个类型用：
+  - **`skeleton`（普通骷髅）**：雪地专属精英怪，`scale: 1` → 2.166 × 0.9 ≈ 1.95 米。
+  - **`boss`（巨型骷髅）**：`scale: 2.3` → 约 **4.48 米**，三张地图都会出（`SKELETON_MAPS` 只限制普通骷髅，Boss 不受限）。木棒 `acc: 'club'` 挂在骨骼 `handslotr` 上，跟着手臂挥动。
+- 模型规格：41 骨骼、13 段动画、5,288 面、原始高 2.166，`SKELETON_SCALE = 0.9`。
+- **它的 draw call 是僵尸的 4.5 倍**：身体拆成 9 个独立蒙皮网格，单只 9 个 draw call（僵尸只有 2 个）。所以有两条硬约束，别拿掉：
+  - `SKELETON_MAX_ALIVE = 3`：**普通骷髅**的同屏上限（Boss 每波只有 1 只，不吃这条）。超限时 `spawnOne` 会改刷队列里其它类型，骷髅留在队首下次再刷；队列全是骷髅且超限时 `spawnOne` 返回 `null`，此时 `update` **不重置 spawnTimer**，下个 tick 再试。
+  - `SKELETON_MAPS = ['snow']`：`startWave` 里按 `ctx.map.id` 过滤**普通骷髅**（Boss 不受限）。**不要**在这里判断模型是否加载好——glb 是异步的，在这里滤掉会让整波都刷不出骷髅（踩过，E2E 间歇失败）。模型未就绪的处理在 `spawnOne`：普通骷髅和 Boss 都会留在队首等下次。
+- 动作名和僵尸完全不同：骷髅用 KayKit 命名（`Walking_A` / `1H_Melee_Attack_Chop` / `Death_A` / `Hit_A`），僵尸用 Quaternius 命名（`Walk` / `Idle_Attack` / `Death` / `HitReact`）。`Zombie.buildAnimations` 按 `this.isSkeleton` 选候选名，加新模型就在这里加一组。
+- **骨骼名大小写不同**：僵尸是 `Head`，骷髅是 `head`；骷髅另有 `handslotr` / `handslotl` 专用挂载点（注意 GLTFLoader 会把名字里的 `.` 去掉）。按名字找骨骼要忽略大小写（`/^head$/i`）。
+- **命中球按模型高度归一**：`Zombie` 构造里按 `def.model` 定 `chestY`/`headY`/`hitRadiusScale` —— 僵尸 1.02/1.52/1.0，骷髅 0.90/1.68/0.8（骷髅骨架细，半径缩到 0.8）。`ProjectileSystem` 和 `WeaponSystem` 都乘这个倍率。**头部球必须仍小于胸口球**，加新模型时自己核一遍。
+- 选模型看 `ZOMBIES[type].model`：不写 = 僵尸 glb，写 `'skeleton'` = 骷髅。缩放取 `MODELS[id].scale`，**不要**再硬编码 `ZOMBIE_SCALE`。
+- `gltf-transform join` 对蒙皮网格无效（合并会被骨骼节点绑定挡住），别指望靠它降 draw call。
+- 来源、裁剪记录与许可见 [public/models/LICENSE-skeleton.txt](public/models/LICENSE-skeleton.txt) 和 [docs/ZOMBIE-MODELS.md](docs/ZOMBIE-MODELS.md)。
 
 ### 5.4 输入与平台
 
@@ -224,8 +235,8 @@ npm run preview   # 预览构建产物
 
 ### 新增僵尸类型
 
-1. `config.js` → `ZOMBIES` 加属性（`hp/speed/damage/score/scale/radius`；`skin/shirt/pants/acc` 现在只影响血/掉落等逻辑，模型不再读它们）。
-2. 造型要么换一份 glb（见 5.3 的压缩流程），要么在 `Zombie.buildRig` 里按类型给不同模型/材质；已经没有 `buildHead`/`getZombieRig` 了。
+1. `config.js` → `ZOMBIES` 加属性（`hp/speed/damage/score/radius/acc`，换模型再加 `model`）。`skin/shirt/pants` 已经删了——配色由 glb 自带，别再往 config 里加回来。
+2. 造型走 `model` 字段（见 5.3.1）：不写用僵尸 glb，写其他 id 就在 `ZombieModel.MODELS` 里登记 url + scale，并在 `Zombie.buildAnimations` 补一组动作名映射。
 3. `ZombieManager.wavePlan` 里加入生成权重/数量；`handleKill` 里补阳光掉落数量。
 4. 需要新的行为（远程、跳跃等）改 `Zombie.update`，并在 `Zombie` 里补命中球。
 5. 更新 `docs/GAMEPLAY.md` 图鉴与波次表。
@@ -286,7 +297,7 @@ __game.renderer.info.render     // draw call / 三角面
 ```bash
 npm test              # UT + 集成测试（Vitest + jsdom），PR 必须全绿
 npm run test:coverage # 覆盖率报告（coverage/index.html）
-npm run test:e2e      # 真实 Chromium 跑 6 个浏览器场景（构建→preview→点按钮→断言），约 80 秒
+npm run test:e2e      # 真实 Chromium 跑 7 个浏览器场景（构建→preview→点按钮→断言），约 100 秒
 npm run build         # 生产构建
 ```
 
@@ -294,8 +305,8 @@ CI（`.github/workflows/ci.yml`）在每次 push 到 main 和每个 PR 上跑三
 
 | job | 内容 | 失败条件 |
 | --- | --- | --- |
-| **UT + 集成测试** | `vitest run --coverage`（777 用例） | 任何用例失败；覆盖率低于 `vitest.config.js` 的 `thresholds`（语句/行 98%、分支 94%、函数 97%） |
-| **浏览器级 E2E** | `playwright-core install --with-deps chromium` + `npm run test:e2e`（6 场景） | 任一场景 FAIL 或页面出现 console.error / pageerror |
+| **UT + 集成测试** | `vitest run --coverage`（796 用例） | 任何用例失败；覆盖率低于 `vitest.config.js` 的 `thresholds`（语句/行 98%、分支 94%、函数 97%） |
+| **浏览器级 E2E** | `playwright-core install --with-deps chromium` + `npm run test:e2e`（7 场景） | 任一场景 FAIL 或页面出现 console.error / pageerror |
 | **生产构建** | `npm run build` | 构建失败 |
 
 覆盖率 HTML 报告与 E2E 失败截图分别作为 artifact 保留 14 天。三个 job 互不依赖，可并行跑；改覆盖率门槛请改 `vitest.config.js` 而不是在 CI 里写死。
@@ -308,9 +319,10 @@ CI（`.github/workflows/ci.yml`）在每次 push 到 main 和每个 PR 上跑三
 - 没有通用地形/斜坡系统：地图只有轴对齐的平顶平台（雪地的田字四柱/矮墙/砖台、沙城的 A/B 点观景台），靠 `platforms` 采样支撑；没有斜坡、楼梯、可破坏物。
 - **僵尸不会跳**：能站上去的高台必须给僵尸留活路——沙城观景台只有 0.4 米且不挂 `colliders`，`FlowField.blockPlatforms` 默认也跳过 ≤0.6 米的平台，否则玩家站上去就无敌。
 - 没有弹药与换弹；豌豆无限，特殊植物靠阳光。
-- 僵尸全是近战，没有远程/投掷单位。
-- 僵尸 glb 没有骨骼：腿靠顶点着色器假蒙皮摆动，手臂只吃到很轻的摆动；没有 IK，脚会轻微滑步、髋部会有拉伸感。要完全正确得换带骨骼的 glb。
-- Boss 只有高血量/高伤害/大攻击距离，没有专属技能。
+- 僵尸和骷髅全是近战，没有远程/投掷单位。
+- **普通**骷髅只在雪地图出现、同屏最多 3 只——它单只 9 个 draw call（僵尸 2 个），详见 5.3.1。想提高上限先想办法合并它的蒙皮网格。巨型骷髅 Boss 不受此限（每波 1 只）。
+- 僵尸用的是 Quaternius `Idle/Walk/Idle_Attack/Death/HitReact` 五段动画，攻击节奏由代码控制（`attackTimer` 1.28 秒）而不是动画事件对齐；没有 IK、没有动画事件回调，脚在急转弯时仍会轻微滑步。要完全贴合得接 IK 或动画事件。
+- Boss（巨型骷髅，约 4.48 米，手持带钉木棒）只有高血量/高伤害/大攻击距离，没有专属技能；木棒只是外观，不单独计算护甲或伤害。
 - 爆炸无视遮挡（地图开阔）；辅助瞄准不预判移动。
 - 僵尸默认不做网格寻路；雪地用 1 米网格流场绕开田字四柱（`IceWorld.updateNav`），其他地图仍是直线追击 + 分离 + 碰撞推出，并带贴墙滑动。
 - 割草机是装饰，不会触发清场。
