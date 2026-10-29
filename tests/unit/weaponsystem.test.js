@@ -14,6 +14,7 @@ const DT = 1 / 60;
 
 let THREE;
 let WEAPONS;
+let WEAPON_SLOTS;
 let TUNING;
 let game;
 let W;
@@ -25,7 +26,7 @@ async function boot() {
   // vite 会在 request 队列里提前加载真 three，替身就不生效了（实测）。
   H = await import('../helpers/game.js');
   THREE = await import('three');
-  ({ WEAPONS, TUNING } = await import('../../src/config.js'));
+  ({ WEAPONS, TUNING, WEAPON_SLOTS } = await import('../../src/config.js'));
   // readyGame：等 zombieModel 就绪，spawnZombieAt 才不会拿到 null 场景
   const created = await H.readyGame();
   game = created.game;
@@ -70,8 +71,18 @@ function probeProjectiles() {
 }
 
 // 让当前武器立刻可以开火
+// 每个用例都从"手上只有初始植物、槽位全空"开始：槽位是跨用例残留的状态，
+// 不在这里清会让 pickup/drop 类用例互相污染（那些用例以前只需清 carried 一个变量）。
 function arm(sun = 999) {
   H.readyToFire(game, sun);
+  W.slots.fill(-1);
+  W.activeSlot = -1;
+  W.replacePrompt = null;
+  W.locked = false;
+  for (let i = 0; i < WEAPONS.length; i++) {
+    if (!WEAPONS[i].starter) W.ammo[i] = 0;
+  }
+  W.current = 0;
 }
 
 // 一次“按下开火 → 走一帧 → 松开”的完整手势
@@ -201,95 +212,174 @@ describe('装备与切换', () => {
     W.dropLoot();
   });
 
-  it('pickup 只接受非 starter，starter 返回 false', () => {
+  it('pickup 只接受非 starter，starter / 越界返回 false', () => {
     arm();
     expect(W.pickup(0)).toBe(false);
     expect(W.pickup(2)).toBe(false);
-    expect(W.carried).toBe(-1);
+    expect(W.slots.every((s) => s === -1)).toBe(true);
     expect(W.pickup(999)).toBe(false);
+    void WEAPONS;
   });
 
-  it('pickup：满弹药、设 carried、清锁定、装备、HUD 回调', () => {
+  it('pickup：进一个空槽、满弹、清锁定、装备、HUD 回调', () => {
     arm();
     const def = WEAPONS[5];
-    const setLoot = vi.spyOn(game.hud, 'setLoot');
-    const setAmmo = vi.spyOn(game.hud, 'setAmmo');
+    const setSlots = vi.spyOn(game.hud, 'setSlots');
     const banner = vi.spyOn(game.hud, 'showBanner');
     const pickupSfx = vi.spyOn(game.sfx, 'pickup');
     W.locked = true;
     expect(W.pickup(5)).toBe(true);
-    expect(W.carried).toBe(5);
+    expect(W.slots[0]).toBe(5);
+    expect(W.activeSlot).toBe(0);
     expect(W.ammo[5]).toBe(def.ammo);
     expect(W.locked).toBe(false);
     expect(W.current).toBe(5);
     expect(W.models[5].group.visible).toBe(true);
-    expect(setLoot).toHaveBeenCalledWith(5);
-    expect(setAmmo).toHaveBeenLastCalledWith(def.ammo, def.ammo, true);
+    expect(setSlots).toHaveBeenCalled();
     expect(banner).toHaveBeenCalledWith(`拾取 ${def.name} · ${def.ammo} 发`, 1.8);
     expect(pickupSfx).toHaveBeenCalled();
     W.dropLoot();
   });
 
-  it('替换战利品时旧战利品弹药清零、新战利品满弹', () => {
+  it('三把枪可以同时持有，依次填 0/1/2 号槽，互不影响弹药', () => {
     arm();
     W.pickup(4);
-    expect(W.ammo[4]).toBe(WEAPONS[4].ammo);
     W.pickup(6);
-    expect(W.carried).toBe(6);
-    expect(W.ammo[4]).toBe(0);
+    W.pickup(8);
+    expect(W.slots).toEqual([4, 6, 8]);
+    expect(W.ammo[4]).toBe(WEAPONS[4].ammo);
     expect(W.ammo[6]).toBe(WEAPONS[6].ammo);
-    W.dropLoot();
+    expect(W.ammo[8]).toBe(WEAPONS[8].ammo);
+    // 切槽各自装备
+    W.equipSlot(1);
+    expect(W.current).toBe(6);
+    W.equipSlot(2);
+    expect(W.current).toBe(8);
+    for (let s = 0; s < W.slots.length; s++) W.dropSlot(s);
   });
 
-  it('重复拾取同一把战利品不丢弹药（carried 相同不清零）', () => {
+  it('槽满时不吞武器：弹替换提示，pickup 返回 false', () => {
+    arm();
+    W.pickup(4);
+    W.pickup(6);
+    W.pickup(8);
+    const banner = vi.spyOn(game.hud, 'showBanner');
+    const setReplace = vi.spyOn(game.hud, 'setReplacePrompt');
+    expect(W.pickup(7)).toBe(false);
+    expect(W.replacePrompt).toBeTruthy();
+    expect(W.replacePrompt.index).toBe(7);
+    expect(W.slots).toEqual([4, 6, 8]); // 没被偷偷替换
+    expect(banner).toHaveBeenCalled();
+    expect(setReplace).toHaveBeenCalledWith(true);
+    // 选 1 号槽替换
+    expect(W.resolveReplace(1)).toBe(true);
+    expect(W.slots).toEqual([4, 7, 8]);
+    expect(W.ammo[6]).toBe(0); // 被替换掉的旧枪清零
+    expect(W.current).toBe(7);
+    expect(W.replacePrompt).toBe(null);
+    expect(setReplace).toHaveBeenLastCalledWith(false);
+    for (let s = 0; s < W.slots.length; s++) W.dropSlot(s);
+  });
+
+  it('替换提示超时：取消替换，枪留在地上（slots 不变）', () => {
+    arm();
+    W.pickup(4);
+    W.pickup(6);
+    W.pickup(8);
+    W.pickup(7);
+    expect(W.replacePrompt).toBeTruthy();
+    W.update(WEAPON_SLOTS.replacePick + 0.1, game.controls);
+    expect(W.replacePrompt).toBe(null);
+    expect(W.slots).toEqual([4, 6, 8]);
+    for (let s = 0; s < W.slots.length; s++) W.dropSlot(s);
+  });
+
+  it('重复拾取同一把：补满原槽弹药，不占新格子', () => {
     arm();
     W.pickup(4);
     W.ammo[4] = 12;
-    W.pickup(4);
-    expect(W.ammo[4]).toBe(WEAPONS[4].ammo); // 重新满弹
-    expect(W.carried).toBe(4);
+    expect(W.pickup(4)).toBe(true);
+    expect(W.ammo[4]).toBe(WEAPONS[4].ammo);
+    expect(W.slots).toEqual([4, -1, -1]);
     W.dropLoot();
   });
 
-  it('dropLoot：清空战利品、回到豌豆、HUD 复位', () => {
+  it('dropSlot：清空该槽、枪掉到地面、手持时切回豌豆', () => {
     arm();
+    const dropAt = vi.fn();
+    game.pickups.dropAt = dropAt;
+    game.ctx.pickups = game.pickups;
     W.pickup(5);
-    const setLoot = vi.spyOn(game.hud, 'setLoot');
     const banner = vi.spyOn(game.hud, 'showBanner');
-    W.dropLoot();
-    expect(W.carried).toBe(-1);
+    expect(W.dropSlot(0)).toBe(true);
+    expect(W.slots).toEqual([-1, -1, -1]);
     expect(W.ammo[5]).toBe(0);
     expect(W.current).toBe(0);
-    expect(W.locked).toBe(false);
-    expect(setLoot).toHaveBeenCalledWith(-1);
-    expect(banner).toHaveBeenCalledWith(`${WEAPONS[5].name} 已收起`, 1.5);
+    expect(dropAt).toHaveBeenCalledWith(5, expect.any(Number), expect.any(Number));
+    expect(banner).toHaveBeenCalledWith(`${WEAPONS[5].name} 已丢下`, 1.4);
   });
 
-  it('dropLoot 在没拿战利品时是空操作', () => {
+  it('dropSlot 空槽 / 越界是空操作', () => {
     arm();
-    const setLoot = vi.spyOn(game.hud, 'setLoot');
-    W.carried = -1;
-    W.dropLoot();
-    expect(setLoot).not.toHaveBeenCalled();
+    expect(W.dropSlot(0)).toBe(false);
+    expect(W.dropSlot(-1)).toBe(false);
+    expect(W.dropSlot(99)).toBe(false);
   });
 
-  it('dropLoot 时手持的是 starter 武器：不强制切回豌豆', () => {
+  it('dropLoot 只丢当前手上的那个槽', () => {
     arm();
     W.pickup(4);
-    W.current = 1; // 手动切到寒冰
+    W.pickup(6);
+    W.equipSlot(0);
     W.dropLoot();
-    expect(W.carried).toBe(-1);
-    expect(W.current).toBe(1);
+    expect(W.slots).toEqual([-1, 6, -1]);
+  });
+
+  it('dropLoot 在手持初始植物时是空操作', () => {
+    arm();
+    W.pickup(4);
+    W.equip(0);
+    const dropAt = vi.fn();
+    game.pickups.dropAt = dropAt;
+    game.ctx.pickups = game.pickups;
+    W.dropLoot();
+    expect(dropAt).not.toHaveBeenCalled();
+    expect(W.slots[0]).toBe(4);
+    W.dropSlot(0);
+  });
+
+  it('cycleSlot 跳过空槽与没有枪的格子', () => {
+    arm();
+    W.pickup(4);
+    W.pickup(8);
+    W.equip(0);
+    W.cycleSlot(1);
+    expect(W.current).toBe(4);
+    W.cycleSlot(1);
+    expect(W.current).toBe(8);
+    W.cycleSlot(-1);
+    expect(W.current).toBe(4);
+    for (let s = 0; s < W.slots.length; s++) W.dropSlot(s);
+  });
+
+  it('equipSlot / equip 不会装备"不在槽里的战利品"', () => {
+    arm();
+    expect(W.equipSlot(0)).toBe(false);
+    W.equip(6); // 6 号枪没捡过，不该被装备
+    expect(W.current).toBe(0);
   });
 
   it('reset 把一切恢复到开局状态', () => {
     W.pickup(5);
+    W.pickup(6);
     W.current = 3;
     W.cooldown = 2;
     W.recoil = 1;
     W.reset();
     expect(W.current).toBe(0);
-    expect(W.carried).toBe(-1);
+    expect(W.slots).toEqual([-1, -1, -1]);
+    expect(W.activeSlot).toBe(-1);
+    expect(W.replacePrompt).toBe(null);
     expect(W.cooldown).toBe(0);
     expect(W.recoil).toBe(0);
     expect(W.ammo[0]).toBe(Infinity);
@@ -366,7 +456,7 @@ describe('开火：阳光与冷却', () => {
       expect(game.sun).toBe(500);
       // 枪留在手里，不会自动丢弃
       expect(W.locked).toBe(false);
-      expect(W.carried).toBe(idx);
+      expect(W.slots).toContain(idx);
 
       // 再开火：自动续一整梭子并立刻打出一发
       W.cooldown = 0;
@@ -374,7 +464,7 @@ describe('开火：阳光与冷却', () => {
       const reloadCost = def.cost * def.ammo;
       expect(game.sun).toBe(500 - reloadCost);
       expect(W.ammo[idx]).toBe(def.ammo - 1);
-      expect(W.carried).toBe(idx);
+      expect(W.slots).toContain(idx);
       expect(W.locked).toBe(false);
       expect(probe.peas.length).toBeGreaterThanOrEqual(1);
     } finally {
@@ -396,7 +486,7 @@ describe('开火：阳光与冷却', () => {
       fireOnce();
       // 打不出去、钱不够、但枪还在
       expect(probe.peas.length).toBe(0);
-      expect(W.carried).toBe(idx);
+      expect(W.slots).toContain(idx);
       expect(W.locked).toBe(true);
 
       // 补足阳光后再开火就自动续弹
@@ -423,7 +513,7 @@ describe('开火：阳光与冷却', () => {
       lookForward();
       fireOnce();
       expect(probe.peas.length).toBe(0);
-      expect(W.carried).toBe(4);
+      expect(W.slots).toContain(4);
       expect(W.locked).toBe(true);
     } finally {
       probe.restore();

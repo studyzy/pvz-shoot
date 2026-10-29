@@ -378,7 +378,7 @@ describe('3. 暂停 / 恢复 / 回菜单', () => {
     expect(game.zombies.zombies.length).toBe(0);
     expect(game.zombies.queue.length).toBe(0);
     expect(game.zombies.state).toBe('idle');
-    expect(game.weapons.carried).toBe(-1);
+    expect(game.weapons.slots).toEqual([-1, -1, -1]);
   });
 
   it('pauseMapBtn 也能回到主菜单', () => {
@@ -804,7 +804,7 @@ describe('7. 波次推进与 Boss', () => {
 });
 
 describe('8. 地面武器拾取', () => {
-  it('走到点位自动拾取：carried、战利品格、弹药、开火扣弹药不扣阳光、打空后花阳光续弹', async () => {
+  it('走到点位自动拾取：进武器槽、弹药、开火扣弹药不扣阳光、打空后花阳光续弹', async () => {
     game.start();
     giveSun(999);
     const spot = game.map.pickupSpots[0];
@@ -817,11 +817,13 @@ describe('8. 地面武器拾取', () => {
     game.player.pos.z = spot[1];
     game.update(1 / 60);
 
-    expect(game.weapons.carried).toBe(index);
+    expect(game.weapons.slots[0]).toBe(index);
+    expect(game.weapons.activeSlot).toBe(0);
     expect(game.weapons.current).toBe(index);
     expect(game.weapons.ammo[index]).toBe(def.ammo);
     expect(item.active).toBe(false);
-    expect(hidden(game.hud.lootBtn)).toBe(false);
+    expect(hidden(game.hud.slotDock)).toBe(false);
+    expect(game.hud.slotButtons[0].classList.contains('empty')).toBe(false);
     expect(hidden($('ammoChip'))).toBe(false);
     expect($('ammoNow').textContent).toBe(String(def.ammo));
     expect($('ammoMax').textContent).toBe(String(def.ammo));
@@ -846,7 +848,7 @@ describe('8. 地面武器拾取', () => {
     game.update(1 / 60);
     game.controls.setFiring(false);
     expect(game.weapons.ammo[index]).toBe(0);
-    expect(game.weapons.carried).toBe(index);
+    expect(game.weapons.slots).toContain(index);
 
     const sunBeforeReload = game.sun;
     game.weapons.cooldown = 0;
@@ -857,7 +859,7 @@ describe('8. 地面武器拾取', () => {
     // 续弹扣 def.cost * def.ammo，随后正常打出这一发
     expect(game.sun).toBe(sunBeforeReload - def.cost * def.ammo);
     expect(game.weapons.ammo[index]).toBe(def.ammo - 1);
-    expect(game.weapons.carried).toBe(index);
+    expect(game.weapons.slots).toContain(index);
     expect(game.weapons.locked).toBe(false);
   });
 
@@ -878,19 +880,26 @@ describe('8. 地面武器拾取', () => {
     expect(item.group.position.z).toBe(spot[1]);
   });
 
-  it('换一把不同植物会替换旧战利品', () => {
+  it('三把不同植物可以同时持有（吃鸡式 3 槽），槽满才弹替换提示', () => {
     game.start();
     game.weapons.pickup(4);
-    const first = game.weapons.carried;
     game.weapons.pickup(6);
-    expect(game.weapons.carried).toBe(6);
-    expect(game.weapons.ammo[first]).toBe(0);
-    expect(game.weapons.ammo[6]).toBe(WEAPONS[6].ammo);
+    game.weapons.pickup(8);
+    expect(game.weapons.slots).toEqual([4, 6, 8]);
+    expect(game.weapons.replacePrompt).toBe(null);
+    // 第 4 把：不吞，弹提示
+    expect(game.weapons.pickup(7)).toBe(false);
+    expect(game.weapons.replacePrompt.index).toBe(7);
+    expect(game.weapons.slots).toEqual([4, 6, 8]);
+    // 选 0 号槽替换
+    game.weapons.resolveReplace(0);
+    expect(game.weapons.slots).toEqual([7, 6, 8]);
+    expect(game.weapons.ammo[4]).toBe(0);
   });
 });
 
 describe('9. 武器切换', () => {
-  it('按 1/2/3/4 切换到对应 starter 武器，按 5 切回战利品', () => {
+  it('按 1/2/3/4 切换到对应 starter 武器，按 7 切回武器槽', () => {
     game.start();
     giveSun(999);
 
@@ -909,16 +918,16 @@ describe('9. 武器切换', () => {
     game.update(1 / 60);
     expect(game.weapons.current).toBe(0);
 
-    // 先捡一把战利品，再切走，按 5 切回
+    // 先捡一把战利品，再切走，按 7 切回那个槽
     game.weapons.pickup(5);
-    const loot = game.weapons.carried;
+    const loot = game.weapons.slots[0];
     key('Digit1');
     game.update(1 / 60);
     expect(game.weapons.current).toBe(0);
-    key('Digit5');
+    key('Digit7');
     game.update(1 / 60);
     expect(game.weapons.current).toBe(loot);
-    expect(game.hud.lootBtn.classList.contains('active')).toBe(true);
+    expect(game.hud.slotButtons[0].classList.contains('active')).toBe(true);
   });
 
   it('未拾取的战利品空位不能被装备', () => {
@@ -1414,5 +1423,82 @@ describe('15. 浏览器事件与生命周期细节', () => {
     g.shakeAmp = 0;
     g.onExplosion({ x: g.player.pos.x + 40, z: g.player.pos.z }, 5);
     expect(g.shakeAmp).toBe(0);
+  });
+});
+
+describe('14. 武器槽（吃鸡式）端到端', () => {
+  it('捡起→丢下→再捡回：丢下的枪仍在原地，可被重新拾取', () => {
+    game.start();
+    giveSun(999);
+    const W = game.weapons;
+    W.pickup(5);
+    expect(W.slots[0]).toBe(5);
+    const dropped = game.pickups.items.find((it) => it.dropped);
+    W.dropSlot(0);
+    expect(W.slots[0]).toBe(-1);
+    const onGround = game.pickups.items.find((it) => it.dropped && it.active);
+    expect(onGround).toBeTruthy();
+    expect(onGround.index).toBe(5);
+    // 走回枪的位置（丢下的地方有 1 秒冷却）
+    game.player.pos.x = onGround.group.position.x;
+    game.player.pos.z = onGround.group.position.z;
+    for (let i = 0; i < 60 * 2; i++) game.update(1 / 60);
+    expect(W.slots[0]).toBe(5);
+    void dropped;
+  });
+
+  it('槽满替换提示期间不会反复触发拾取（阻止玩家在同一个点疯狂踩）', () => {
+    game.start();
+    giveSun(999);
+    const W = game.weapons;
+    W.pickup(4);
+    W.pickup(6);
+    W.pickup(8);
+    const item = game.pickups.items[0];
+    item.active = true;
+    item.dropped = true;
+    item.index = 7;
+    item.pickCooldown = 0;
+    game.player.pos.x = item.group.position.x;
+    game.player.pos.z = item.group.position.z;
+    game.update(1 / 60);
+    expect(W.replacePrompt).toBeTruthy();
+    // 再走几帧，拾取物还在（没被吞）
+    for (let i = 0; i < 10; i++) game.update(1 / 60);
+    expect(item.active).toBe(true);
+    // 选一格替换后才拿走
+    W.resolveReplace(2);
+    expect(W.slots).toEqual([4, 6, 7]);
+  });
+
+  it('Tab 循环切槽与 G 丢弃都走真实按键路径', () => {
+    game.start();
+    giveSun(999);
+    const W = game.weapons;
+    W.pickup(4);
+    W.pickup(8);
+    key('Digit1');
+    game.update(1 / 60);
+    expect(W.current).toBe(0);
+    key('Tab');
+    game.update(1 / 60);
+    expect(W.current).toBe(4);
+    key('Tab');
+    game.update(1 / 60);
+    expect(W.current).toBe(8);
+    key('KeyG');
+    game.update(1 / 60);
+    expect(W.slots).toEqual([4, -1, -1]);
+    expect(W.current).toBe(0);
+  });
+
+  it('重开一局会清空所有槽位', () => {
+    game.start();
+    giveSun(999);
+    game.weapons.pickup(5);
+    game.weapons.pickup(6);
+    game.start();
+    expect(game.weapons.slots).toEqual([-1, -1, -1]);
+    expect(game.hud.slotDock.classList.contains('hidden')).toBe(true);
   });
 });

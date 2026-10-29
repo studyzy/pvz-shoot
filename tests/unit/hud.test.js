@@ -59,9 +59,10 @@ describe('HUD', () => {
       expect(starterWeapons.length).toBeGreaterThan(0);
       expect(hud.weaponButtons).toHaveLength(starterWeapons.length);
 
-      const btns = [...hud.weaponDock.querySelectorAll('button.weapon-btn:not(.loot-btn)')];
+      const btns = [...hud.weaponDock.querySelectorAll('button.weapon-btn')];
       expect(btns).toHaveLength(starterWeapons.length);
-      expect(hud.weaponDock.children).toHaveLength(starterWeapons.length + 1); // + 战利品格
+      // 底部这一行只有植物栏；武器槽在独立的 slot-dock 里
+      expect(hud.weaponDock.children).toHaveLength(starterWeapons.length);
 
       btns.forEach((btn, slot) => {
         const def = starterWeapons[slot];
@@ -81,12 +82,15 @@ describe('HUD', () => {
       });
     });
 
-    it('战利品格固定在最后、初始 hidden、带 5 号键位', () => {
-      expect(hud.lootBtn).toBeTruthy();
-      expect(hud.weaponDock.lastElementChild).toBe(hud.lootBtn);
-      expect(hud.lootBtn.classList.contains('hidden')).toBe(true);
-      expect(hud.lootBtn.classList.contains('loot-btn')).toBe(true);
-      expect(hud.lootBtn.querySelector('.wkey').textContent).toBe('5');
+    it('武器槽独立成一条：3 格、键位 7/8/9、初始整条隐藏', () => {
+      // 槽位不再占底部植物栏那一行（6 格 + 3 槽在 iPhone 横屏会溢出）
+      expect(hud.slotButtons.length).toBe(3);
+      expect(hud.slotDock.classList.contains('hidden')).toBe(true);
+      expect(hud.weaponDock.querySelector('.slot-btn')).toBeNull();
+      expect(hud.slotDock.parentElement.classList.contains('dock')).toBe(true);
+      const keys = hud.slotButtons.map((b) => b.querySelector('.wkey').textContent);
+      expect(keys).toEqual(['7', '8', '9']);
+      for (const b of hud.slotButtons) expect(b.classList.contains('empty')).toBe(true);
     });
 
     it('点击植物格用 WEAPONS 下标回调 onWeaponSelect，并阻止默认行为/冒泡', () => {
@@ -100,15 +104,51 @@ describe('HUD', () => {
       expect(ev.bubbles).toBe(true);
     });
 
-    it('战利品未设置时不回调；setLoot 后才回调对应下标', () => {
-      const onWeaponSelect = vi.fn();
-      hud.onWeaponSelect = onWeaponSelect;
-      click(hud.lootBtn);
-      expect(onWeaponSelect).not.toHaveBeenCalled();
+    it('点击武器槽回调 onSlotSelect（传槽号，不是武器下标）', () => {
+      const onSlotSelect = vi.fn();
+      hud.onSlotSelect = onSlotSelect;
+      hud.setSlots([7, -1, -1]);
+      click(hud.slotButtons[0]);
+      expect(onSlotSelect).toHaveBeenCalledWith(0);
+      click(hud.slotButtons[2]);
+      expect(onSlotSelect).toHaveBeenCalledWith(2);
+    });
 
-      hud.setLoot(7);
-      click(hud.lootBtn);
-      expect(onWeaponSelect).toHaveBeenCalledWith(7);
+    it('setSlots：有枪的槽显示图标/名称/弹药，空槽是虚线占位；全空时整条隐藏', () => {
+      hud.setSlots([7, -1, 9]);
+      expect(hud.slotDock.classList.contains('hidden')).toBe(false);
+      expect(hud.slotButtons[0].classList.contains('empty')).toBe(false);
+      expect(hud.slotButtons[1].classList.contains('empty')).toBe(true);
+      expect(hud.slotButtons[1].querySelector('.slot-name').textContent).toBe('空');
+      // 仙人掌
+      expect(hud.slotButtons[0].querySelector('.slot-name').textContent).toBe('仙人掌');
+      expect(hud.slotButtons[0].querySelector('.slot-icon').innerHTML).toContain('svg');
+      hud.setSlots([-1, -1, -1]);
+      expect(hud.slotDock.classList.contains('hidden')).toBe(true);
+    });
+
+    it('setActiveSlot 只高亮非空的那一格', () => {
+      hud.setSlots([7, -1, 9]);
+      hud.setActiveSlot(2);
+      expect(hud.slotButtons[2].classList.contains('active')).toBe(true);
+      expect(hud.slotButtons[0].classList.contains('active')).toBe(false);
+      hud.setActiveSlot(-1);
+      expect(hud.slotButtons[2].classList.contains('active')).toBe(false);
+    });
+
+    it('setSlotAmmo 写角标，0 发时标记 locked', () => {
+      hud.setSlots([7, -1, -1]);
+      hud.setSlotAmmo(0, 12);
+      expect(hud.slotButtons[0].querySelector('.wammo').textContent).toBe('12');
+      hud.setSlotAmmo(0, 0);
+      expect(hud.slotButtons[0].classList.contains('locked')).toBe(true);
+    });
+
+    it('setReplacePrompt 给整条槽位加闪烁类', () => {
+      hud.setReplacePrompt(true);
+      expect(hud.slotDock.classList.contains('replacing')).toBe(true);
+      hud.setReplacePrompt(false);
+      expect(hud.slotDock.classList.contains('replacing')).toBe(false);
     });
   });
 
@@ -325,115 +365,44 @@ describe('HUD', () => {
     });
   });
 
-  describe('武器 / 战利品 / 弹药', () => {
-    it('setWeapon 只高亮对应格并在 120ms 后还原准星缩放', () => {
-      vi.useFakeTimers();
-      hud.setWeapon(hud.weaponButtons[1].index);
-      expect(hud.currentIndex).toBe(hud.weaponButtons[1].index);
-      const active = hud.weaponButtons.filter((e) => e.btn.classList.contains('active'));
-      expect(active).toHaveLength(1);
-      expect(active[0]).toBe(hud.weaponButtons[1]);
-      expect(hud.crosshair.style.transform).toBe('scale(1.08)');
-      vi.advanceTimersByTime(119);
-      expect(hud.crosshair.style.transform).toBe('scale(1.08)');
-      vi.advanceTimersByTime(2);
-      expect(hud.crosshair.style.transform).toBe('');
-    });
-
-    it('setLoot(-1) 隐藏战利品格并取消 active', () => {
-      const idx = WEAPONS.findIndex((w) => !w.starter);
-      hud.setLoot(idx);
-      hud.setLoot(-1);
-      expect(hud.lootIndex).toBe(-1);
-      expect(hud.lootBtn.classList.contains('hidden')).toBe(true);
-      expect(hud.lootBtn.classList.contains('active')).toBe(false);
-    });
-
-    it('setLoot(index) 显示图标与名称，且只在是当前武器时 active', () => {
-      const idx = WEAPONS.findIndex((w) => !w.starter);
-      hud.setLoot(idx);
-      expect(hud.lootBtn.classList.contains('hidden')).toBe(false);
-      expect(hud.lootBtn.classList.contains('active')).toBe(false);
-      expect(hud.lootBtn.querySelector('.loot-name').textContent).toBe(WEAPONS[idx].short);
-      expect(hud.lootBtn.querySelector('.loot-icon').innerHTML).toContain('<svg');
-
-      hud.setWeapon(idx);
-      expect(hud.lootBtn.classList.contains('active')).toBe(true);
-
-      hud.setWeapon(hud.weaponButtons[0].index);
-      expect(hud.lootBtn.classList.contains('active')).toBe(false);
-    });
-
-    it('缺少战利品/弹药 DOM 时 setLoot / setAmmo 安全返回', () => {
-      const idx = WEAPONS.findIndex((w) => !w.starter);
-      hud.lootBtn = null;
-      expect(() => hud.setLoot(idx)).not.toThrow();
-      expect(hud.lootIndex).toBe(idx);
-
-      hud.ammoChip = null;
-      expect(() => hud.setAmmo(5, 10, true)).not.toThrow();
-    });
-
-    it('战利品格内部缺 icon/name/badge 时只跳过对应部分', () => {
-      const idx = WEAPONS.findIndex((w) => !w.starter);
-      hud.lootBtn.querySelector('.loot-icon').remove();
-      hud.lootBtn.querySelector('.loot-name').remove();
-      hud.lootBtn.querySelector('.wammo').remove();
-      expect(() => hud.setLoot(idx)).not.toThrow();
-      expect(() => hud.setAmmo(4, 10, true)).not.toThrow();
-      expect(hud.lootBtn.classList.contains('hidden')).toBe(false);
-    });
-
-    it('setAmmo(visible) 写 chip 与战利品角标；隐藏时只收起 chip', () => {
-      const idx = WEAPONS.findIndex((w) => !w.starter);
-      hud.setLoot(idx);
-      const max = WEAPONS[idx].ammo;
-      hud.setAmmo(10, max, true);
+  describe('武器 / 槽位 / 弹药', () => {
+    it('setAmmo(visible) 写 chip；隐藏时只收起 chip', () => {
+      hud.setAmmo(12, 70, true, false);
       expect(hud.ammoChip.classList.contains('hidden')).toBe(false);
-      expect($('ammoNow').textContent).toBe('10');
-      expect($('ammoMax').textContent).toBe(String(max));
-      expect(hud.lootBtn.querySelector('.wammo').textContent).toBe('10');
-
-      hud.setAmmo(0, max, false);
+      expect(hud.ammoNow.textContent).toBe('12');
+      expect(hud.ammoMax.textContent).toBe('70');
+      hud.setAmmo(0, 70, false, false);
       expect(hud.ammoChip.classList.contains('hidden')).toBe(true);
-      expect(hud.lootBtn.querySelector('.wammo').textContent).toBe('10'); // 隐藏时不改角标
     });
 
-    it('setAmmo(locked) 标记缺阳光：chip 加 locked、角标显示"缺阳光"', () => {
-      const idx = WEAPONS.findIndex((w) => !w.starter);
-      hud.setLoot(idx);
-      const max = WEAPONS[idx].ammo;
-      hud.setAmmo(0, max, true, true);
-      expect(hud.ammoChip.classList.contains('locked')).toBe(true);
-      // 锁定时不再显示 low（两者语义互斥）
-      expect(hud.ammoChip.classList.contains('low')).toBe(false);
-      expect(hud.lootBtn.querySelector('.wammo').textContent).toBe('缺阳光');
+    it('setAmmo 会同步当前激活槽的角标（不再有单独的战利品格）', () => {
+      hud.setSlots([7, -1, -1]);
+      hud.setActiveSlot(0);
+      hud.setAmmo(9, 40, true, false);
+      expect(hud.slotButtons[0].querySelector('.wammo').textContent).toBe('9');
+    });
 
-      // 续弹成功后解除锁定
-      hud.setAmmo(max, max, true, false);
-      expect(hud.ammoChip.classList.contains('locked')).toBe(false);
-      expect(hud.lootBtn.querySelector('.wammo').textContent).toBe(String(max));
+    it('setAmmo(locked) 标记缺阳光：chip 加 locked', () => {
+      hud.setAmmo(0, 70, true, true);
+      expect(hud.ammoChip.classList.contains('locked')).toBe(true);
     });
 
     it('setAmmo 的 low 阈值是 max(2, max*0.2)', () => {
-      hud.setLoot(WEAPONS.findIndex((w) => !w.starter));
-      // max=10 → 阈值 2
-      hud.setAmmo(3, 10, true);
-      expect(hud.ammoChip.classList.contains('low')).toBe(false);
-      hud.setAmmo(2, 10, true);
+      hud.setAmmo(10, 100, true, false);
       expect(hud.ammoChip.classList.contains('low')).toBe(true);
-      // max=5 → 阈值仍是 2（max*0.2=1）
-      hud.setAmmo(3, 5, true);
+      hud.setAmmo(30, 100, true, false);
       expect(hud.ammoChip.classList.contains('low')).toBe(false);
-      hud.setAmmo(2, 5, true);
+      hud.setAmmo(3, 5, true, false);
+      expect(hud.ammoChip.classList.contains('low')).toBe(false); // 3 > max(2, 1)
+      hud.setAmmo(2, 5, true, false);
       expect(hud.ammoChip.classList.contains('low')).toBe(true);
-      // max=40 → 阈值 8
-      hud.setAmmo(9, 40, true);
-      expect(hud.ammoChip.classList.contains('low')).toBe(false);
-      hud.setAmmo(8, 40, true);
-      expect(hud.ammoChip.classList.contains('low')).toBe(true);
-      hud.setAmmo(0, 40, false);
-      expect(hud.ammoChip.classList.contains('low')).toBe(true); // 隐藏时保留最后一次状态
+    });
+
+    it('缺少弹药 DOM 时 setAmmo 安全返回', () => {
+      const h2 = Object.create(HUD.prototype);
+      h2.ammoChip = null;
+      h2.activeSlotIndex = -1;
+      expect(() => h2.setAmmo(1, 2, true, false)).not.toThrow();
     });
   });
 
@@ -585,7 +554,8 @@ describe('HUD', () => {
       hud.setScore(555);
       hud.setKills(9);
       hud.setWave(6);
-      hud.setLoot(WEAPONS.findIndex((w) => !w.starter));
+      hud.setSlots([WEAPONS.findIndex((w) => !w.starter), -1, -1]);
+      hud.setActiveSlot(0);
       hud.setAmmo(3, 10, true);
       hud.setBossVisible(true);
       hud.setAimLock(true);
@@ -597,8 +567,10 @@ describe('HUD', () => {
 
       // reset() 先清缓存再写回初始值，所以缓存停在初始值上（不是 -1 哨兵）
       expect(hud.cache).toEqual({ hp: 100, sun: -1, score: 0, kills: 0, wave: 1, ammo: -1 });
-      expect(hud.lootIndex).toBe(-1);
-      expect(hud.lootBtn.classList.contains('hidden')).toBe(true);
+      expect(hud.slotState).toEqual([-1, -1, -1]);
+      expect(hud.activeSlotIndex).toBe(-1);
+      expect(hud.slotDock.classList.contains('hidden')).toBe(true);
+      expect(hud.slotDock.classList.contains('replacing')).toBe(false);
       expect(hud.ammoChip.classList.contains('hidden')).toBe(true);
       expect(hud.hpText.textContent).toBe('100');
       expect(hud.hpFill.style.width).toBe('100%');

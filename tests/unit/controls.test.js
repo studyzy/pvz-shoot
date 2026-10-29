@@ -17,8 +17,8 @@ function pointerEvent(type, props) {
   return e;
 }
 
-function keydown(code) {
-  const e = new KeyboardEvent('keydown', { code, key: code, bubbles: true, cancelable: true });
+function keydown(code, opts) {
+  const e = new KeyboardEvent('keydown', { code, key: code, bubbles: true, cancelable: true, ...opts });
   window.dispatchEvent(e);
   return e;
 }
@@ -138,27 +138,47 @@ describe('Controls', () => {
         expect(c.consumeWeaponRequest()).toBe(n - 1);
         expect(c.consumeWeaponRequest()).toBe(-1);
       }
-      // 第 5 格既是坚果、也保留「切回战利品」的老习惯
+      // Digit5 现在只是第 5 株植物（坚果），不再兼职切战利品
       keydown('Digit5');
       expect(c.consumeWeaponRequest()).toBe(4);
-      expect(c.consumeLootRequest()).toBe(true);
-      expect(c.consumeLootRequest()).toBe(false);
+      expect(c.consumeLootRequest()).toBe(false); // DBG
+
 
       keydown('KeyQ');
       expect(c.consumeLootRequest()).toBe(true);
 
-      // 超出植物栏格数不生效
+      // 7/8/9 是武器槽，不是植物栏
       keydown('Digit7');
       expect(c.consumeWeaponRequest()).toBe(-1);
+      expect(c.consumeSlotRequest()).toBe(0);
+      keydown('Digit8');
+      expect(c.consumeSlotRequest()).toBe(1);
+      keydown('Digit9');
+      expect(c.consumeSlotRequest()).toBe(2);
     });
 
-    it('Digit6+ 与其它键不产生武器请求', () => {
+    it('Tab / Shift+Tab 循环切槽，G / Backspace 丢弃', () => {
       const c = make();
-      keydown('Digit9');
+      keydown('Tab');
+      expect(c.consumeSlotCycle()).toBe(1);
+      expect(c.consumeSlotCycle()).toBe(0);
+      const ev = keydown('Tab', { shiftKey: true });
+      expect(c.consumeSlotCycle()).toBe(-1);
+      expect(ev.defaultPrevented).toBe(true);
+      keydown('KeyG');
+      expect(c.consumeDropRequest()).toBe(true);
+      expect(c.consumeDropRequest()).toBe(false);
+      keydown('Backspace');
+      expect(c.consumeDropRequest()).toBe(true);
+    });
+
+    it('Digit0 / 超出槽位数的 Digit 与其它键不产生武器请求', () => {
+      const c = make();
       keydown('Digit0');
       keydown('KeyZ');
       expect(c.weaponRequest).toBe(-1);
-      expect(c.lootRequest).toBe(false);
+      expect(c.slotRequest).toBe(-1);
+      expect(c.consumeLootRequest()).toBe(false);
     });
 
     it('未启用时按键不入队（但 Space 仍被 preventDefault）', () => {
