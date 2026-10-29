@@ -108,6 +108,31 @@ export class ZombieManager {
     }
   }
 
+  // 出生点被箱子/柱子这类圆形碰撞体压住时把落点推出去：僵尸一落地就在碰撞体里的话，
+  // 第一帧会被 update 的推出逻辑弹开 1~2 米，Boss（radius 0.9）还可能被卡在箱子中间。
+  clearOfColliders(x, z, colliders) {
+    for (let pass = 0; pass < 2; pass++) {
+      let moved = false;
+      for (let i = 0; i < colliders.length; i++) {
+        const c = colliders[i];
+        const dx = x - c.x;
+        const dz = z - c.z;
+        const d = Math.hypot(dx, dz);
+        const min = c.r + 1.05;
+        if (d >= min) continue;
+        if (d < 0.0001) {
+          x = c.x + min;
+        } else {
+          x = c.x + (dx / d) * min;
+          z = c.z + (dz / d) * min;
+        }
+        moved = true;
+      }
+      if (!moved) break;
+    }
+    return { x, z };
+  }
+
   spawnOne(player) {
     const type = this.queue.shift();
     let x = 0;
@@ -125,6 +150,15 @@ export class ZombieManager {
         x = clamp(x, -map.bounds.x + 1.2, map.bounds.x - 1.2);
         z = clamp(z, -map.bounds.z + 1.2, map.bounds.z - 1.2);
       }
+      if (map.colliders) {
+        const safe = this.clearOfColliders(x, z, map.colliders);
+        x = safe.x;
+        z = safe.z;
+        if (map.bounds) {
+          x = clamp(x, -map.bounds.x + 1.2, map.bounds.x - 1.2);
+          z = clamp(z, -map.bounds.z + 1.2, map.bounds.z - 1.2);
+        }
+      }
     } else {
       for (let attempt = 0; attempt < 14; attempt++) {
         const side = Math.floor(rand(0, 4));
@@ -139,6 +173,8 @@ export class ZombieManager {
     const zombie = new Zombie(type, this.wave, x, z, {
       scene: this.scene,
       map: this.ctx.map,
+      // Zombie.buildRig 用它给身体材质挂 PMREM 环境反射；漏传会让身体 envMap 恒为 null（只有帽子有）
+      env: this.ctx.env,
       particles: this.ctx.particles,
       sfx: this.ctx.sfx,
       onAttack: (z2) => this.ctx.onZombieAttack(z2),

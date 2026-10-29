@@ -23,7 +23,8 @@ npm run preview   # 预览构建产物
 - **不能用 `file://` 直接打开 `dist/index.html`**：ES Module 与音频权限会被浏览器拦截，必须走 HTTP。
 - 构建产物由 `vite.config.js` 的 `base: './'` 支持子路径部署。
 - 部署：推送到 `main` 后由 `.github/workflows/deploy.yml` 自动构建 `dist/` 并发布到 GitHub Pages（https://studyzy.github.io/pvz-shoot/）；Pages Source 使用 GitHub Actions，不要提交 `dist/`。
-- 项目没有测试框架；验收方式见第 7 节。
+- 测试：`npm test`（Vitest 3 + jsdom，UT + 集成测试，约 15 秒）、`npm run test:coverage`、`npm run test:e2e`（真实 Chromium + WebGL）。写法与约定见 [docs/TESTING.md](docs/TESTING.md)。
+- **改代码前先跑 `npm test`，改完再跑一次**；动到数值/结构/地图/UI 时按 TESTING.md 第 3 节补测试。
 
 ---
 
@@ -280,9 +281,24 @@ __game.renderer.info.render     // draw call / 三角面
 - 流程：击杀掉阳光并拾取、清波加分、暂停/恢复、死亡结算、再来一局。
 - 性能：1–4 只僵尸时 draw call 约 90–130；14 只时不超过约 250。
 
-### 无头烟测（可选）
+### 自动化验证
 
-项目不依赖 Playwright；需要时临时安装，用系统缓存 Chromium 启动，访问 `npm run dev` 的地址，点击 `#startBtn`，截图并读取 `window.__game`。测试脚本不要提交进仓库。
+```bash
+npm test              # UT + 集成测试（Vitest + jsdom），PR 必须全绿
+npm run test:coverage # 覆盖率报告（coverage/index.html）
+npm run test:e2e      # 真实 Chromium 跑 6 个浏览器场景（构建→preview→点按钮→断言），约 80 秒
+npm run build         # 生产构建
+```
+
+CI（`.github/workflows/ci.yml`）在每次 push 到 main 和每个 PR 上跑三个并行 job：
+
+| job | 内容 | 失败条件 |
+| --- | --- | --- |
+| **UT + 集成测试** | `vitest run --coverage`（777 用例） | 任何用例失败；覆盖率低于 `vitest.config.js` 的 `thresholds`（语句/行 98%、分支 94%、函数 97%） |
+| **浏览器级 E2E** | `playwright-core install --with-deps chromium` + `npm run test:e2e`（6 场景） | 任一场景 FAIL 或页面出现 console.error / pageerror |
+| **生产构建** | `npm run build` | 构建失败 |
+
+覆盖率 HTML 报告与 E2E 失败截图分别作为 artifact 保留 14 天。三个 job 互不依赖，可并行跑；改覆盖率门槛请改 `vitest.config.js` 而不是在 CI 里写死。
 
 ---
 
@@ -300,7 +316,7 @@ __game.renderer.info.render     // draw call / 三角面
 - 割草机是装饰，不会触发清场。
 - 地面武器只有一包弹药，不能主动丢弃、换弹或囤两把；再捡一把会替换当前战利品。
 - 同屏僵尸硬上限 14（移动端性能）。
-- 没有单元测试；不要假装有。
+- 测试跑在 jsdom 里，WebGL 是替身：渲染效果、真机手感、真实 glb 贴图要靠 `npm run test:e2e` 或人工验收，不要用 jsdom 测试冒充"渲染正常"。
 
 ---
 

@@ -117,6 +117,8 @@ export class HUD {
     if (pause) pause.addEventListener('click', () => { if (this.onPause) this.onPause(); });
     const mapBtn = document.getElementById('mapBtn');
     if (mapBtn) mapBtn.addEventListener('click', () => { if (this.onChangeMap) this.onChangeMap(); });
+    const pauseMapBtn = document.getElementById('pauseMapBtn');
+    if (pauseMapBtn) pauseMapBtn.addEventListener('click', () => { if (this.onChangeMap) this.onChangeMap(); });
     if (this.muteBtn) {
       this.muteBtn.addEventListener('click', () => {
         this.muted = !this.muted;

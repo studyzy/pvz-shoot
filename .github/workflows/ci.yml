@@ -1,0 +1,94 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# 同一 PR 的旧跑次自动取消，省 runner 时间
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # UT + 集成测试（Vitest + jsdom）：777 个用例，约 15 秒。
+  # 覆盖率门槛由 vitest.config.js 的 thresholds 把关，低于阈值直接失败。
+  test:
+    name: UT + 集成测试
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # jsdom 29 要求 ^20.19 || ^22.13 || >=24，统一用 22
+          node-version: 22
+          cache: npm
+
+      - name: 安装依赖（含 devDependencies）
+        run: npm ci --include=dev
+
+      - name: 单元测试 + 集成测试 + 覆盖率
+        run: npx vitest run --coverage
+
+      - name: 覆盖率报告
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage/
+          retention-days: 14
+
+  # 真实浏览器 E2E（Playwright + Chromium + WebGL）：6 个场景，约 80 秒。
+  # jsdom 的 WebGL 是替身，真实渲染 / 真实 glb / 真实触摸只有这里能覆盖。
+  e2e:
+    name: 浏览器级 E2E（真实 WebGL）
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: 安装依赖（含 devDependencies）
+        run: npm ci --include=dev
+
+      # 版本必须与 package-lock.json 里的 playwright-core 对齐，
+      # 否则会报 "Executable doesn't exist"（脚本按 chromium-<rev> 找可执行文件）
+      - name: 安装 Chromium
+        run: npx playwright-core install --with-deps chromium
+
+      - name: 浏览器级 E2E
+        run: npm run test:e2e
+
+      - name: 失败截图
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-artifacts
+          path: tests/integration/.artifacts/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  # 生产构建：保证 dist 可产出、base 路径正确
+  build:
+    name: 生产构建
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: 安装依赖（含 devDependencies）
+        run: npm ci --include=dev
+
+      - name: 构建
+        run: npm run build

@@ -6,3 +6,7 @@ dist/
 generated-images/
 aigc/
 .codebuddy/
+coverage/
+
+# E2E 失败截图（本地调试产物，不进仓库）
+tests/integration/.artifacts/
