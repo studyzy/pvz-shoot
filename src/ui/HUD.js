@@ -1,5 +1,7 @@
-import { WEAPONS } from '../config.js';
+import { WEAPONS, WEAPON_SLOTS } from '../config.js';
 import { formatNum } from '../utils.js';
+
+const STARTER_COUNT = WEAPONS.filter((w) => w.starter).length;
 
 const ICONS = {
   pea: '<svg viewBox="0 0 48 48"><path d="M14 45c2-8 6-12 6-12" stroke="#3e7a10" stroke-width="3.2" fill="none" stroke-linecap="round"/><path d="M20 35c-4.5-2-8.5-1-10 1.4 3 2.2 6.8 2 10-1.4z" fill="#4e9a12"/><circle cx="20" cy="21" r="12.5" fill="#7ed321" stroke="#2f5b0e" stroke-width="2.6"/><rect x="29.5" y="16.5" width="14" height="9.4" rx="4.7" fill="#8ede2a" stroke="#2f5b0e" stroke-width="2.6"/><ellipse cx="14" cy="16" rx="3.2" ry="4.2" fill="#b9f276" opacity="0.85"/><circle cx="26" cy="16.5" r="1.7" fill="#2f5b0e"/><circle cx="17.5" cy="16.5" r="1.7" fill="#2f5b0e"/></svg>',
@@ -51,8 +53,12 @@ export class HUD {
     this.isTouch = true;
 
     this.weaponButtons = [];
-    this.lootBtn = null;
-    this.lootIndex = -1;
+    this.slotButtons = null;
+    this.slotDock = null;
+    this.slotState = [-1, -1, -1];
+    this.slotAmmo = [];
+    this.activeSlotIndex = -1;
+    this.replacing = false;
     this.currentIndex = 0;
     this.cache = { hp: -1, sun: -1, score: -1, kills: -1, wave: -1, ammo: -1 };
     this.muted = false;
@@ -88,21 +94,31 @@ export class HUD {
       this.weaponButtons.push({ btn, index: i });
     }
 
-    const loot = document.createElement('button');
-    loot.className = 'weapon-btn loot-btn hidden';
-    loot.setAttribute('aria-label', '战利品植物');
-    loot.innerHTML =
-      '<span class="wkey">5</span>' +
-      '<span class="loot-icon"></span>' +
-      '<span class="wname loot-name"></span>' +
-      '<span class="wammo"></span>';
-    loot.addEventListener('click', (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      if (this.onWeaponSelect && this.lootIndex >= 0) this.onWeaponSelect(this.lootIndex);
-    });
-    this.weaponDock.appendChild(loot);
-    this.lootBtn = loot;
+    // 武器槽（吃鸡式）：独立的竖排/横排条，不占底部那一行的宽度。
+    this.slotButtons = [];
+    this.slotDock = document.createElement('div');
+    this.slotDock.className = 'slot-dock';
+    for (let i = 0; i < WEAPON_SLOTS.count; i++) {
+      const btn = document.createElement('button');
+      btn.className = 'weapon-btn slot-btn empty';
+      btn.dataset.slot = String(i);
+      btn.setAttribute('aria-label', '武器槽 ' + (i + 1) + '（空）');
+      btn.innerHTML =
+        '<span class="wkey">' + (STARTER_COUNT + 1 + i) + '</span>' +
+        '<span class="slot-icon"></span>' +
+        '<span class="wname slot-name"></span>' +
+        '<span class="wammo"></span>';
+      btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (this.onSlotSelect) this.onSlotSelect(i);
+      });
+      this.slotDock.appendChild(btn);
+      this.slotButtons.push(btn);
+    }
+    // 有槽位才显示这条；全空时整条隐藏，避免空占屏幕
+    this.slotDock.classList.add('hidden');
+    document.querySelector('.dock').appendChild(this.slotDock);
   }
 
   bind() {
@@ -246,7 +262,6 @@ export class HUD {
       const entry = this.weaponButtons[i];
       entry.btn.classList.toggle('active', entry.index === index);
     }
-    if (this.lootBtn) this.lootBtn.classList.toggle('active', index === this.lootIndex);
     const def = WEAPONS[index];
     if (def && this.crosshair) {
       this.crosshair.style.transform = 'scale(1.08)';
@@ -254,21 +269,58 @@ export class HUD {
     }
   }
 
-  setLoot(index) {
-    this.lootIndex = index;
-    if (!this.lootBtn) return;
-    if (index < 0) {
-      this.lootBtn.classList.add('hidden');
-      this.lootBtn.classList.remove('active');
-      return;
+  // 武器槽同步：slots 是每个槽里的武器 index（-1 = 空）
+  setSlots(slots) {
+    this.slotState = slots.slice();
+    if (!this.slotButtons) return;
+    const any = slots.some((v) => v >= 0);
+    this.slotDock.classList.toggle('hidden', !any);
+    for (let i = 0; i < this.slotButtons.length; i++) {
+      const btn = this.slotButtons[i];
+      const idx = slots[i];
+      const empty = idx < 0;
+      btn.classList.toggle('empty', empty);
+      btn.classList.toggle('active', !empty && i === this.activeSlotIndex);
+      if (empty) {
+        btn.querySelector('.slot-icon').innerHTML = '';
+        btn.querySelector('.slot-name').textContent = '空';
+        btn.querySelector('.wammo').textContent = '';
+        btn.setAttribute('aria-label', '武器槽 ' + (i + 1) + '（空）');
+        continue;
+      }
+      const def = WEAPONS[idx];
+      btn.querySelector('.slot-icon').innerHTML = ICONS[def.id] || ICONS.pea;
+      btn.querySelector('.slot-name').textContent = def.short;
+      btn.querySelector('.wammo').textContent = String(this.slotAmmo[i]);
+      btn.setAttribute('aria-label', def.name + '，' + this.slotAmmo[i] + ' 发');
     }
-    const def = WEAPONS[index];
-    this.lootBtn.classList.remove('hidden');
-    this.lootBtn.classList.toggle('active', index === this.currentIndex);
-    const icon = this.lootBtn.querySelector('.loot-icon');
-    if (icon) icon.innerHTML = ICONS[def.id] || ICONS.pea;
-    const name = this.lootBtn.querySelector('.loot-name');
-    if (name) name.textContent = def.short;
+  }
+
+  // 当前激活的是第几槽（-1 = 手上是植物栏里的初始植物）
+  setActiveSlot(index) {
+    this.activeSlotIndex = index;
+    if (!this.slotButtons) return;
+    for (let i = 0; i < this.slotButtons.length; i++) {
+      const btn = this.slotButtons[i];
+      btn.classList.toggle('active', !btn.classList.contains('empty') && i === index);
+    }
+  }
+
+  // 槽位角标上的弹药数（每槽独立）
+  setSlotAmmo(slot, ammo) {
+    if (!this.slotAmmo) this.slotAmmo = [];
+    this.slotAmmo[slot] = ammo;
+    if (!this.slotButtons) return;
+    const btn = this.slotButtons[slot];
+    if (!btn || btn.classList.contains('empty')) return;
+    btn.querySelector('.wammo').textContent = String(ammo);
+    btn.classList.toggle('locked', ammo <= 0);
+  }
+
+  // 槽满的"替换哪一格？"提示
+  setReplacePrompt(on) {
+    this.replacing = !!on;
+    if (this.slotDock) this.slotDock.classList.toggle('replacing', !!on);
   }
 
   // 充能植物（坚果）的剩余颗数：画在植物栏那一格的费用角标上
@@ -292,10 +344,8 @@ export class HUD {
   }
 
   setAmmo(ammo, max, visible, locked) {
-    if (visible && this.lootBtn) {
-      const badge = this.lootBtn.querySelector('.wammo');
-      if (badge) badge.textContent = locked ? '缺阳光' : String(ammo);
-    }
+    // 顶部弹药条服务于"当前手上这把"；槽位角标由 WeaponSystem 通过 setSlotAmmo 单独维护
+    if (visible && this.activeSlotIndex >= 0) this.setSlotAmmo(this.activeSlotIndex, ammo);
     if (!this.ammoChip) return;
     this.ammoChip.classList.toggle('hidden', !visible);
     if (!visible) return;
@@ -412,7 +462,9 @@ export class HUD {
 
   reset() {
     this.cache = { hp: -1, sun: -1, score: -1, kills: -1, wave: -1, ammo: -1 };
-    this.setLoot(-1);
+    this.setSlots([-1, -1, -1]);
+    this.setActiveSlot(-1);
+    this.setReplacePrompt(false);
     this.setAmmo(0, 0, false);
     this.setHealth(100, 100);
     this.setScore(0);

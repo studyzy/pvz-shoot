@@ -67,6 +67,8 @@ export class Game {
     this.player = new Player(this.sfx);
     this.sunOrbs = new SunOrbs(this.scene);
     this.pickups = new WeaponPickups(ctx);
+    // WeaponSystem.dropSlot 要把丢下的枪交回地面（ctx.pickups.dropAt）
+    ctx.pickups = this.pickups;
     this.skySun = new SkySun({ map: null, sunOrbs: this.sunOrbs });
 
     ctx.player = this.player;
@@ -135,6 +137,13 @@ export class Game {
     this.hud.onMute = (m) => this.sfx.setMuted(m);
     this.hud.onWeaponSelect = (i) => {
       if (this.state === 'playing') this.weapons.equip(i);
+    };
+    // 点武器槽：替换提示期间当作"选这一格替换"，否则就是切枪
+    this.hud.onSlotSelect = (slot) => {
+      if (this.state !== 'playing') return;
+      const w = this.weapons;
+      if (w.replacePrompt) w.resolveReplace(slot);
+      else w.equipSlot(slot);
     };
 
     this.hud.buildMapSelect(MAPS, this.mapId);

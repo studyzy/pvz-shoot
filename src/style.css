@@ -495,6 +495,48 @@ body.desktop .desktop-hint { display: flex; }
 
 .weapon-dock { display: flex; gap: 8px; align-items: flex-end; }
 
+/* 武器槽（吃鸡式）：独立一条，不占底部植物栏那一行的宽度。
+   桌面/平板竖排在植物栏上方；触屏横屏改成横排，避免和开火键抢右侧空间。 */
+.slot-dock {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-end;
+  pointer-events: none;
+}
+.slot-dock.hidden { display: none; }
+.slot-btn {
+  pointer-events: auto;
+  width: 56px;
+  height: 50px;
+  border-color: rgba(143, 214, 255, .42);
+}
+.slot-btn .slot-icon svg { width: 28px; height: 28px; display: block; }
+.slot-btn.empty {
+  opacity: .42;
+  border-style: dashed;
+  border-color: rgba(255, 255, 255, .22);
+  background: rgba(10, 20, 6, .35);
+}
+.slot-btn.empty .slot-name { color: rgba(220, 240, 200, .55); font-weight: 600; }
+.slot-btn.empty .wkey { color: rgba(255, 255, 255, .28); }
+.slot-btn.active {
+  border-color: var(--gold);
+  background: linear-gradient(180deg, rgba(96, 74, 16, .85), rgba(44, 32, 6, .9));
+  box-shadow: 0 0 0 2px rgba(255, 210, 63, .22), 0 0 16px rgba(255, 210, 63, .3), 0 3px 0 rgba(0, 0, 0, .35);
+  transform: translateY(-2px);
+}
+.slot-btn.locked { opacity: .55; filter: grayscale(.4); }
+/* "替换哪一格？"：整条槽位闪一下，提示玩家按键决定 */
+.slot-dock.replacing .slot-btn {
+  animation: slotPrompt .9s ease-in-out infinite;
+  border-color: rgba(255, 176, 58, .9);
+}
+@keyframes slotPrompt {
+  0%, 100% { box-shadow: 0 0 0 rgba(255, 176, 58, 0), 0 3px 0 rgba(0, 0, 0, .35); }
+  50% { box-shadow: 0 0 14px rgba(255, 176, 58, .75), 0 3px 0 rgba(0, 0, 0, .35); }
+}
+
 .weapon-btn {
   pointer-events: auto;
   position: relative;
@@ -1015,6 +1057,30 @@ body.desktop #orientationBtn { display: none; }
     padding: 7px 2px 3px;
     border-radius: 13px;
   }
+
+  /* 触屏横屏：3 个槽横排在植物栏上方、贴着开火键那一侧，每格更小。
+     .dock 在触屏下是 inset:0 的绝对层，所以这条必须自己定位，否则会掉到屏幕底部。 */
+  body.touch .slot-dock {
+    position: absolute;
+    right: calc(var(--fire-size) + 24px + var(--safe-r));
+    bottom: calc(18px + var(--safe-b) + var(--weapon-h) + 18px);
+    flex-direction: row;
+    gap: 5px;
+    align-items: flex-end;
+  }
+  body.touch .slot-btn {
+    width: calc(var(--weapon-w) * 0.72);
+    height: calc(var(--weapon-h) * 0.66);
+    padding: 4px 1px 2px;
+    border-radius: 10px;
+  }
+  body.touch .slot-btn .slot-icon svg {
+    width: calc(var(--weapon-w) * 0.4);
+    height: calc(var(--weapon-w) * 0.4);
+  }
+  body.touch .slot-btn .wname { font-size: clamp(7px, 1vh, 9px); }
+  body.touch .slot-btn .wkey { font-size: 7px; }
+  body.touch .slot-btn .wammo { font-size: 8px; min-width: 14px; height: 13px; line-height: 10px; }
 
   body.touch .weapon-btn svg { width: calc(var(--weapon-w) * 0.56); height: calc(var(--weapon-w) * 0.56); }
   body.touch .weapon-btn .wname { font-size: clamp(8px, 1.1vh, 10px); }

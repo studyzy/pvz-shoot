@@ -215,7 +215,38 @@ export class WeaponPickups {
       respawn: 0,
       phase: rand(0, TAU),
       spot: null,
+      // dropped：玩家丢下的（没有点位、不进重生队列，捡走就永久消失）
+      dropped: false,
     };
+  }
+
+  // 玩家从武器槽里丢下一把枪：在脚边生成一个可再捡起的拾取物。
+  // 优先复用空闲的池对象；池子满了就借用最久没被用的那个点位物品。
+  dropAt(index, x, z) {
+    let item = this.items.find((it) => !it.active && it.dropped);
+    if (!item) item = this.items.find((it) => !it.active);
+    if (!item) {
+      // 全都在地上：把距离玩家最远的点位物品搬过来（丢掉的是玩家的选择，优先保留）
+      item = this.items.find((it) => it.spot) || this.items[0];
+      if (!item) return false;
+    }
+    item.spot = null;
+    item.dropped = true;
+    item.index = index;
+    item.active = true;
+    item.respawn = 0;
+    const mats = weaponMaterials(index);
+    item.ring.material = mats.ring;
+    item.glow.material = mats.glow;
+    item.label.material = mats.label;
+    item.holder.clear();
+    item.holder.add(makeMini(WEAPONS[index]).clone(true));
+    item.group.position.set(x, 0, z);
+    item.group.visible = true;
+    // 刚丢下的枪立刻可捡会形成"丢→捡"循环，给 1 秒的冷却
+    item.phase = rand(0, TAU);
+    item.pickCooldown = 1.0;
+    return true;
   }
 
   nextWeapon() {
@@ -262,6 +293,7 @@ export class WeaponPickups {
     this.bag.length = 0;
     for (let i = 0; i < this.items.length; i++) {
       const item = this.items[i];
+      item.dropped = false;
       if (!item.spot) {
         item.active = false;
         item.group.visible = false;
@@ -278,7 +310,7 @@ export class WeaponPickups {
     for (let i = 0; i < this.items.length; i++) {
       const item = this.items[i];
       if (!item.active) {
-        if (!item.spot) continue;
+        if (!item.spot || item.dropped) continue;
         item.respawn -= dt;
         if (item.respawn <= 0) this.spawn(item);
         continue;
@@ -297,7 +329,10 @@ export class WeaponPickups {
       const dist2 = dx * dx + dz * dz;
       item.group.visible = dist2 < 30 * 30;
 
-      if (!player.dead) {
+      if (item.pickCooldown > 0) item.pickCooldown = Math.max(0, item.pickCooldown - dt);
+      // 槽满的"替换哪一格？"还在等玩家选：别反复触发 pickup
+      const pending = this.ctx.weapons && this.ctx.weapons.replacePrompt;
+      if (!player.dead && !pending && !(item.pickCooldown > 0)) {
         if (dist2 < PICK_RADIUS * PICK_RADIUS) {
           const def = WEAPONS[item.index];
           if (this.ctx.weapons.pickup(item.index)) {
@@ -313,7 +348,9 @@ export class WeaponPickups {
             });
             item.active = false;
             item.group.visible = false;
-            item.respawn = rand(RESPAWN_MIN, RESPAWN_MAX);
+            // 玩家丢下的枪没有点位：捡走后不再重生
+            item.respawn = item.dropped ? 0 : rand(RESPAWN_MIN, RESPAWN_MAX);
+            item.dropped = false;
           }
         }
       }
@@ -325,6 +362,7 @@ export class WeaponPickups {
       this.items[i].active = false;
       this.items[i].group.visible = false;
       this.items[i].respawn = 0;
+      this.items[i].dropped = false;
     }
   }
 }

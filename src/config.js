@@ -267,6 +267,16 @@ export const WEAPONS = [
 export const STARTER_WEAPONS = WEAPONS.filter((w) => w.starter);
 export const LOOT_WEAPONS = WEAPONS.filter((w) => !w.starter);
 
+// 武器槽（吃鸡式）：拾取的战利品进这几个槽，可以同时持有、互相切换。
+// 3 格的理由：刚好够「一把对空 + 一把破甲 + 一把清群」，再多「选」这个动作就消失了。
+export const WEAPON_SLOTS = {
+  count: 3,
+  // 抬枪时长：只影响视图模型动画，不重置开火冷却（否则换枪能躲冷却）
+  swapAnim: 0.35,
+  // 槽满时弹「替换哪一格？」的等待秒数，超时则拾取物留在地上
+  replacePick: 2.5,
+};
+
 export const ZOMBIES = {
   normal: {
     hp: 62,

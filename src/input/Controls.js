@@ -1,4 +1,4 @@
-import { STARTER_WEAPONS } from '../config.js';
+import { STARTER_WEAPONS, WEAPON_SLOTS } from '../config.js';
 
 export class Controls {
   constructor(canvas, hud) {
@@ -12,6 +12,11 @@ export class Controls {
     this.jumpQueued = false;
     this.weaponRequest = -1;
     this.lootRequest = false;
+    // 武器槽请求：0..count-1 选中槽，-1 无。与 starter 的 weaponRequest 分开，
+    // 因为两者是两套完全不同的槽位（1-6 植物栏 / 7-9 战利品槽）。
+    this.slotRequest = -1;
+    this.dropSlotRequest = false;
+    this.slotCycle = 0;
     this.enabled = false;
     const mq = window.matchMedia ? window.matchMedia('(pointer: coarse)').matches : false;
     const noHover = window.matchMedia ? window.matchMedia('(hover: none)').matches : false;
@@ -37,6 +42,9 @@ export class Controls {
       this.firePressed = false;
       this.weaponRequest = -1;
       this.lootRequest = false;
+      this.slotRequest = -1;
+      this.dropSlotRequest = false;
+      this.slotCycle = 0;
       this.joyId = null;
       this.lookId = null;
       this.move.x = 0;
@@ -79,6 +87,27 @@ export class Controls {
   consumeLootRequest() {
     const v = this.lootRequest;
     this.lootRequest = false;
+    return v;
+  }
+
+  // 选某个武器槽（7/8/9 或点击槽位）。-1 表示没有请求。
+  consumeSlotRequest() {
+    const v = this.slotRequest;
+    this.slotRequest = -1;
+    return v;
+  }
+
+  // 丢弃当前槽（G / Backspace）。
+  consumeDropRequest() {
+    const v = this.dropSlotRequest;
+    this.dropSlotRequest = false;
+    return v;
+  }
+
+  // 循环切到下一个槽（Tab / 滚轮）。0 = 没请求，+1/-1 = 方向。
+  consumeSlotCycle() {
+    const v = this.slotCycle;
+    this.slotCycle = 0;
     return v;
   }
 
@@ -232,9 +261,18 @@ export class Controls {
         const n = parseInt(e.code.slice(5), 10);
         // 1-6 = 植物栏（豌豆/寒冰/樱桃/玉米炮/坚果/火豌豆）
         if (n >= 1 && n <= STARTER_WEAPONS.length) this.weaponRequest = n - 1;
-        if (n === 5) this.lootRequest = true;
+        // 7-9 = 武器槽（战利品，槽满才会用到 8/9）
+        const slot = n - STARTER_WEAPONS.length - 1;
+        if (n > STARTER_WEAPONS.length && slot >= 0 && slot < WEAPON_SLOTS.count) {
+          this.slotRequest = slot;
+        }
       }
       if (e.code === 'KeyQ') this.lootRequest = true;
+      if (e.code === 'Tab') {
+        e.preventDefault();
+        this.slotCycle = e.shiftKey ? -1 : 1;
+      }
+      if (e.code === 'KeyG' || e.code === 'Backspace') this.dropSlotRequest = true;
       this.keys.add(e.code);
     });
     window.addEventListener('keyup', (e) => {
