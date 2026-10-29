@@ -37,6 +37,25 @@ export function makeFakeRenderer() {
   };
 }
 
+// 按真实 glb 的骨架层级加载模型：和 stubGltfLoader 不同，它保留 Head 骨骼与
+// CharacterArmature 的 100 倍缩放 —— 配件挂骨骼时的大小/位置问题只有这种结构才测得出来。
+// 注意：骨骼动画是异步的，必须重新 import 一份新的 Game，不能复用 createGame()。
+export async function realGltfLoader() {
+  const { GLTFLoader } = await import('three/examples/jsm/loaders/GLTFLoader.js');
+  const buf = Uint8Array.from(__fixture_zombie_glb__);
+  const ab = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+  GLTFLoader.prototype.__testStubbed = true; // 拦掉 createGame() 里的 stub
+  // 解析是异步的：先让出一次事件循环，createGame() 里 "load() 后立刻 initZombieModel 之后" 的
+  // 等待循环才等得到 ready。
+  GLTFLoader.prototype.load = function (url, onLoad) {
+    return new Promise((resolve) => {
+      setTimeout(() => {
+        new GLTFLoader().parse(ab, '', (g) => { onLoad(g); resolve('real'); }, (e) => { throw e; });
+      }, 0);
+    });
+  };
+}
+
 // 真实 glb 的几何/材质/命名结构：Zombie 依赖它做克隆、假骨骼补丁与配件挂载，
 // 用简化的替身就不会真正覆盖到这些分支。GLTFLoader 会在贴图阶段走 fetch/createObjectURL，
 // 这些资源只影响外观，测试里换成不需要网络的最小加载器（见 stubGltfLoaded）。
