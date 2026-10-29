@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { MAPS, DEFAULT_MAP, createMaps } from './world/maps.js';
 import { Player } from './entities/Player.js';
 import { ZombieManager } from './entities/ZombieManager.js';
-import { initZombieModel } from './entities/ZombieModel.js';
+import { initZombieModel, zombieModel } from './entities/ZombieModel.js';
 import { ProjectileSystem } from './weapons/ProjectileSystem.js';
 import { WeaponSystem } from './weapons/WeaponSystem.js';
 import { Particles } from './fx/Particles.js';
@@ -57,6 +57,8 @@ export class Game {
 
     this.sfx = new Sfx();
     initZombieModel();
+    // 调试句柄：外部脚本（E2E / 控制台）要等某个模型加载完才能断言
+    this.models = zombieModel;
     this.hud = new HUD();
     this.particles = new Particles(this.scene);
     this.maps = createMaps(this.scene);

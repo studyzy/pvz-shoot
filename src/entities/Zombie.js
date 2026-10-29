@@ -1,60 +1,13 @@
 import * as THREE from 'three';
+import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { blobShadowTexture } from '../world/materials.js';
 import { ZOMBIES } from '../config.js';
-import { zombieModel, ZOMBIE_SCALE } from './ZombieModel.js';
+import { zombieModel, ZOMBIE_SCALE, MODELS, findClip } from './ZombieModel.js';
 import { clamp, rand, TAU } from '../utils.js';
 
 const ICE = new THREE.Color(0x9fe4ff);
 const WHITE = new THREE.Color(0xffffff);
 const tmpV = new THREE.Vector3();
-
-// 假骨骼：顶点着色器里按高度/左右分区绕髋、肩旋转，做真正的交替迈步
-const WALK_CHUNK = `
-  vec3 transformed = vec3( position );
-  // 注意：几何体是 Z-up（节点上挂着 +90° X 旋转），高度 = -position.z
-  float h = -position.z;
-  float side = transformed.x >= 0.0 ? 1.0 : -1.0;
-  float legPhase = uPhase + (side > 0.0 ? 0.0 : PI);
-  float legAng = sin(legPhase) * 0.4 * uMove;
-  float kneeAng = max(0.0, -sin(legPhase)) * 0.85 * uMove;
-  if (h < 0.54) {
-    // 大腿：绕髋
-    float w = smoothstep(0.0, 1.0, clamp((0.54 - h) / 0.05, 0.0, 1.0));
-    vec3 pivot = vec3(side * 0.075, 0.0, -0.52);
-    vec3 d = transformed - pivot;
-    float s = sin(legAng), c = cos(legAng);
-    vec3 r = vec3(d.x, d.y * c - d.z * s, d.y * s + d.z * c);
-    transformed = mix(transformed, pivot + r, w);
-  }
-  if (h < 0.32) {
-    // 小腿：绕膝再折一下，脚才不会像棍子一样扫过去
-    vec3 kp = vec3(side * 0.075, 0.0, -0.30);
-    vec3 kd = transformed - kp;
-    float ks = sin(kneeAng), kc = cos(kneeAng);
-    vec3 kr = vec3(kd.x, kd.y * kc - kd.z * ks, kd.y * ks + kd.z * kc);
-    float kw = smoothstep(0.0, 1.0, clamp((0.32 - h) / 0.04, 0.0, 1.0));
-    transformed = mix(transformed, kp + kr, kw);
-  }
-  // 手臂：只吃 |x| 很大、且在肩以下的顶点，避免把大头卷进来
-  float armAng = -legAng * 0.6;
-  float aw = smoothstep(0.235, 0.275, abs(transformed.x)) * (1.0 - smoothstep(0.68, 0.80, h));
-  if (aw > 0.001 && h > 0.3) {
-    vec3 ap = vec3(side * 0.21, 0.0, -0.80);
-    vec3 ad = transformed - ap;
-    float as = sin(armAng), ac = cos(armAng);
-    vec3 ar = vec3(ad.x, ad.y * ac - ad.z * as, ad.y * as + ad.z * ac);
-    transformed = mix(transformed, ap + ar, aw);
-  }
-`;
-
-function patchWalkShader(mat, uniforms) {
-  mat.onBeforeCompile = (shader) => {
-    shader.uniforms.uPhase = uniforms.uPhase;
-    shader.uniforms.uMove = uniforms.uMove;
-    shader.vertexShader = 'uniform float uPhase;\nuniform float uMove;\n' + shader.vertexShader.replace('#include <begin_vertex>', WALK_CHUNK);
-  };
-  mat.needsUpdate = true;
-}
 
 let shadowMatShared = null;
 function shadowMaterial() {
@@ -78,6 +31,15 @@ export class Zombie {
     this.map = ctx.map || null;
     this.wave = wave;
     this.scaleFactor = this.def.scale;
+    // 命中球高度：两套模型体块比例不同，按各自的模型单位给（调用方再乘 scaleFactor）。
+    // 僵尸模型高 1.194（眼球 0.86–0.98、髋 0.37）；骷髅模型高 2.166（躯干 0.38–1.43、头 1.19–2.17）。
+    // 头部球半径必须仍小于身体球，否则爆头会退化成“打哪儿都爆头”。
+    // hitRadiusScale：命中球半径的额外倍率。骷髅骨架比僵尸细，模型高 2.166 vs 1.194，
+    // 半径按同一比例放大才和身体贴合；脖子/躯干本来也细，取 0.8 折中。
+    const isSk = this.def.model === 'skeleton';
+    this.chestY = isSk ? 0.90 : 1.02;
+    this.headY = isSk ? 1.68 : 1.52;
+    this.hitRadiusScale = isSk ? 0.8 : 1;
     this.maxHp = Math.round(this.def.hp * hpMul);
     this.hp = this.maxHp;
     this.speed = this.def.speed * speedMul;
@@ -131,12 +93,18 @@ export class Zombie {
   }
 
   buildRig() {
-    // glb 是单网格静态模型：每个僵尸克隆一份，只克隆材质（要独立的白闪/冰冻）
-    this.body = zombieModel.scene.clone(true);
-    this.body.scale.setScalar(ZOMBIE_SCALE);
+    // 按 def.model 选模型：不写就是普通僵尸 glb，写 'skeleton' 就是 KayKit 骷髅
+    const isSkeleton = this.def.model === 'skeleton';
+    const src = isSkeleton ? zombieModel.skeleton : zombieModel;
+    const def = MODELS[isSkeleton ? 'skeleton' : 'zombie'];
+    this.isSkeleton = isSkeleton;
+
+    // 骨骼模型每个僵尸克隆一份：骨骼必须独立，材质也要独立（白闪/冰冻）
+    // 骨骼模型必须用 SkeletonUtils.clone，否则所有僵尸共享同一套骨骼会一起动
+    this.body = src.scene ? cloneSkinned(src.scene) : new THREE.Group();
+    this.body.scale.setScalar(def.scale);
     this.model.add(this.body);
 
-    this.walk = { uPhase: { value: 0 }, uMove: { value: 0 } };
     this.mats = [];
     this.matBase = [];
     this.body.traverse((n) => {
@@ -147,18 +115,75 @@ export class Zombie {
       m.emissive.setHex(0xffffff);
       m.emissiveIntensity = 0;
       m.color.copy(this.baseTint);
-      patchWalkShader(m, this.walk);
-      // 阴影走同一套顶点变形，否则腿动了影子不动
-      const depth = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking });
-      depth.onBeforeCompile = m.onBeforeCompile;
-      m.customDepthMaterial = depth;
       n.material = m;
       n.castShadow = true;
       n.receiveShadow = false;
+      // 影子关掉 frustumCulled 误判（骨骼动画会让包围盒失真，跑动时突然消失）
+      n.frustumCulled = false;
       this.mats.push(m);
       this.matBase.push(m.color.clone());
     });
+
+    this.buildAnimations();
     this.buildHat();
+  }
+
+  // 骨骼动画：idle / walk / attack / die / hit 各一条，同一时刻只播一条。
+  // 两套模型的动作名不同，按模型用不同候选名。
+  buildAnimations() {
+    const src = this.isSkeleton ? zombieModel.skeleton : zombieModel;
+    const clips = (src && src.clips) || [];
+    this.mixer = clips.length ? new THREE.AnimationMixer(this.body) : null;
+    this.actions = {};
+    this.current = null;
+    if (!this.mixer) return;
+
+    const pick = (names) => {
+      for (const n of names) {
+        const c = findClip(clips, n);
+        if (c) return c;
+      }
+      return null;
+    };
+    // 骷髅用 KayKit 的命名（Walking_A / 1H_Melee_Attack_Chop / Death_A …），僵尸用 Quaternius 的
+    const want = this.isSkeleton
+      ? {
+          idle: pick(['idle_combat', 'idle']),
+          walk: pick(['walking_a', 'walking_b', 'idle']),
+          attack: pick(['1h_melee_attack_chop', '1h_melee_attack_slice_horizontal', 'idle_combat']),
+          die: pick(['death_a', 'death_b']),
+          hit: pick(['hit_a', 'hit_b']),
+        }
+      : {
+          idle: pick(['idle']),
+          walk: pick(['walk']),
+          attack: pick(['idle_attack', 'run_attack']),
+          die: pick(['death']),
+          hit: pick(['hitreact']),
+        };
+    for (const k in want) {
+      if (!want[k]) continue;
+      const a = this.mixer.clipAction(want[k]);
+      if (k === 'attack' || k === 'die' || k === 'hit') {
+        a.setLoop(THREE.LoopOnce, 1);
+        a.clampWhenFinished = true;
+      }
+      this.actions[k] = a;
+    }
+    this.play('idle', 0);
+  }
+
+  play(name, fade) {
+    const next = this.actions[name];
+    if (!next || this.current === name) return;
+    const prev = this.current ? this.actions[this.current] : null;
+    next.reset();
+    next.enabled = true;
+    next.setEffectiveWeight(1);
+    next.play();
+    if (prev && prev !== next && fade) prev.crossFadeTo(next, fade, false);
+    else if (prev && prev !== next) prev.stop();
+    this.current = name;
   }
 
   // 交通锥 / 铁桶：加在 glb 头顶（模型单位，Y 向上，头骨顶约 1.0）
@@ -167,7 +192,8 @@ export class Zombie {
     if (acc !== 'cone' && acc !== 'bucket' && acc !== 'club') return;
 
     const hat = new THREE.Group();
-    hat.position.set(0, acc === 'bucket' ? 1.06 : 1.01, 0.015);
+    // glb 模型单位（1.194 高）：头骨骨骼 y≈0.762，头顶 y≈1.19，眼球 0.86–0.98
+    hat.position.set(0, acc === 'bucket' ? 1.09 : 1.04, 0.015);
     hat.rotation.set(0.03, 0.1, 0.05);
 
     const push = (geo, color, opts) => {
@@ -190,15 +216,32 @@ export class Zombie {
     };
 
     if (acc === 'club') {
-      // Boss 的木棒：握在右手（-x 侧），斜向体前
+      // Boss 的木棒。骷髅模型有 handslotr 专用挂载点（右手），挂上去会跟着手臂挥动；
+      // 它的局部 +Y 指向世界 +Z（模型正前方），所以棒子沿 +Y 摆就是朝前伸。
+      // 尺寸按 2.166 的骷髅模型单位给，再被 SKELETON_SCALE 和 scaleFactor 放大。
+      const slot = this.isSkeleton ? this.body.getObjectByName('handslotr') : null;
+      if (slot) {
+        hat.position.set(0, 0, 0);
+        hat.rotation.set(Math.PI, 0, 0); // 棒头朝向手腕外，避免穿进小臂
+        push(new THREE.CylinderGeometry(0.026, 0.034, 0.62, 10), 0x7d5733, { roughness: 0.85 });
+        push(new THREE.CylinderGeometry(0.062, 0.078, 0.24, 10), 0x5b3d22, { roughness: 0.8 });
+        const head = hat.children[hat.children.length - 1];
+        head.position.y = 0.36;
+        const shaft = hat.children[hat.children.length - 2];
+        shaft.position.y = -0.05;
+        slot.add(hat);
+        this.hat = hat;
+        return;
+      }
+      // 非骷髅模型（旧 Boss 造型）继续用体前悬挂
       hat.position.set(-0.26, 0.46, 0.06);
       hat.rotation.set(0.35, 0, 0.28);
       push(new THREE.CylinderGeometry(0.038, 0.05, 0.52, 10), 0x7d5733, { roughness: 0.85 });
       push(new THREE.CylinderGeometry(0.085, 0.105, 0.2, 10), 0x5b3d22, { roughness: 0.8 });
-      const head = hat.children[hat.children.length - 1];
-      head.position.y = -0.3;
-      const shaft = hat.children[hat.children.length - 2];
-      shaft.position.y = 0.02;
+      const head2 = hat.children[hat.children.length - 1];
+      head2.position.y = -0.3;
+      const shaft2 = hat.children[hat.children.length - 2];
+      shaft2.position.y = 0.02;
       this.body.add(hat);
       this.hat = hat;
       return;
@@ -235,18 +278,23 @@ export class Zombie {
     }
   }
 
+  // 命中球按**模型实际身高**归一化，两套模型的体块比例差很多：
+//   僵尸（高 1.194）：胸口 1.02、头部 1.52  → 归一化 0.854 / 1.273（÷ 模型高）
+//   骷髅（高 2.166）：躯干 0.376–1.425、头 1.193–2.166 → 胸口 0.90、头部 1.68
+// 乘 scaleFactor 后就是世界高度；再乘模型自身的 SKELETON_SCALE/ZOMBIE_SCALE 由 root 统一处理。
+// 注意：这里返回的是**模型局部单位**，调用方（ProjectileSystem / WeaponSystem）会再乘 scaleFactor。
   getAimPoint(out) {
-    out.set(this.root.position.x, 0.95 * this.scaleFactor, this.root.position.z);
+    out.set(this.root.position.x, this.chestY * this.scaleFactor, this.root.position.z);
     return out;
   }
 
   getChest(out) {
-    out.set(this.root.position.x, 0.95 * this.scaleFactor, this.root.position.z);
+    out.set(this.root.position.x, this.chestY * this.scaleFactor, this.root.position.z);
     return out;
   }
 
   getHead(out) {
-    out.set(this.root.position.x, 1.45 * this.scaleFactor, this.root.position.z);
+    out.set(this.root.position.x, this.headY * this.scaleFactor, this.root.position.z);
     return out;
   }
 
@@ -283,12 +331,11 @@ export class Zombie {
   update(dt, player, colliders) {
     if (this.dead) return;
 
-
     if (this.dying) {
       this.deathT += dt;
-      const t = Math.min(1, this.deathT / 0.34);
-      this.model.rotation.x = -t * 1.5;
-      this.model.rotation.z = t * 0.12;
+      // 骨骼模型：播死亡动画，身体整体下沉保留
+      this.play('die', 0.12);
+      if (this.mixer) this.mixer.update(dt);
       this.flash = Math.max(0, this.flash - dt * 3);
       this.applyFlash(this.flash * 0.45);
       if (this.deathT > 0.55) {
@@ -306,6 +353,7 @@ export class Zombie {
       const e = 1 - Math.pow(1 - t, 3);
       this.model.position.y = -2.3 * (1 - e);
       this.model.rotation.z = Math.sin(t * 12) * 0.04 * (1 - t);
+      if (this.mixer) this.mixer.update(dt);
       return;
     }
 
@@ -442,20 +490,26 @@ export class Zombie {
       }
     }
 
-    // ---- animation：glb 无骨骼，用整体起伏/侧摆做出蹒跚感 ----
+    // ---- animation：骨骼动画（walk / idle / attack），整体前倾保持僵尸蹒跚感 ----
     const speedPhase = moving ? 5.4 + this.speed * 0.9 : 1.5;
     this.phase += dt * speedPhase;
     const s = Math.sin(this.phase);
     const atk = this.attackAnim > 0 ? Math.sin((1 - this.attackAnim / 0.4) * Math.PI) : 0;
     const moveK = moving ? 1 : 0.3;
 
-    this.walk.uPhase.value = this.phase;
-    this.walk.uMove.value = moving ? 1 : 0.12;
+    this.animSpeed = moving ? this.speed * speedMul : 0;
+    if (this.attackAnim > 0) this.play('attack', 0.1);
+    else this.play(moving ? 'walk' : 'idle', 0.18);
 
-    this.model.position.y = moving ? Math.abs(s) * 0.05 : 0;
-    this.model.rotation.x = 0.03 + Math.abs(s) * 0.02 * moveK + atk * 0.16;
-    this.model.rotation.z = s * 0.045 * moveK;
-    this.model.rotation.y = s * 0.09 * moveK;
+    if (this.mixer) {
+      // 走快时动画也放快，脚步才不会打滑
+      this.mixer.timeScale = moving ? clamp(0.75 + this.speed * 0.22, 0.8, 1.7) : 1;
+      this.mixer.update(dt);
+    }
+
+    this.model.position.y = moving ? Math.abs(s) * 0.03 : 0;
+    this.model.rotation.x = 0.03 + atk * 0.16;
+    this.model.rotation.z = s * 0.03 * moveK;
 
     this.pushX = 0;
     this.pushZ = 0;
@@ -463,6 +517,10 @@ export class Zombie {
 
   dispose() {
     this.root.parent && this.root.parent.remove(this.root);
+    if (this.mixer) {
+      this.mixer.stopAllAction();
+      this.mixer.uncacheRoot(this.body);
+    }
     for (let i = 0; i < this.mats.length; i++) this.mats[i].dispose();
   }
 }

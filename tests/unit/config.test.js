@@ -11,6 +11,8 @@ import {
   waveSpawnInterval,
   zombieHpMul,
   zombieSpeedMul,
+  SKELETON_MAX_ALIVE,
+  SKELETON_MAPS,
 } from '../../src/config.js';
 
 afterEach(() => {
@@ -147,14 +149,29 @@ describe('config / ZOMBIES', () => {
     damage: 'number',
     score: 'number',
     scale: 'number',
-    skin: 'number',
-    shirt: 'number',
-    pants: 'number',
     radius: 'number',
   };
 
-  it('四种僵尸类型齐全', () => {
-    expect(Object.keys(ZOMBIES).sort()).toEqual(['boss', 'bucket', 'cone', 'normal']);
+  it('五种僵尸类型齐全（含骷髅）', () => {
+    expect(Object.keys(ZOMBIES).sort()).toEqual(['boss', 'bucket', 'cone', 'normal', 'skeleton']);
+  });
+
+  it('骷髅和 Boss 都走骷髅模型，其余三类用僵尸 glb', () => {
+    expect(ZOMBIES.skeleton.model).toBe('skeleton');
+    expect(ZOMBIES.skeleton.acc).toBeNull();
+    // Boss 是巨型骷髅：同样的 glb，靠 scale 拉大到 4.5 米左右
+    expect(ZOMBIES.boss.model).toBe('skeleton');
+    expect(ZOMBIES.boss.acc).toBe('club');
+    expect(ZOMBIES.boss.scale).toBe(2.3);
+    // 2.166（模型原始高）× 0.9（SKELETON_SCALE）× 2.3 ≈ 4.48 米
+    expect(2.166 * 0.9 * ZOMBIES.boss.scale).toBeGreaterThan(4.2);
+    // 其余三类不写 model，默认用僵尸 glb
+    for (const k of ['normal', 'cone', 'bucket']) expect(ZOMBIES[k].model).toBeUndefined();
+  });
+
+  it('骷髅同屏上限与地图白名单', () => {
+    expect(SKELETON_MAX_ALIVE).toBe(3);
+    expect(SKELETON_MAPS).toEqual(['snow']);
   });
 
   it('每种类型字段齐全、数值为正', () => {
@@ -250,19 +267,23 @@ describe('config / wavePlan', () => {
       const normals = 4 + Math.floor(n * 1.45);
       const cones = n >= 2 ? Math.floor((n - 1) * 1.05) : 0;
       const buckets = n >= 3 ? Math.max(1, Math.floor((n - 2) * 0.8)) : 0;
+      // 骷髅第 4 波起掺进来，整波最多 SKELETON_MAX_ALIVE 只
+      const skeletons = n >= 4 ? Math.min(SKELETON_MAX_ALIVE, 1 + Math.floor((n - 4) * 0.5)) : 0;
       const boss = n % 5 === 0 ? 1 : 0;
       expect(count(plan, 'normal'), `n=${n} normals`).toBe(normals);
       expect(count(plan, 'cone'), `n=${n} cones`).toBe(cones);
       expect(count(plan, 'bucket'), `n=${n} buckets`).toBe(buckets);
+      expect(count(plan, 'skeleton'), `n=${n} skeletons`).toBe(skeletons);
       expect(count(plan, 'boss'), `n=${n} boss`).toBe(boss);
-      expect(plan.length, `n=${n} total`).toBe(normals + cones + buckets + boss);
+      expect(plan.length, `n=${n} total`).toBe(normals + cones + buckets + skeletons + boss);
     }
   });
 
-  it('n=20：总量 = 33 普通 + 19 锥 + 14 桶 + 1 boss = 67', () => {
+  it('n=20：总量 = 33 普通 + 19 锥 + 14 桶 + 3 骷髅 + 1 boss = 70', () => {
     const plan = wavePlan(20);
-    expect(plan.length).toBe(4 + Math.floor(20 * 1.45) + Math.floor(19 * 1.05) + Math.max(1, Math.floor(18 * 0.8)) + 1);
-    expect(plan.length).toBe(67);
+    expect(plan.length).toBe(4 + Math.floor(20 * 1.45) + Math.floor(19 * 1.05) + Math.max(1, Math.floor(18 * 0.8)) + 3 + 1);
+    expect(plan.length).toBe(70);
+    expect(count(plan, 'skeleton')).toBe(SKELETON_MAX_ALIVE);
   });
 
   it('洗牌不丢元素：多重集与公式一致', () => {

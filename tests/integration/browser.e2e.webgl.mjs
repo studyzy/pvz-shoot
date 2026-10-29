@@ -381,8 +381,8 @@ async function phaseStartup(ctx) {
 
 // 场景 2：真实 glb 与材质
 //
-// 这里必须用“真实 glb”而不是替身：加载器路径（网络 fetch → ImageBitmap 解码 → 贴图上传 GPU）、
-// 材质克隆、假骨骼 patchWalkShader、配件 buildHat 都只有真浏览器才跑得通。
+// 这里必须用"真实 glb"而不是替身：加载器路径（网络 fetch → ImageBitmap 解码 → 贴图上传 GPU）、
+// 材质克隆、SkeletonUtils 骨骼克隆、AnimationMixer 驱动骨骼、配件 buildHat 都只有真浏览器才跑得通。
 async function phaseGlb(ctx) {
   const { page } = ctx;
   await ensureZombieTypes(page, ['normal', 'cone', 'bucket', 'boss']);
@@ -411,6 +411,22 @@ async function phaseGlb(ctx) {
         const hatMat = z.hat && z.hat.children[0] && z.hat.children[0].material;
         return {
           type: z.type,
+          // 骨骼动画：SkinnedMesh + 独立骨骼 + mixer 在跑
+          skinned: !!z.body.getObjectByProperty('isSkinnedMesh', true),
+          boneId: (() => {
+            let b = null;
+            z.body.traverse((n) => { if (!b && n.isBone) b = n; });
+            return b ? b.uuid : null;
+          })(),
+          hasMixer: !!z.mixer,
+          current: z.current,
+          clipCount: z.mixer ? Object.keys(z.actions).length : 0,
+          boneQuat: (() => {
+            // 僵尸模型叫 Head，骷髅模型叫 head，统一忽略大小写
+            let b = null;
+            z.body.traverse((n) => { if (!b && n.isBone && /^head$/i.test(n.name)) b = n; });
+            return b ? [b.quaternion.x, b.quaternion.y, b.quaternion.z, b.quaternion.w] : null;
+          })(),
           mats: z.mats.length,
           matMap: !!(m0 && m0.map),
           matMapImage: !!(m0 && m0.map && m0.map.image),
@@ -431,6 +447,13 @@ async function phaseGlb(ctx) {
           hat: !!(z.hat && z.hat.children.length > 0),
           hatChildren: z.hat ? z.hat.children.length : 0,
           hatType: z.def.acc,
+          // Boss 是巨型骷髅：走骷髅模型，木棒挂在 handslotr 骨骼上
+          isSkeletonModel: z.def.model === 'skeleton',
+          hatParentName: z.hat && z.hat.parent ? z.hat.parent.name : null,
+          hatParentIsBone: !!(z.hat && z.hat.parent && z.hat.parent.isBone),
+          // 命中球的实际世界高度（getChest/getHead 的返回值直接给 y）
+          chestY: z.getChest({ set(x, y, zz) { this.x = x; this.y = y; this.z = zz; return this; } }).y,
+          headY: z.getHead({ set(x, y, zz) { this.x = x; this.y = y; this.z = zz; return this; } }).y,
           // 运行时材质独立性：直方图里每只僵尸必须有自己的材质实例（白闪/冰冻互不干扰）
           matUuid: m0 ? m0.uuid : null,
         };
@@ -466,6 +489,32 @@ async function phaseGlb(ctx) {
     if (!z.envMapBody) problems.push(z.type + ': 身体材质 envMap 为空（spawnOne 没把 ctx.env 传给 Zombie）');
     if (!z.envMapIsTex) problems.push(z.type + ': 身体材质 envMap 不是 THREE.Texture');
     if (!(z.envIntensity > 0)) problems.push(z.type + ': 身体材质 envMapIntensity 应 > 0，实际 ' + z.envIntensity);
+  }
+  // 巨型骷髅 Boss：走骷髅模型、木棒挂 handslotr、命中球按骷髅口径抬高
+  const bossInfo = info.zombies.find((z) => z.type === 'boss');
+  if (bossInfo) {
+    if (!bossInfo.isSkeletonModel) problems.push('boss 没用骷髅模型');
+    if (!bossInfo.hatParentIsBone) problems.push('boss 的木棒没挂在骨骼上（应在 handslotr）');
+    else if (!/handslot/i.test(bossInfo.hatParentName)) {
+      problems.push('boss 的木棒挂错了骨骼：' + bossInfo.hatParentName);
+    }
+    // 骷髅口径 0.90/1.68 × scale 2.3 = 2.07 / 3.864
+    if (!(bossInfo.chestY > 1.9 && bossInfo.chestY < 2.3)) problems.push('boss 胸口命中球高度异常：' + bossInfo.chestY);
+    if (!(bossInfo.headY > 3.6 && bossInfo.headY < 4.1)) problems.push('boss 头部命中球高度异常：' + bossInfo.headY);
+  } else {
+    problems.push('场景里没有 boss，无法验证巨型骷髅');
+  }
+
+  // 骨骼动画：每只僵尸必须有独立骨骼 + 正在跑的 mixer，否则所有僵尸会共骨架一起动
+  const boneIds = new Set(info.zombies.map((z) => z.boneId));
+  if (boneIds.size !== info.zombies.length) {
+    problems.push('僵尸骨骼被共享了（' + boneIds.size + ' 套骨骼 / ' + info.zombies.length + ' 只僵尸）');
+  }
+  for (const z of info.zombies) {
+    if (!z.skinned) problems.push(z.type + ': 没有 SkinnedMesh（骨骼模型没生效）');
+    if (!z.hasMixer) problems.push(z.type + ': mixer 为空');
+    if (!z.boneQuat) problems.push(z.type + ': 找不到 Head/head 骨骼');
+    if (!(z.clipCount >= 3)) problems.push(z.type + ': 动画动作只有 ' + z.clipCount + ' 个（应 >= 3）');
   }
   // 材质实例必须互不相同
   const uuids = new Set(info.zombies.map((z) => z.matUuid));
@@ -977,11 +1026,189 @@ async function phaseGameOver(ctx) {
   };
 }
 
+// 场景：骷髅（KayKit 独立模型 + 雪地专属 + 同屏上限）
+//
+// 骷髅是第二个 glb，和僵尸模型是两套资产：骨骼数、动作名、材质数都不同，
+// 必须在真浏览器里确认它能加载、有独立骨骼、动作能播，而且不越过同屏上限。
+async function phaseSkeleton(ctx) {
+  const { page } = ctx;
+  await ensurePlaying(page);
+
+  // 先切到雪地（骷髅只在雪地图出现），再开一个高波次
+  const setup = await page.evaluate(() => {
+    const g = window.__game;
+    g.zombies.reset();
+    if (g.state !== 'menu') g.backToMenu();
+    return { state: g.state };
+  });
+  await page.waitForFunction(() => window.__game.state === 'menu', null, { timeout: 5000 });
+  await page.evaluate(() => window.__game.setMap('snow'));
+  await page.evaluate(() => {
+    const g = window.__game;
+    g.start();
+    g.sun = 999;
+    g.player.hp = 1e9;
+    g.player.maxHp = 1e9;
+  });
+
+  // 必须等骷髅 glb 就绪后再开波。glb 是异步加载的（1.4 MB），
+  // 提前开波会让 spawnOne 跳过骷髅并打乱队列顺序，可能整波都等不到骷髅。
+  await page.waitForFunction(
+    () => window.__game.models && window.__game.models.skeleton.ready,
+    null,
+    { timeout: 20000 }
+  ).catch(() => {});
+  const skReady = await page.evaluate(() => !!(window.__game.models && window.__game.models.skeleton.ready));
+  check(skReady, '骷髅 glb 20 秒内没加载完');
+
+  await page.evaluate(() => {
+    const g = window.__game;
+    g.zombies.reset();
+    g.zombies.startWave(10);
+    g.zombies.maxAlive = 14;
+    g.zombies.interval = 0.05;
+    g.zombies.spawnTimer = 0;
+  });
+
+  // 波次队列是洗牌的，骷髅未必排得到。把队列整理成确定性顺序：
+  // 骷髅提到最前（保证必刷），其余保留。这样断言不受洗牌运气影响。
+  await page.evaluate(() => {
+    const zm = window.__game.zombies;
+    const sk = zm.queue.filter((t) => t === 'skeleton');
+    const rest = zm.queue.filter((t) => t !== 'skeleton');
+    zm.queue = [...sk, ...rest];
+  });
+
+  // 骷髅模型是异步加载的：等它真的刷出来（实例建好 = glb 已就绪）。
+  await waitUntil(
+    page,
+    () => window.__game.zombies.zombies.some((z) => z.type === 'skeleton'),
+    25000,
+    '刷出骷髅'
+  ).catch(async (err) => {
+    const dbg = await page.evaluate(() => {
+      const zm = window.__game.zombies;
+      return {
+        mapId: window.__game.mapId,
+        wave: zm.wave,
+        state: zm.state,
+        queueLen: zm.queue.length,
+        queueSk: zm.queue.filter((t) => t === 'skeleton').length,
+        alive: zm.zombies.length,
+        types: zm.zombies.map((z) => z.type).join(','),
+        maxAlive: zm.maxAlive,
+        skReady: window.__game.models.skeleton.ready,
+        skFailed: window.__game.models.skeleton.failed,
+      };
+    });
+    throw new Error(err.message + '\n现场：' + JSON.stringify(dbg));
+  });
+
+  const loaded = await page.evaluate(() => {
+    const z = window.__game.zombies.zombies.find((s) => s.type === 'skeleton');
+    return { ready: !!z, failed: false, clips: z && z.mixer ? Object.keys(z.actions).length : 0 };
+  });
+  check(loaded.ready, '骷髅 glb 没加载成功（failed=' + loaded.failed + '）');
+  check(loaded.clips >= 4, '骷髅动画只有 ' + loaded.clips + ' 个动作，应 >= 4');
+  // 再生几只，验证上限
+  await page.waitForTimeout(4000);
+
+  const info = await page.evaluate(() => {
+    const g = window.__game;
+    const sk = g.zombies.zombies.filter((z) => z.type === 'skeleton');
+    return {
+      mapId: g.mapId,
+      count: sk.length,
+      all: g.zombies.zombies.length,
+      calls: g.renderer.info.render.calls,
+      tris: g.renderer.info.render.triangles,
+      detail: sk.map((z) => {
+        let meshes = 0;
+        let skinned = 0;
+        let boneId = null;
+        const mats = new Set();
+        z.body.traverse((n) => {
+          if (n.isMesh) {
+            meshes++;
+            if (n.isSkinnedMesh) skinned++;
+            if (n.material) mats.add(n.material.uuid);
+          }
+          if (!boneId && n.isBone) boneId = n.uuid;
+        });
+        return {
+          meshes,
+          skinned,
+          mats: mats.size,
+          boneId,
+          hasMixer: !!z.mixer,
+          current: z.current,
+          clipCount: z.mixer ? Object.keys(z.actions).length : 0,
+          walkClip: z.actions && z.actions.walk ? z.actions.walk.getClip().name : null,
+          attackClip: z.actions && z.actions.attack ? z.actions.attack.getClip().name : null,
+          scale: z.body.scale.x,
+        };
+      }),
+    };
+  });
+
+  check(info.mapId === 'snow', '骷髅场景应切到雪地，实际 ' + info.mapId);
+  check(info.count > 0, '没刷出骷髅');
+  check(info.count <= 3, '骷髅同屏 ' + info.count + ' 只，超过上限 3');
+  check(info.detail.length > 0, '没有骷髅实例可检查');
+
+  const problems = [];
+  const boneIds = new Set();
+  for (const d of info.detail) {
+    // KayKit 骷髅是 9 个独立蒙皮部件
+    if (d.meshes < 5) problems.push('骷髅只有 ' + d.meshes + ' 个 mesh（KayKit 应是 9 个）');
+    if (d.skinned !== d.meshes) problems.push('骷髅有 mesh 不是 SkinnedMesh');
+    if (d.mats < 2) problems.push('骷髅材质数 ' + d.mats + '，应有 skeleton + Glow 两种');
+    if (!d.boneId) problems.push('骷髅没有骨骼');
+    else boneIds.add(d.boneId);
+    if (!d.hasMixer) problems.push('骷髅 mixer 为空');
+    if (!(d.clipCount >= 4)) problems.push('骷髅动作只有 ' + d.clipCount + ' 个');
+    if (!/walk/i.test(d.walkClip || '')) problems.push('骷髅 walk 动作异常：' + d.walkClip);
+    if (!/attack/i.test(d.attackClip || '')) problems.push('骷髅 attack 动作异常：' + d.attackClip);
+    if (!(d.scale > 0.5 && d.scale < 1.5)) problems.push('骷髅缩放异常 ' + d.scale);
+  }
+  if (boneIds.size !== info.detail.length) {
+    problems.push('骷髅骨骼被共享了（' + boneIds.size + ' 套 / ' + info.detail.length + ' 只）');
+  }
+  check(problems.length === 0, '骷髅断言失败：\n   - ' + problems.join('\n   - '));
+
+  const shot1 = await shot(page, 'phase-skeleton');
+
+  // 还原现场：本场景为了刷骷髅切到了雪地，后续场景（maps）假定从非雪地开始，
+  // 留着会污染它们的地图切换断言。退回主菜单并把地图切回后院。
+  await page.evaluate(() => {
+    const g = window.__game;
+    g.zombies.reset();
+    if (g.state !== 'menu') g.backToMenu();
+  });
+  await page.waitForFunction(() => window.__game.state === 'menu', null, { timeout: 5000 });
+  await page.evaluate(() => window.__game.setMap('backyard'));
+  await page.waitForFunction(() => window.__game.mapId === 'backyard', null, { timeout: 5000 });
+
+  return {
+    metrics: {
+      map: info.mapId,
+      skeletons: info.count + '/' + info.all,
+      clips: loaded.clips,
+      meshes: info.detail[0] && info.detail[0].meshes,
+      walkClip: info.detail[0] && info.detail[0].walkClip,
+      drawCalls: info.calls,
+      tris: info.tris,
+      shot: shot1,
+    },
+  };
+}
+
 // ---------------------------------------------------------------- 主流程
 
 const PHASES = [
   { name: 'startup', label: '桌面真实开局（指针锁/键鼠/击杀）', group: 'desktop', fn: phaseStartup },
   { name: 'glb', label: '真实 glb 与材质/配件', group: 'desktop', fn: phaseGlb },
+  { name: 'skeleton', label: '骷髅模型（雪地专属 + 同屏上限）', group: 'desktop', fn: phaseSkeleton },
   { name: 'maps', label: '三张地图真实切换', group: 'desktop', fn: phaseMaps },
   { name: 'mobile', label: '手机模拟（横屏 UI + 竖屏拦截）', group: 'mobile', fn: phaseMobile },
   { name: 'perf', label: '性能与稳定性（10s 采样）', group: 'desktop', fn: phasePerf },

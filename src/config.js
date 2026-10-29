@@ -203,9 +203,6 @@ export const ZOMBIES = {
     damage: 9,
     score: 100,
     scale: 1,
-    skin: 0x9ab271,
-    shirt: 0x6f5da0,
-    pants: 0x474157,
     acc: null,
     radius: 0.46,
   },
@@ -215,9 +212,6 @@ export const ZOMBIES = {
     damage: 9,
     score: 200,
     scale: 1.02,
-    skin: 0x94ad6b,
-    shirt: 0x5f6fa6,
-    pants: 0x3f3a4e,
     acc: 'cone',
     radius: 0.48,
   },
@@ -227,9 +221,6 @@ export const ZOMBIES = {
     damage: 15,
     score: 350,
     scale: 1.08,
-    skin: 0x8da767,
-    shirt: 0x7a4a4a,
-    pants: 0x3c3746,
     acc: 'bucket',
     radius: 0.52,
   },
@@ -238,14 +229,33 @@ export const ZOMBIES = {
     speed: 1.3,
     damage: 26,
     score: 2500,
-    scale: 1.85,
-    skin: 0x86a05f,
-    shirt: 0x4c3b6e,
-    pants: 0x322d40,
+    // 巨型骷髅：骷髅原始高 2.166 × SKELETON_SCALE 0.9 × 2.3 ≈ 4.48 米
+    scale: 2.3,
+    model: 'skeleton',
     acc: 'club',
     radius: 0.9,
   },
+  // 骷髅（KayKit，CC0）：雪地专属亡灵精英，也会在 Boss 波出现。
+  // 比普通僵尸耐打、劈得更狠，但同屏最多 3 只（单只 9 个 skinned mesh，见 AGENTS.md 5.2）。
+  skeleton: {
+    hp: 210,
+    speed: 1.75,
+    damage: 18,
+    score: 450,
+    scale: 1,
+    model: 'skeleton',
+    acc: null,
+    radius: 0.5,
+  },
 };
+
+// 普通骷髅（skeleton 类型）的同屏上限：单只 9 个 skinned mesh，比普通僵尸贵 4.5 倍，必须限流。
+// 注意：Boss 也是骷髅模型，但它每波只有 1 只，不吃这条上限。
+export const SKELETON_MAX_ALIVE = 3;
+
+// 哪些地图会刷**普通**骷髅（雪地是墓园氛围，最贴切）。
+// Boss（巨型骷髅）不受此限制，三张地图都会出。
+export const SKELETON_MAPS = ['snow'];
 
 export const COLORS = {
   grass: 0x77bd3c,
@@ -264,9 +274,12 @@ export function wavePlan(n) {
   const normals = 4 + Math.floor(n * 1.45);
   const cones = n >= 2 ? Math.floor((n - 1) * 1.05) : 0;
   const buckets = n >= 3 ? Math.max(1, Math.floor((n - 2) * 0.8)) : 0;
+  // 骷髅：第 4 波起掺进来，随波次变多，但整波最多 3 只（它贵）
+  const skeletons = n >= 4 ? Math.min(SKELETON_MAX_ALIVE, 1 + Math.floor((n - 4) * 0.5)) : 0;
   for (let i = 0; i < normals; i++) list.push('normal');
   for (let i = 0; i < cones; i++) list.push('cone');
   for (let i = 0; i < buckets; i++) list.push('bucket');
+  for (let i = 0; i < skeletons; i++) list.push('skeleton');
   if (n % 5 === 0) list.push('boss');
   for (let i = list.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));

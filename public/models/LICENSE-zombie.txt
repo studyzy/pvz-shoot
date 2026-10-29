@@ -1,0 +1,33 @@
+Zombie model — attribution and licence
+
+  Title:   Zombie
+  Author:  Quaternius  (https://quaternius.com)
+  Licence: CC0 1.0 Universal (Public Domain Dedication)
+           https://creativecommons.org/publicdomain/zero/1.0/
+
+  Obtained from: https://poly.pizza/m/VlXjG0N8Eg
+  Model published there on 2024-03-17.
+  Retrieved: 2026-10-29.
+
+  File: public/models/zombie.glb
+
+Notes
+-----
+Quaternius changed their licence to the Quaternius Asset License (QAL) v1.0
+on 2026-08-28, whose section 3a forbids redistributing the assets as
+standalone assets. This copy predates that change: it was published under
+CC0 1.0 on 2024-03-17, and QAL section 7 states that licence changes "will
+not apply retroactively to Assets you've already obtained under an earlier
+version". CC0 1.0 is irrevocable, so this file stays under CC0 1.0.
+
+Do not replace this file with a copy freshly downloaded from
+quaternius.com — that copy would be governed by QAL v1.0 section 3a, and this
+repository is public.
+
+Local modification
+------------------
+The downloaded file (959 KB, 32 animation clips) was repacked to 660 KB by
+dropping the 16 duplicate clips that carried a "CharacterArmature|" name
+prefix. Geometry, skin weights, skeleton and the remaining 16 clips are
+byte-identical to the original. No decimation or welding was applied, since
+those would corrupt the skinning weights.

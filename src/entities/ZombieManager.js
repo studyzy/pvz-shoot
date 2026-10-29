@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { Zombie } from './Zombie.js';
 import { zombieModel } from './ZombieModel.js';
-import { wavePlan, waveMaxAlive, waveSpawnInterval, zombieHpMul, zombieSpeedMul } from '../config.js';
+import { wavePlan, waveMaxAlive, waveSpawnInterval, zombieHpMul, zombieSpeedMul, SKELETON_MAX_ALIVE, SKELETON_MAPS } from '../config.js';
 import { rand, clamp } from '../utils.js';
 
 export class ZombieManager {
@@ -36,6 +36,12 @@ export class ZombieManager {
   startWave(n) {
     this.wave = n;
     this.queue = wavePlan(n);
+    // 骷髅只在指定地图出现（雪地墓园氛围）。
+    // 注意：这里只按地图过滤，**不要**在这里看模型是否加载好——glb 是异步的，
+    // 开局很快时骨架还没 ready，在这里滤掉会让整波都刷不出骷髅（踩过）。
+    // 模型未就绪的处理放在 spawnOne 里：把骷髅留在队首，等下次再刷。
+    const mapId = this.ctx.map && this.ctx.map.id;
+    if (!SKELETON_MAPS.includes(mapId)) this.queue = this.queue.filter((t) => t !== 'skeleton');
     this.hpMul = zombieHpMul(n);
     this.speedMul = zombieSpeedMul(n);
     this.spawnTimer = 0.35;
@@ -49,8 +55,9 @@ export class ZombieManager {
     if (this.state === 'spawning') {
       this.spawnTimer -= dt;
       if (this.queue.length > 0 && this.zombies.length < this.maxAlive && this.spawnTimer <= 0 && zombieModel.ready) {
-        this.spawnOne(player);
-        this.spawnTimer = this.interval * rand(0.75, 1.25);
+        const spawned = this.spawnOne(player);
+        // spawnOne 可能返回 null（骷髅超上限且队列里只剩骷髅），这时不重置计时，下个 tick 再试
+        if (spawned) this.spawnTimer = this.interval * rand(0.75, 1.25);
       }
       if (this.queue.length === 0 && this.zombies.length === 0) {
         this.state = 'intermission';
@@ -134,7 +141,33 @@ export class ZombieManager {
   }
 
   spawnOne(player) {
-    const type = this.queue.shift();
+    // 骷髅有两个额外条件，不满足时改刷别的类型、骷髅留在队列里下次再来：
+    //   1) 同屏不超过 SKELETON_MAX_ALIVE（单只 9 个 skinned mesh，太贵）
+    //   2) 骷髅 glb 已就绪（异步加载，开局很快时可能还没好，硬刷会白模）
+    // Boss 也是骷髅模型，但它每波只有 1 只、不吃同屏上限，只等模型就绪。
+    let type = this.queue[0];
+    const skReady = () => !!(zombieModel.skeleton && zombieModel.skeleton.ready);
+    if (type === 'skeleton') {
+      let alive = 0;
+      for (let i = 0; i < this.zombies.length; i++) {
+        if (this.zombies[i].type === 'skeleton' && this.zombies[i].alive && !this.zombies[i].dead) alive++;
+      }
+      const blocked = alive >= SKELETON_MAX_ALIVE || !skReady();
+      if (blocked) {
+        const alt = this.queue.findIndex((t) => t !== 'skeleton' && t !== 'boss');
+        if (alt === -1) return null; // 全是骷髅又不能刷：这波先不刷，等下个 tick 或前面的清掉
+        type = this.queue.splice(alt, 1)[0];
+      } else {
+        type = this.queue.shift();
+      }
+    } else if (type === 'boss' && !skReady()) {
+      // Boss 是巨型骷髅：模型没好就换别的先刷，Boss 留在队首。整波清完前有足够时间等 glb。
+      const alt = this.queue.findIndex((t) => t !== 'boss');
+      if (alt === -1) return null;
+      type = this.queue.splice(alt, 1)[0];
+    } else {
+      type = this.queue.shift();
+    }
     let x = 0;
     let z = 0;
     const map = this.ctx.map;
@@ -232,7 +265,12 @@ export class ZombieManager {
       this.boss = null;
       this.ctx.onBossDead();
     }
-    const orbs = z.type === 'boss' ? 7 : z.type === 'bucket' ? 3 : z.type === 'cone' ? 2 : 1;
+    // 掉落数按耐打程度给：boss 7 颗 / 铁桶 3 / 骷髅 3（210 血，值得多掉）/ 路障 2 / 其它 1
+    const orbs = z.type === 'boss' ? 7
+      : z.type === 'bucket' ? 3
+      : z.type === 'skeleton' ? 3
+      : z.type === 'cone' ? 2
+      : 1;
     this.ctx.sunOrbs.spawn(z.root.position.clone(), orbs);
   }
 

@@ -727,10 +727,12 @@ export class WeaponSystem {
       const z = this.ctx.zombies.zombies[i];
       if (!z.alive || z.dying) continue;
       if (aimHead && z !== this.assist.zombie) continue;
+      // hitRadiusScale：骷髅模型体块比例不同，半径跟着模型走（僵尸默认 1，口径不变）
+      const rs = z.hitRadiusScale || 1;
       z.getChest(tmpChest);
-      const t1 = segmentSphereT(tmpOrigin, tmpSegEnd, tmpChest, 0.46 * z.scaleFactor);
+      const t1 = segmentSphereT(tmpOrigin, tmpSegEnd, tmpChest, 0.46 * z.scaleFactor * rs);
       z.getHead(tmpHead);
-      const t2 = segmentSphereT(tmpOrigin, tmpSegEnd, tmpHead, 0.36 * z.scaleFactor);
+      const t2 = segmentSphereT(tmpOrigin, tmpSegEnd, tmpHead, 0.36 * z.scaleFactor * rs);
       let t = -1;
       let head = false;
       if (aimHead) {

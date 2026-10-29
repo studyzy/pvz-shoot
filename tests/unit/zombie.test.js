@@ -1,23 +1,77 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-// 僵尸模型替身：结构同 public/models/zombie.glb（单网格、Z-up、脚底 y=0、高 1.108）。
+// 僵尸模型替身：结构同 public/models/zombie.glb（Quaternius Zombie_Basic，CC0 1.0）。
+// 单蒙皮网格 + 50 根骨骼、Y-up、面朝 +Z、脚底 y≈0、高 1.194，带 idle/walk/attack/death/hitreact 动画。
 // 在模块级 mock 掉 ZombieModel.js，这样不依赖 createGame() 的时序：任何用例里 new Zombie 都能拿到模型，
 // 同时保持 zombieModel.ready 的语义给 ZombieManager 用。
 vi.mock('../../src/entities/ZombieModel.js', async (importOriginal) => {
   const THREE = await import('three');
   const actual = await importOriginal();
-  const geo = new THREE.BoxGeometry(0.45, 0.62, 1.108);
+  const geo = new THREE.BoxGeometry(0.45, 1.194, 0.3);
   const mat = new THREE.MeshStandardMaterial({ color: 0x9ab271, roughness: 0.8 });
-  const mesh = new THREE.Mesh(geo, mat);
+  // 真实模型是 SkinnedMesh：造一套最小骨骼，让 AnimationMixer 有东西可驱动
+  const rootBone = new THREE.Bone();
+  rootBone.name = 'Root';
+  const hips = new THREE.Bone();
+  hips.name = 'Hips';
+  hips.position.y = 0.37;
+  const head = new THREE.Bone();
+  head.name = 'Head';
+  head.position.y = 0.39;
+  rootBone.add(hips);
+  hips.add(head);
+  const skeleton = new THREE.Skeleton([rootBone, hips, head]);
+  const mesh = new THREE.SkinnedMesh(geo, mat);
   mesh.name = 'zombie_body';
-  const node = new THREE.Group();
-  node.name = 'zombie_root';
-  node.rotation.x = Math.PI / 2;
-  node.add(mesh);
+  mesh.add(rootBone);
+  mesh.bind(skeleton);
+  // 动画轨道驱动 Head 的旋转，验证 mixer 确实在工作
+  const mkClip = (name) => new THREE.AnimationClip(name, 1, [
+    new THREE.QuaternionKeyframeTrack('Head.quaternion', [0, 1], [0, 0, 0, 1, 0, 0.1, 0, 0.99]),
+  ]);
+  const clips = ['Idle', 'Walk', 'Idle_Attack', 'Death', 'HitReact'].map(mkClip);
   const scene = new THREE.Group();
   scene.name = 'Scene';
-  scene.add(node);
-  return { ...actual, zombieModel: { started: true, ready: true, failed: false, scene } };
+  scene.add(mesh);
+  // 骷髅模型替身：高 2.166、带 handslotr 挂载点（Boss 的木棒要挂上去）
+  const skGeo = new THREE.BoxGeometry(0.5, 2.166, 0.35);
+  const skMat = new THREE.MeshStandardMaterial({ color: 0xdedede, roughness: 0.9 });
+  const skRoot = new THREE.Bone();
+  skRoot.name = 'root';
+  const skBody = new THREE.Bone();
+  skBody.name = 'Body';
+  skBody.position.y = 0.4;
+  const skHand = new THREE.Bone();
+  skHand.name = 'handr';
+  skHand.position.set(-0.79, 0.71, 0);
+  const skSlot = new THREE.Bone();
+  skSlot.name = 'handslotr';
+  skHand.add(skSlot);
+  skRoot.add(skBody);
+  skBody.add(skHand);
+  const skSkeleton = new THREE.Skeleton([skRoot, skBody, skHand, skSlot]);
+  const skMesh = new THREE.SkinnedMesh(skGeo, skMat);
+  skMesh.name = 'Skeleton_Minion_Body';
+  skMesh.add(skRoot);
+  skMesh.bind(skSkeleton);
+  const skClip = (name) => new THREE.AnimationClip(name, 1, [
+    new THREE.QuaternionKeyframeTrack('handr.quaternion', [0, 1], [0, 0, 0, 1, 0, 0.1, 0, 0.99]),
+  ]);
+  const skClips = ['Idle_Combat', 'Walking_A', '1H_Melee_Attack_Chop', 'Death_A', 'Hit_A'].map(skClip);
+  const skScene = new THREE.Group();
+  skScene.name = 'SkeletonScene';
+  skScene.add(skMesh);
+  return {
+    ...actual,
+    zombieModel: {
+      started: true,
+      ready: true,
+      failed: false,
+      scene,
+      clips,
+      skeleton: { ready: true, failed: false, scene: skScene, clips: skClips },
+    },
+  };
 });
 
 vi.mock('three', async (importOriginal) => {
@@ -35,7 +89,8 @@ vi.mock('three', async (importOriginal) => {
 });
 
 // 僵尸的所有行为都在 Zombie.update / hit / startDeath 里，数值口径来自 config.js：
-// normal hp62 speed2.05 radius0.46 scale1；cone 130/1.95/0.48/1.02；bucket 270/1.55/0.52/1.08；boss 1450/1.3/0.9/1.85。
+// normal hp62 speed2.05 radius0.46 scale1；cone 130/1.95/0.48/1.02；bucket 270/1.55/0.52/1.08；
+// boss 1450/1.3/0.9/**2.3**（巨型骷髅，骷髅模型 2.166 × SKELETON_SCALE 0.9 × 2.3 ≈ 4.48 米）。
 const DT = 1 / 60;
 
 let THREE;
@@ -146,29 +201,46 @@ describe('Zombie · 属性与模型骨架', () => {
     // 四舍五入而不是截断：1450 × 1.45 = 2102.5 -> 2103
     const g3 = PD.spawnZombieAt(game, 'boss', 6, 0, { hpMul: 1.45 });
     expect(g3.maxHp).toBe(2103);
-    expect(g3.scaleFactor).toBe(1.85);
+    expect(g3.scaleFactor).toBe(2.3);
     expect(g3.radius).toBe(0.9);
   });
 
-  it('命中球：胸口 0.95×scale、头部 1.45×scale，头部球半径必须小于胸口球', () => {
+  it('命中球：胸口 1.02×scale、头部 1.52×scale，头部球半径必须小于胸口球', () => {
     // 口径必须与 ProjectileSystem / WeaponSystem 的判定一致；头部球半径 0.36×scale < 胸口 0.46×scale，
-    // 否则扫掠时头部球永远先被碰到，爆头会退化成“打哪儿都爆头”（AGENTS.md 3 节）。
-    const z = makeZombie('boss', 2, -3);
-    const chest = z.getChest(vec());
-    const head = z.getHead(vec());
-    const aim = z.getAimPoint(vec());
-    expect(chest.x).toBeCloseTo(2, 10);
-    expect(chest.z).toBeCloseTo(-3, 10);
-    expect(chest.y).toBeCloseTo(0.95 * 1.85, 10);
-    expect(head.y).toBeCloseTo(1.45 * 1.85, 10);
-    expect(head.y - chest.y).toBeCloseTo(0.5 * 1.85, 10);
-    expect(aim.toArray()).toEqual(chest.toArray());
-    expect(0.36 * z.scaleFactor).toBeLessThan(0.46 * z.scaleFactor);
-    // 模型替身总高 1.108 × ZOMBIE_SCALE 1.67 × scale，头顶高于头部球
-    expect(1.108 * 1.67 * z.scaleFactor).toBeGreaterThan(head.y);
+    // 否则扫掠时头部球永远先被碰到，爆头会退化成"打哪儿都爆头"（AGENTS.md 3 节）。
+    // 两套模型的命中球高度口径不同（模型体块比例差很多）：
+    //   僵尸（高 1.194）：胸口 1.02、头部 1.52
+    //   骷髅（高 2.166，含 Boss 巨型骷髅）：胸口 0.90、头部 1.68
+    const zn = makeZombie('normal', 2, -3);
+    const cN = zn.getChest(vec());
+    const hN = zn.getHead(vec());
+    expect(cN.x).toBeCloseTo(2, 10);
+    expect(cN.z).toBeCloseTo(-3, 10);
+    expect(cN.y).toBeCloseTo(1.02 * zn.scaleFactor, 10);
+    expect(hN.y).toBeCloseTo(1.52 * zn.scaleFactor, 10);
+    expect(zn.getAimPoint(vec()).toArray()).toEqual(cN.toArray());
+    // 僵尸模型替身总高 1.194 × ZOMBIE_SCALE 1.55 × scale，头顶高于头部球
+    expect(1.194 * 1.55 * zn.scaleFactor).toBeGreaterThan(hN.y);
+
+    const bs = makeZombie('boss', 2, -3);
+    const cB = bs.getChest(vec());
+    const hB = bs.getHead(vec());
+    expect(cB.y).toBeCloseTo(0.90 * bs.scaleFactor, 10);
+    expect(hB.y).toBeCloseTo(1.68 * bs.scaleFactor, 10);
+    // 骷髅模型替身总高 2.166 × SKELETON_SCALE 0.9 × scale，头顶高于头部球
+    expect(2.166 * 0.9 * bs.scaleFactor).toBeGreaterThan(hB.y);
+
+    // 头部球半径必须严格小于胸口球（否则“打哪儿都爆头”）
+    for (const z of [zn, bs]) {
+      const rs = z.hitRadiusScale || 1;
+      expect(0.36 * z.scaleFactor * rs).toBeLessThan(0.46 * z.scaleFactor * rs);
+    }
+    // 骷髅的半径倍率单独给（骨架更细），僵尸保持 1
+    expect(zn.hitRadiusScale).toBe(1);
+    expect(bs.hitRadiusScale).toBe(0.8);
   });
 
-  it('buildRig：每个僵尸克隆材质（几何体共享、材质独立），假骨骼 uniform 与深度材质都挂上', () => {
+  it('buildRig：每个僵尸克隆材质（几何体共享、材质独立），骨骼独立、动画混合器与动作就位', () => {
     const a = makeZombie('normal', 0, 0);
     const b = makeZombie('normal', 2, 0);
     expect(a.mats.length).toBe(1);
@@ -181,10 +253,16 @@ describe('Zombie · 属性与模型骨架', () => {
     expect(meshA.geometry).toBe(meshB.geometry); // 几何体共享，不 dispose
     expect(meshA.castShadow).toBe(true);
     expect(meshA.receiveShadow).toBe(false);
-    expect(a.walk.uPhase.value).toBe(0);
-    expect(a.walk.uMove.value).toBe(0);
-    expect(typeof a.mats[0].onBeforeCompile).toBe('function');
-    expect(a.mats[0].customDepthMaterial).toBeTruthy();
+    // 骨骼必须独立：共用同一套骨骼会让所有僵尸一起动
+    const boneA = a.body.getObjectByName('Head');
+    const boneB = b.body.getObjectByName('Head');
+    expect(boneA).toBeTruthy();
+    expect(boneA).not.toBe(boneB);
+    // 动画：有 mixer，idle/walk/attack/die/hit 动作按需建立，初始播 idle
+    expect(a.mixer).toBeTruthy();
+    expect(Object.keys(a.actions).sort()).toEqual(['attack', 'die', 'hit', 'idle', 'walk']);
+    expect(a.current).toBe('idle');
+    expect(a.actions.idle.isRunning()).toBe(true);
     expect(a.mats[0].envMapIntensity).toBe(0.35);
     expect(a.mats[0].emissiveIntensity).toBe(0);
     // 模型挂在 model 下；model 的 y=-2.3 是出生动画的起点（place 会把它抬到 0）
@@ -208,7 +286,9 @@ describe('Zombie · 属性与模型骨架', () => {
       }
       expect(z.hat).toBeTruthy();
       expect(z.hat.children.length).toBe(parts);
-      expect(z.hat.parent).toBe(z.body);
+      // Boss 的木棒挂在骷髅的 handslotr 骨骼上（跟着手臂动），其余配件直接挂 body
+      if (type === 'boss') expect(z.hat.parent).toBe(z.body.getObjectByName('handslotr'));
+      else expect(z.hat.parent).toBe(z.body);
       // 配件材质必须同时进 mats / matBase，白闪与寒冰才作用得到帽子上（AGENTS.md 5.2）
       expect(z.mats.length).toBe(1 + parts);
       expect(z.matBase.length).toBe(1 + parts);
@@ -217,16 +297,21 @@ describe('Zombie · 属性与模型骨架', () => {
         expect(z.mats[i].emissiveIntensity).toBe(0);
       }
     }
+    // 帽子位置按 Quaternius 模型（高 1.194，头顶 ≈1.19）折算
     const cone = makeZombie('cone');
-    expect(cone.hat.position.y).toBeCloseTo(1.01, 10);
+    expect(cone.hat.position.y).toBeCloseTo(1.04, 10);
     const bucket = makeZombie('bucket');
-    expect(bucket.hat.position.y).toBeCloseTo(1.06, 10);
-    // Boss 的木棒握在右手（-x 侧）：棒身在上、棒头在下
+    expect(bucket.hat.position.y).toBeCloseTo(1.09, 10);
+    // Boss 是巨型骷髅：木棒挂在 handslotr 骨骼上（跟着手臂挥动），不是挂在 body 上
     const boss = makeZombie('boss');
-    expect(boss.hat.position.x).toBeCloseTo(-0.26, 10);
-    expect(boss.hat.position.y).toBeCloseTo(0.46, 10);
-    expect(boss.hat.children[0].position.y).toBeCloseTo(0.02, 10);
-    expect(boss.hat.children[1].position.y).toBeCloseTo(-0.3, 10);
+    expect(boss.isSkeleton).toBe(true);
+    const slot = boss.body.getObjectByName('handslotr');
+    expect(slot).toBeTruthy();
+    expect(boss.hat.parent).toBe(slot);
+    expect(boss.hat.position.y).toBeCloseTo(0, 10);
+    // 骷髅的木棒朝前（局部 +Y 指向世界 +Z）：棒头在上、棒身在下
+    expect(boss.hat.children[0].position.y).toBeCloseTo(-0.05, 10);
+    expect(boss.hat.children[1].position.y).toBeCloseTo(0.36, 10);
   });
 
   it('dispose：从场景移除、dispose 全部材质（含帽子），但不碰共享几何体', () => {
@@ -367,12 +452,12 @@ describe('Zombie · 受击与死亡', () => {
     expect(z.dying).toBe(true);
     const c = ctx.particles.burst.mock.calls[0][0];
     expect(c.count).toBe(28);
-    expect(c.pos.y).toBeCloseTo(1.2 * 1.85, 10);
+    expect(c.pos.y).toBeCloseTo(1.2 * 2.3, 10);
     expect(c.pos.x).toBeCloseTo(0, 10);
     expect(c.pos.z).toBeCloseTo(5, 10);
   });
 
-  it('死亡流程：0.34 秒翻倒、0.55 秒后下沉、deathT > 1.55 才 dead', () => {
+  it('死亡流程：播死亡动画、0.55 秒后下沉、deathT > 1.55 才 dead', () => {
     const z = freshZombie();
     z.hit(999, false, false);
     const advance = (sec) => {
@@ -380,8 +465,9 @@ describe('Zombie · 受击与死亡', () => {
       for (let i = 0; i < n; i++) z.update(DT, game.player, []);
     };
     advance(0.36);
-    expect(z.model.rotation.x).toBeCloseTo(-1.5, 5);
-    expect(z.model.rotation.z).toBeCloseTo(0.12, 5);
+    // 骨骼模型：翻倒交给 death 动画，模型自身不再靠旋转倒地
+    expect(z.current).toBe('die');
+    expect(z.mixer).toBeTruthy();
     expect(z.root.position.y).toBe(0);
     expect(z.dead).toBe(false);
 
@@ -416,7 +502,9 @@ describe('Zombie · 追击 AI', () => {
     expect(z.root.position.x).toBeCloseTo(0, 6);
     expect(z.root.position.y).toBe(0);
     expect(z.animSpeed).toBeCloseTo(2.05 * 1.2, 6);
-    expect(z.walk.uMove.value).toBe(1);
+    // 移动时切到 walk 动画，mixer 正在跑
+    expect(z.current).toBe('walk');
+    expect(z.actions.walk.isRunning()).toBe(true);
   });
 
   it('攻击距离 = 1.15 + scale×0.55；贴身后 attackTimer 倒数、归零打一下并重置 1.28', () => {
@@ -744,11 +832,11 @@ describe('Zombie · 与 Game 的联动', () => {
     expect(game.shakeAmp).toBeGreaterThan(0.3);
   });
 
-  it('命中球比例：boss 胸口 1.7575、头部 2.6825（1.45/0.95）', () => {
+  it('命中球比例：boss 胸口 2.07、头部 3.864（骷髅口径 0.90/1.68 × scale 2.3）', () => {
     const z = PD.spawnZombieAt(game, 'boss', 0, 0);
-    expect(z.getChest(vec()).y).toBeCloseTo(1.7575, 6);
-    expect(z.getHead(vec()).y).toBeCloseTo(2.6825, 6);
-    expect(z.getHead(vec()).y / z.getChest(vec()).y).toBeCloseTo(1.45 / 0.95, 10);
+    expect(z.getChest(vec()).y).toBeCloseTo(0.90 * 2.3, 6);
+    expect(z.getHead(vec()).y).toBeCloseTo(1.68 * 2.3, 6);
+    expect(z.getHead(vec()).y / z.getChest(vec()).y).toBeCloseTo(1.68 / 0.90, 10);
   });
 
   it('normal 的 hit(61.99) 不死，hit(62) 死', () => {

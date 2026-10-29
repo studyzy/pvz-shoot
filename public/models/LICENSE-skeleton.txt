@@ -1,0 +1,33 @@
+Skeleton model — attribution and licence
+
+  Title:   Skeleton Minion (KayKit Character Pack: Skeletons)
+  Author:  Kay Lousberg  (https://www.kaylousberg.com)
+  Licence: CC0 1.0 Universal (Public Domain Dedication)
+           https://creativecommons.org/publicdomain/zero/1.0/
+           "Support me by crediting Kay Lousberg — this is not mandatory."
+
+  Source:  https://github.com/KayKit-Game-Assets/KayKit-Character-Pack-Skeletons-1.0
+  Path:    addons/kaykit_character_pack_skeletons/Characters/gltf/Skeleton_Minion.glb
+  Retrieved: 2026-10-29.
+
+  File: public/models/skeleton.glb
+
+Local modification
+------------------
+Repacked from 4.7 MB to 1.4 MB by dropping the 82 unused animation clips
+(the pack ships 95; the game only needs 13). Geometry, skin weights,
+skeleton and the retained clips are otherwise untouched — no decimation or
+welding, which would corrupt the skinning weights.
+
+Retained clips:
+  Idle, Idle_Combat, Walking_A, Walking_B, Running_A,
+  1H_Melee_Attack_Chop, 1H_Melee_Attack_Slice_Horizontal,
+  Death_A, Death_B, Hit_A, Hit_B,
+  Spawn_Ground_Skeletons, Skeletons_Awaken_Floor
+
+Note on draw cost
+-----------------
+This model is 9 separate skinned meshes (arms / body / cloak / eyes / head /
+jaw / legs), so one instance costs 9 draw calls versus 2 for the zombie glb.
+That is why it is capped at 3 alive at once (SKELETON_MAX_ALIVE in config.js)
+and only spawns on the snow map.

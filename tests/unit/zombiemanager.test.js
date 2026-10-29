@@ -485,7 +485,7 @@ describe('ZombieManager · 出生点', () => {
     const boss = zm.zombies[0];
     expect(boss.maxHp).toBe(Math.round(1450 * 1.44));
     expect(boss.maxHp).toBe(Math.round(1450 * config.zombieHpMul(5)));
-    expect(boss.scaleFactor).toBe(1.85);
+    expect(boss.scaleFactor).toBe(2.3); // 巨型骷髅
   });
 });
 
@@ -617,6 +617,31 @@ describe('ZombieManager · damageArea', () => {
     zm.damageArea({ x: 0, z: 0 }, 5, 999, null, 1);
     expect(calls.onKill.length).toBe(1);
     expect(suns.length).toBe(1);
+  });
+
+  it('骷髅击杀掉 3 颗阳光（与铁桶同级，按耐打程度给）', async () => {
+    const THREE = await import('three');
+    const prev = zombieModel.skeleton;
+    const bone = new THREE.Bone();
+    bone.name = 'root';
+    const mesh = new THREE.SkinnedMesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshStandardMaterial());
+    mesh.add(bone);
+    mesh.bind(new THREE.Skeleton([bone]));
+    const scene = new THREE.Group();
+    scene.add(mesh);
+    zombieModel.skeleton = { ready: true, failed: false, scene, clips: [] };
+    try {
+      const zm = clearField();
+      const suns = [];
+      sharedGame.ctx.sunOrbs.spawn = (pos, n) => suns.push(n);
+      const sk = spawnAt('skeleton', 0, 0);
+      zm.damageArea({ x: 0, z: 0 }, 5, 9999, sk, 1);
+      expect(sk.dying).toBe(true);
+      expect(suns).toEqual([3]);
+      zm.reset();
+    } finally {
+      zombieModel.skeleton = prev;
+    }
   });
 
   it('爆头致死：分数 ×1.5（cone 200 → 300）', () => {
@@ -841,5 +866,251 @@ describe('ZombieManager · 与 Game 的联动', () => {
     zm.update(DT, game.player, game.map.colliders);
     expect(groan).not.toHaveBeenCalled();
     expect(zm.groanTimer).toBeGreaterThanOrEqual(2.6);
+  });
+});
+describe('ZombieManager · 骷髅（KayKit，雪地专属）', () => {
+  const SK = 'skeleton';
+
+  // 骷髅走独立模型：测试里给它一个最小可用的骨骼场景 + 一串动画名，
+  // 好覆盖 buildRig 选模型、buildAnimations 选动作、以及同屏上限这三条逻辑。
+  async function withSkeletonModel(fn) {
+    const THREE = await import('three');
+    const prev = zombieModel.skeleton;
+    const rootBone = new THREE.Bone();
+    rootBone.name = 'root';
+    const mesh = new THREE.SkinnedMesh(
+      new THREE.BoxGeometry(0.5, 2.1, 0.3),
+      new THREE.MeshStandardMaterial({ color: 0xdedede })
+    );
+    mesh.name = 'Skeleton_Minion_Body';
+    mesh.add(rootBone);
+    mesh.bind(new THREE.Skeleton([rootBone]));
+    const scene = new THREE.Group();
+    scene.add(mesh);
+    const mk = (name) => new THREE.AnimationClip(name, 1, [
+      new THREE.QuaternionKeyframeTrack('root.quaternion', [0, 1], [0, 0, 0, 1, 0, 0.1, 0, 0.99]),
+    ]);
+    zombieModel.skeleton = {
+      ready: true,
+      failed: false,
+      scene,
+      clips: ['Idle_Combat', 'Walking_A', '1H_Melee_Attack_Chop', 'Death_A', 'Hit_A'].map(mk),
+    };
+    try {
+      return await fn();
+    } finally {
+      zombieModel.skeleton = prev;
+    }
+  }
+
+  it('skeleton 类型用骷髅模型，动作名走 KayKit 命名', async () => {
+    await withSkeletonModel(() => {
+      const game = sharedGame;
+      clearField();
+      const z = game.zombies.spawnOne.call(
+        Object.assign(game.zombies, { queue: [SK] }), game.player
+      );
+      expect(z.type).toBe(SK);
+      expect(z.isSkeleton).toBe(true);
+      expect(z.mixer).toBeTruthy();
+      expect(z.current).toBe('idle');
+      // 五段动作都按 KayKit 的名字找到并建好
+      expect(Object.keys(z.actions).sort()).toEqual(['attack', 'die', 'hit', 'idle', 'walk']);
+      expect(z.actions.walk.getClip().name).toBe('Walking_A');
+      expect(z.actions.attack.getClip().name).toBe('1H_Melee_Attack_Chop');
+      expect(z.actions.die.getClip().name).toBe('Death_A');
+      z.dispose();
+    });
+  });
+
+  it('骷髅挂的是骷髅几何体，不是僵尸 glb', async () => {
+    await withSkeletonModel(() => {
+      const game = sharedGame;
+      clearField();
+      const z = game.zombies.spawnOne.call(
+        Object.assign(game.zombies, { queue: [SK] }), game.player
+      );
+      const names = [];
+      z.body.traverse((n) => { if (n.isMesh) names.push(n.name); });
+      expect(names).toContain('Skeleton_Minion_Body');
+      z.dispose();
+    });
+  });
+
+  it('非雪地地图：startWave 把骷髅从队列里滤掉', async () => {
+    await withSkeletonModel(() => {
+      const game = sharedGame;
+      const zm = clearField();
+      const prevMap = game.ctx.map;
+      game.ctx.map = { ...prevMap, id: 'backyard' };
+      // 反复开波，anyon 队列都必须没有 skeleton
+      for (let n = 4; n <= 12; n++) {
+        zm.startWave(n);
+        expect(zm.queue.includes(SK), `wave ${n} on backyard`).toBe(false);
+      }
+      game.ctx.map = prevMap;
+      zm.reset();
+    });
+  });
+
+  it('雪地地图：第 4 波起队列里出现骷髅，且不超过上限', async () => {
+    await withSkeletonModel(() => {
+      const game = sharedGame;
+      const zm = clearField();
+      const prevMap = game.ctx.map;
+      game.ctx.map = { ...prevMap, id: 'snow' };
+      zm.startWave(4);
+      expect(zm.queue.filter((t) => t === SK).length).toBeGreaterThan(0);
+      for (let n = 5; n <= 30; n++) {
+        zm.startWave(n);
+        expect(zm.queue.filter((t) => t === SK).length, `wave ${n}`).toBeLessThanOrEqual(config.SKELETON_MAX_ALIVE);
+      }
+      game.ctx.map = prevMap;
+      zm.reset();
+    });
+  });
+
+  it('骷髅模型没加载好时不刷骷髅，但队列里仍保留（加载完能补上）', async () => {
+    // glb 是异步的，开局很快时骨架可能还没 ready。这里不能把骷髅从队列里滤掉——
+    // 否则整波都刷不出骷髅（曾经这么写过，E2E 间歇失败）。
+    const saved = zombieModel.skeleton;
+    zombieModel.skeleton = { ready: false, failed: true, scene: null, clips: [] };
+    try {
+      const game = sharedGame;
+      const zm = clearField();
+      const prevMap = game.ctx.map;
+      game.ctx.map = { ...prevMap, id: 'snow' };
+      zm.startWave(8);
+      // 队列里要还留着骷髅
+      expect(zm.queue.filter((t) => t === SK).length).toBeGreaterThan(0);
+      // 但 spawnOne 不会真的刷出来，而是改刷别的类型
+      zm.queue = [SK, 'normal'];
+      const z = zm.spawnOne(game.player);
+      expect(z.type).toBe('normal');
+      expect(zm.queue).toEqual([SK]);
+      game.ctx.map = prevMap;
+      zm.reset();
+    } finally {
+      zombieModel.skeleton = saved;
+    }
+  });
+
+  it('同屏骷髅到上限后，spawnOne 改刷别的类型', async () => {
+    await withSkeletonModel(() => {
+      const game = sharedGame;
+      const zm = clearField();
+      // 先刷满上限
+      for (let i = 0; i < config.SKELETON_MAX_ALIVE; i++) {
+        zm.queue = [SK];
+        const z = zm.spawnOne(game.player);
+        expect(z.type).toBe(SK);
+      }
+      // 队列头部是骷髅，但已经到上限 → 应该改刷后面的 normal
+      zm.queue = [SK, 'normal'];
+      const next = zm.spawnOne(game.player);
+      expect(next.type).toBe('normal');
+      // 骷髅留着，下次再刷
+      expect(zm.queue).toEqual([SK]);
+      zm.reset();
+    });
+  });
+
+  it('队列里只剩骷髅且已到上限时，spawnOne 返回 null 且不丢怪', async () => {
+    await withSkeletonModel(() => {
+      const game = sharedGame;
+      const zm = clearField();
+      for (let i = 0; i < config.SKELETON_MAX_ALIVE; i++) {
+        zm.queue = [SK];
+        zm.spawnOne(game.player);
+      }
+      zm.queue = [SK, SK];
+      expect(zm.spawnOne(game.player)).toBeNull();
+      expect(zm.queue).toEqual([SK, SK]);
+      zm.reset();
+    });
+  });
+});
+
+describe('ZombieManager · 巨型骷髅 Boss', () => {
+  async function withSkeletonModel(fn) {
+    const THREE = await import('three');
+    const prev = zombieModel.skeleton;
+    const rootBone = new THREE.Bone();
+    rootBone.name = 'root';
+    const hand = new THREE.Bone();
+    hand.name = 'handr';
+    const slot = new THREE.Bone();
+    slot.name = 'handslotr';
+    hand.add(slot);
+    rootBone.add(hand);
+    const mesh = new THREE.SkinnedMesh(new THREE.BoxGeometry(0.5, 2.166, 0.3), new THREE.MeshStandardMaterial());
+    mesh.name = 'Skeleton_Minion_Body';
+    mesh.add(rootBone);
+    mesh.bind(new THREE.Skeleton([rootBone, hand, slot]));
+    const scene = new THREE.Group();
+    scene.add(mesh);
+    zombieModel.skeleton = { ready: true, failed: false, scene, clips: [] };
+    try {
+      return await fn();
+    } finally {
+      zombieModel.skeleton = prev;
+    }
+  }
+
+  it('Boss 用骷髅模型，且木棒挂在 handslotr 骨骼上', async () => {
+    await withSkeletonModel(() => {
+      const zm = clearField();
+      const z = spawnAt('boss', 0, 0);
+      expect(z.isSkeleton).toBe(true);
+      const slot = z.body.getObjectByName('handslotr');
+      expect(slot).toBeTruthy();
+      expect(z.hat.parent).toBe(slot);
+      zm.reset();
+    });
+  });
+
+  it('Boss 出现不受地图限制（三张地图都会出）', async () => {
+    await withSkeletonModel(() => {
+      const game = sharedGame;
+      const zm = clearField();
+      const prevMap = game.ctx.map;
+      for (const id of ['backyard', 'snow', 'dust']) {
+        game.ctx.map = { ...prevMap, id };
+        zm.startWave(5); // 第 5 波必有 boss
+        expect(zm.queue.filter((t) => t === 'boss').length, `map ${id}`).toBe(1);
+      }
+      game.ctx.map = prevMap;
+      zm.reset();
+    });
+  });
+
+  it('骷髅模型没就绪时 Boss 也不会白模刷出来（留在队列等）', async () => {
+    const saved = zombieModel.skeleton;
+    zombieModel.skeleton = { ready: false, failed: true, scene: null, clips: [] };
+    try {
+      const zm = clearField();
+      zm.queue = ['boss', 'normal'];
+      const z = zm.spawnOne(sharedGame.player);
+      expect(z.type).toBe('normal');
+      expect(zm.queue).toEqual(['boss']);
+      zm.reset();
+    } finally {
+      zombieModel.skeleton = saved;
+    }
+  });
+
+  it('Boss 是 4.5 米级的巨型骷髅，命中球按骷髅口径', async () => {
+    const THREE = await import('three');
+    await withSkeletonModel(() => {
+      const zm = clearField();
+      const z = spawnAt('boss', 0, 0);
+      // 2.166 × 0.9 × 2.3 ≈ 4.48 米
+      expect(2.166 * 0.9 * z.scaleFactor).toBeGreaterThan(4.2);
+      expect(2.166 * 0.9 * z.scaleFactor).toBeLessThan(4.8);
+      // 骷髅口径：胸口 0.90、头部 1.68，再乘 scaleFactor
+      expect(z.getChest(new THREE.Vector3()).y).toBeCloseTo(0.90 * 2.3, 6);
+      expect(z.getHead(new THREE.Vector3()).y).toBeCloseTo(1.68 * 2.3, 6);
+      zm.reset();
+    });
   });
 });

@@ -177,10 +177,13 @@ export class ProjectileSystem {
       for (let j = 0; j < this.zombies.zombies.length; j++) {
         const z = this.zombies.zombies[j];
         if (!z.alive || z.dying || z.spawnT < 0.5 || p.hits.has(z)) continue;
+        // hitRadiusScale：骷髅（含巨型骷髅 Boss）体块比例和僵尸不同，半径要跟着模型走，
+        // 默认 1 保持僵尸口径不变。头部球仍然严格小于胸口球。
+        const rs = z.hitRadiusScale || 1;
         z.getChest(tmpChest);
-        const tBody = segmentSphereT(p.prev, p.pos, tmpChest, CHEST_R * z.scaleFactor + 0.14);
+        const tBody = segmentSphereT(p.prev, p.pos, tmpChest, CHEST_R * z.scaleFactor * rs + 0.14);
         z.getHead(tmpHead);
-        const tHead = segmentSphereT(p.prev, p.pos, tmpHead, HEAD_R * z.scaleFactor);
+        const tHead = segmentSphereT(p.prev, p.pos, tmpHead, HEAD_R * z.scaleFactor * rs);
         let t = -1;
         let head = false;
         // 头部球必须用原始半径比较：命中球被胖化到 0.52 会从头顶一路盖到胸口，爆头永远判不出来。
