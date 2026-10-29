@@ -192,8 +192,27 @@ export class Zombie {
     if (acc !== 'cone' && acc !== 'bucket' && acc !== 'club') return;
 
     const hat = new THREE.Group();
-    // glb 模型单位（1.194 高）：头骨骨骼 y≈0.762，头顶 y≈1.19，眼球 0.86–0.98
-    hat.position.set(0, acc === 'bucket' ? 1.09 : 1.04, 0.015);
+    // 帽子挂到 Head 骨骼上，跟着头部动画一起动（骨骼缺失时才退回挂 body）。
+    // 坑：这个 glb 的 CharacterArmature 带 100 倍缩放、Head 骨骼自带 13° 前倾，buildRig 又乘了模型缩放，
+    // 手算局部偏移很容易算错（试过，帽子飞到 40 米高 / 偏到 z=0.65）。
+    // 所以这里用 Three.js 的 worldToLocal 把"想要的世界位置"反算成骨骼局部坐标，旋转和缩放都交给引擎。
+    // 目标位置按**模型本地单位**给：僵尸头顶 ≈1.186，帽子压在 1.10/1.11。
+    const headBone = this.isSkeleton ? this.body.getObjectByName('head') : this.body.getObjectByName('Head');
+    const targetLocalY = acc === 'bucket' ? 1.10 : 1.11;
+    const targetLocalZ = 0.03;
+    let hatY = targetLocalY;
+    let hatZ = targetLocalZ;
+    if (headBone) {
+      // body 的 matrixWorld 要新鲜：builder 里可能还没渲染过一帧
+      this.body.updateWorldMatrix(true, false);
+      headBone.updateWorldMatrix(true, false);
+      // 目标点：模型本地坐标 → 世界坐标（越过 body 的缩放，用 body 的 matrixWorld 换算）
+      const target = new THREE.Vector3(0, targetLocalY, targetLocalZ).applyMatrix4(this.body.matrixWorld);
+      const local = headBone.worldToLocal(target);
+      hatY = local.y;
+      hatZ = local.z;
+    }
+    hat.position.set(0, hatY, hatZ);
     hat.rotation.set(0.03, 0.1, 0.05);
 
     const push = (geo, color, opts) => {
@@ -260,7 +279,8 @@ export class Zombie {
       push(new THREE.TorusGeometry(0.226, 0.014, 6, 24), 0x878f96, { roughness: 0.45, metalness: 0.5 });
     }
 
-    this.body.add(hat);
+    // 有 Head 骨骼就挂骨骼（跟着头部动），否则退回身体（静态模型/骨骼名不匹配时）
+    (headBone || this.body).add(hat);
     this.hat = hat;
   }
 

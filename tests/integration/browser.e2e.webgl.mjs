@@ -446,6 +446,23 @@ async function phaseGlb(ctx) {
           textured,
           hat: !!(z.hat && z.hat.children.length > 0),
           hatChildren: z.hat ? z.hat.children.length : 0,
+          // 配件必须真的长在身上：取帽子和头骨的世界高度比对。
+          // 只看"有没有挂上"不够——之前帽子就挂在 body 上但陷进脑袋里，只有肉眼能看出来。
+          hatWorldY: (() => {
+            if (!z.hat) return null;
+            const v = new (z.root.position.constructor)();
+            z.hat.getWorldPosition(v);
+            return v.y;
+          })(),
+          // 身高用"头顶/脚底骨骼的世界高度差"算。**不能**直接拿蒙皮网格的顶点：
+          // 那是绑定姿态坐标，applyMatrix4 之后会得到 ±35 这种垃圾值（踩过）。
+          headWorldY: (() => {
+            const b = z.isSkeleton ? z.body.getObjectByName('head') : z.body.getObjectByName('Head');
+            if (!b) return null;
+            const v = new (z.root.position.constructor)();
+            b.getWorldPosition(v);
+            return v.y;
+          })(),
           hatType: z.def.acc,
           // Boss 是巨型骷髅：走骷髅模型，木棒挂在 handslotr 骨骼上
           isSkeletonModel: z.def.model === 'skeleton',
@@ -483,6 +500,17 @@ async function phaseGlb(ctx) {
     if (!(z.glbVerts >= 1000)) problems.push(z.type + ': glb 本体顶点数 ' + z.glbVerts + ' 不像真实模型（应 >= 1000）');
     if (z.hatType && !z.hat) problems.push(z.type + '（acc=' + z.hatType + '）: 配件 hat 没挂上');
     if (z.hatType && !(z.hatChildren >= 2)) problems.push(z.type + ': 配件 hat 子网格过少 ' + z.hatChildren);
+    // 帽子必须"戴在头上"：比头骨骨骼还高，且不超过身高的合理上限。
+    // 只断言"挂上了"不够——之前帽子挂在 body 上但陷进脑袋里，只有肉眼能看出来。
+    if (z.hatType && z.hatType !== 'club' && z.hatWorldY != null && z.headWorldY != null) {
+      if (z.hatWorldY < z.headWorldY) {
+        problems.push(z.type + ': 配件比头骨还低（hat ' + z.hatWorldY.toFixed(2) + ' < head ' + z.headWorldY.toFixed(2) + '），陷进身体里了');
+      }
+      // 头顶不会离头骨太远：不超过头骨上方约 0.6 个模型身位
+      if (z.hatWorldY > z.headWorldY + 0.75 * z.scale || z.hatWorldY > z.headWorldY + 1.2) {
+        problems.push(z.type + ': 配件飘太高（hat ' + z.hatWorldY.toFixed(2) + '，head ' + z.headWorldY.toFixed(2) + '）');
+      }
+    }
     if (!z.hatType && z.hat) problems.push(z.type + ': 不该有配件却挂了 hat');
     if (z.hat && !z.envMapHat) problems.push(z.type + ': 配件材质 envMap 为空（ctx.env 没传进 Zombie）');
     // 回归保护：ZombieManager.spawnOne 必须把 ctx.env 传进 Zombie，否则身体材质拿不到 PMREM 环境贴图

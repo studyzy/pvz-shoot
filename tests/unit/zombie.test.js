@@ -286,9 +286,9 @@ describe('Zombie · 属性与模型骨架', () => {
       }
       expect(z.hat).toBeTruthy();
       expect(z.hat.children.length).toBe(parts);
-      // Boss 的木棒挂在骷髅的 handslotr 骨骼上（跟着手臂动），其余配件直接挂 body
+      // 配件都挂在骨骼上跟着动：Boss 木棒→handslotr（右手），交通锥/铁桶→Head（头顶）
       if (type === 'boss') expect(z.hat.parent).toBe(z.body.getObjectByName('handslotr'));
-      else expect(z.hat.parent).toBe(z.body);
+      else expect(z.hat.parent).toBe(z.body.getObjectByName('Head'));
       // 配件材质必须同时进 mats / matBase，白闪与寒冰才作用得到帽子上（AGENTS.md 5.2）
       expect(z.mats.length).toBe(1 + parts);
       expect(z.matBase.length).toBe(1 + parts);
@@ -297,11 +297,25 @@ describe('Zombie · 属性与模型骨架', () => {
         expect(z.mats[i].emissiveIntensity).toBe(0);
       }
     }
-    // 帽子位置按 Quaternius 模型（高 1.194，头顶 ≈1.19）折算
+    // 帽子挂在 Head 骨骼上，位置由 worldToLocal 反算（骨骼带 100× 缩放 + 13° 前倾，手算会错）。
+    // 校验的是"换算出世界坐标后确实在头顶"，不是某个具体局部数值。
     const cone = makeZombie('cone');
-    expect(cone.hat.position.y).toBeCloseTo(1.04, 10);
     const bucket = makeZombie('bucket');
-    expect(bucket.hat.position.y).toBeCloseTo(1.09, 10);
+    for (const zz of [cone, bucket]) {
+      const bone = zz.body.getObjectByName('Head');
+      expect(zz.hat.parent).toBe(bone);
+      // 把帽子写回 true 后取世界坐标，应落在模型顶端附近而不是身体内部
+      zz.spawnT = 1;
+      zz.model.position.y = 0;
+      zz.root.updateMatrixWorld(true);
+      zz.body.updateWorldMatrix(true, true);
+      const w = vec();
+      zz.hat.getWorldPosition(w);
+      // 模型替身高 1.194 × ZOMBIE_SCALE 1.55，再乘 scaleFactor
+      const modelTop = 1.194 * 1.55 * zz.scaleFactor;
+      expect(w.y, zz.type + ' 帽子高度').toBeGreaterThan(modelTop * 0.75);
+      expect(w.y, zz.type + ' 帽子高度').toBeLessThan(modelTop + 0.2);
+    }
     // Boss 是巨型骷髅：木棒挂在 handslotr 骨骼上（跟着手臂挥动），不是挂在 body 上
     const boss = makeZombie('boss');
     expect(boss.isSkeleton).toBe(true);
