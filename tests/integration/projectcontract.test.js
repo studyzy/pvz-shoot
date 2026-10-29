@@ -64,9 +64,16 @@ describe('config 与文档一致', () => {
     for (const w of WEAPONS) {
       expect(w.cooldown, w.id + ' cooldown').toBeGreaterThan(0);
       expect(w.cooldown, w.id + ' cooldown').toBeLessThan(5);
-      if (w.damage !== undefined) expect(w.damage, w.id + ' damage').toBeGreaterThan(0);
-      expect(['pea', 'lob', 'hitscan']).toContain(w.kind);
+      expect(['pea', 'lob', 'hitscan', 'shield']).toContain(w.kind);
+      // 坚果墙是护盾（damage 0、靠 shieldHp 活着），其余植物的伤害必须为正
+      if (w.kind === 'shield') {
+        expect(w.shieldHp, w.id + ' shieldHp').toBeGreaterThan(0);
+      } else {
+        if (w.damage !== undefined) expect(w.damage, w.id + ' damage').toBeGreaterThan(0);
+      }
       if (!w.starter) expect(w.ammo, w.id + ' 拾取武器必须有弹药').toBeGreaterThan(0);
+      // 充能植物（坚果）必须有充能上限，否则植物栏角标没有数可画
+      if (w.maxCharges) expect(w.recharge, w.id + ' 充能植物必须有回复速度').toBeGreaterThan(0);
     }
   });
 

@@ -130,20 +130,26 @@ describe('Controls', () => {
       expect(c.consumeJump()).toBe(false);
     });
 
-    it('Digit1-4 设置 weaponRequest 0..3；Digit5 / KeyQ 设 lootRequest', () => {
+    it('Digit1-6 设置 weaponRequest 0..5（植物栏 6 格）；Digit5 同时仍是战利品键；KeyQ 设 lootRequest', () => {
       const c = make();
-      for (let n = 1; n <= 4; n++) {
+      // 植物栏现在有 6 格：豌豆/寒冰/樱桃/玉米炮/坚果/火豌豆
+      for (let n = 1; n <= 6; n++) {
         keydown('Digit' + n);
         expect(c.consumeWeaponRequest()).toBe(n - 1);
         expect(c.consumeWeaponRequest()).toBe(-1);
       }
+      // 第 5 格既是坚果、也保留「切回战利品」的老习惯
       keydown('Digit5');
-      expect(c.weaponRequest).toBe(-1);
+      expect(c.consumeWeaponRequest()).toBe(4);
       expect(c.consumeLootRequest()).toBe(true);
       expect(c.consumeLootRequest()).toBe(false);
 
       keydown('KeyQ');
       expect(c.consumeLootRequest()).toBe(true);
+
+      // 超出植物栏格数不生效
+      keydown('Digit7');
+      expect(c.consumeWeaponRequest()).toBe(-1);
     });
 
     it('Digit6+ 与其它键不产生武器请求', () => {

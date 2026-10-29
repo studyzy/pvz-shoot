@@ -408,7 +408,10 @@ async function phaseGlb(ctx) {
           if (m && m.map && m.map.image) textured++;
         });
         const m0 = z.mats[0];
-        const hatMat = z.hat && z.hat.children[0] && z.hat.children[0].material;
+        // 配件分两类：头饰（this.hat，必须高过头骨）与背后道具（this.balloon）。
+        // 断言"有没有挂配件"用 accProp；"戴没戴在头上"只用 this.hat。
+        const accProp = z.hat || z.balloon || null;
+        const hatMat = accProp && accProp.children[0] && accProp.children[0].material;
         return {
           type: z.type,
           // 骨骼动画：SkinnedMesh + 独立骨骼 + mixer 在跑
@@ -446,6 +449,11 @@ async function phaseGlb(ctx) {
           textured,
           hat: !!(z.hat && z.hat.children.length > 0),
           hatChildren: z.hat ? z.hat.children.length : 0,
+          // 有没有挂配件（含背后道具气球）
+          acc: !!(accProp && accProp.children.length > 0),
+          accChildren: accProp ? accProp.children.length : 0,
+          // 头饰：只有挂在头骨上的那些（气球不算）
+          headgear: !!z.hat,
           // 配件必须真的长在身上：取帽子和头骨的世界高度比对。
           // 只看"有没有挂上"不够——之前帽子就挂在 body 上但陷进脑袋里，只有肉眼能看出来。
           hatWorldY: (() => {
@@ -498,11 +506,12 @@ async function phaseGlb(ctx) {
     if (!(z.bodyChildren > 0)) problems.push(z.type + ': body.children 为空');
     if (!(z.meshCount > 0)) problems.push(z.type + ': body 下没有 mesh');
     if (!(z.glbVerts >= 1000)) problems.push(z.type + ': glb 本体顶点数 ' + z.glbVerts + ' 不像真实模型（应 >= 1000）');
-    if (z.hatType && !z.hat) problems.push(z.type + '（acc=' + z.hatType + '）: 配件 hat 没挂上');
-    if (z.hatType && !(z.hatChildren >= 2)) problems.push(z.type + ': 配件 hat 子网格过少 ' + z.hatChildren);
+    if (z.hatType && !z.acc) problems.push(z.type + '（acc=' + z.hatType + '）: 配件没挂上');
+    if (z.hatType && !(z.accChildren >= 2)) problems.push(z.type + ': 配件子网格过少 ' + z.accChildren);
     // 帽子必须"戴在头上"：比头骨骨骼还高，且不超过身高的合理上限。
     // 只断言"挂上了"不够——之前帽子挂在 body 上但陷进脑袋里，只有肉眼能看出来。
-    if (z.hatType && z.hatType !== 'club' && z.hatWorldY != null && z.headWorldY != null) {
+    // 「戴在头上」只对真正的头饰成立：木棒挂手、气球挂背，都不该套这条
+    if (z.hatType && z.headgear && z.hatType !== 'club' && z.hatWorldY != null && z.headWorldY != null) {
       if (z.hatWorldY < z.headWorldY) {
         problems.push(z.type + ': 配件比头骨还低（hat ' + z.hatWorldY.toFixed(2) + ' < head ' + z.headWorldY.toFixed(2) + '），陷进身体里了');
       }
@@ -511,8 +520,8 @@ async function phaseGlb(ctx) {
         problems.push(z.type + ': 配件飘太高（hat ' + z.hatWorldY.toFixed(2) + '，head ' + z.headWorldY.toFixed(2) + '）');
       }
     }
-    if (!z.hatType && z.hat) problems.push(z.type + ': 不该有配件却挂了 hat');
-    if (z.hat && !z.envMapHat) problems.push(z.type + ': 配件材质 envMap 为空（ctx.env 没传进 Zombie）');
+    if (!z.hatType && z.acc) problems.push(z.type + ': 不该有配件却挂了配件');
+    if (z.acc && !z.envMapHat) problems.push(z.type + ': 配件材质 envMap 为空（ctx.env 没传进 Zombie）');
     // 回归保护：ZombieManager.spawnOne 必须把 ctx.env 传进 Zombie，否则身体材质拿不到 PMREM 环境贴图
     if (!z.envMapBody) problems.push(z.type + ': 身体材质 envMap 为空（spawnOne 没把 ctx.env 传给 Zombie）');
     if (!z.envMapIsTex) problems.push(z.type + ': 身体材质 envMap 不是 THREE.Texture');
@@ -559,7 +568,7 @@ async function phaseGlb(ctx) {
       types: Object.entries(byType).map(([k, v]) => k + 'x' + v).join(','),
       texture: info.zombies[0].mapSize.join('x'),
       verts: info.zombies[0].glbVerts,
-      hats: info.zombies.filter((z) => z.hat).length,
+      hats: info.zombies.filter((z) => z.acc).length,
       envMap: 'every-zombie',
     },
   };

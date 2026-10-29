@@ -13,6 +13,9 @@ import {
   zombieSpeedMul,
   SKELETON_MAX_ALIVE,
   SKELETON_MAPS,
+  ARMOR_MATERIALS,
+  AIR_QUOTA_RATIO,
+  waveAirQuota,
 } from '../../src/config.js';
 
 afterEach(() => {
@@ -58,8 +61,14 @@ describe('config / WEAPONS 数据完整性', () => {
       expect(typeof w.starter, w.id).toBe('boolean');
       expect(typeof w.model, w.id).toBe('string');
       expect(typeof w.color, w.id).toBe('number');
-      expect(['pea', 'lob', 'hitscan']).toContain(w.kind);
-      expect(w.damage, w.id).toBeGreaterThan(0);
+      expect(['pea', 'lob', 'hitscan', 'shield']).toContain(w.kind);
+      // 坚果墙是护盾，不是输出武器：damage 0，只有 shieldHp
+      if (w.kind === 'shield') {
+        expect(w.damage, w.id).toBe(0);
+        expect(w.shieldHp, w.id).toBeGreaterThan(0);
+      } else {
+        expect(w.damage, w.id).toBeGreaterThan(0);
+      }
       expect(w.cooldown, w.id).toBeGreaterThan(0);
       expect(w.cost, w.id).toBeGreaterThanOrEqual(0);
     }
@@ -125,8 +134,38 @@ describe('config / starter 与 loot 的区分', () => {
     expect(new Set([...STARTER_WEAPONS, ...LOOT_WEAPONS])).toEqual(new Set(WEAPONS));
   });
 
-  it('植物栏恰好 4 格（HUD 按 starter 渲染 1-4 快捷键）', () => {
-    expect(STARTER_WEAPONS.map((w) => w.id)).toEqual(['pea', 'snow', 'cherry', 'cob']);
+  it('植物栏恰好 6 格（HUD 按 starter 渲染 1-6 快捷键）', () => {
+    expect(STARTER_WEAPONS.map((w) => w.id)).toEqual(['pea', 'snow', 'cherry', 'cob', 'wallnut', 'firepea']);
+  });
+
+  it('坚果墙是充能制护盾：maxCharges/recharge/盾血都有值，且气球能穿透', () => {
+    const nut = WEAPONS.find((w) => w.id === 'wallnut');
+    expect(nut.kind).toBe('shield');
+    expect(nut.maxCharges).toBe(10);
+    expect(nut.recharge).toBeGreaterThan(0);
+    expect(nut.shieldHp).toBe(400);
+    // C3：气球从头顶俯冲，护盾不挡 —— 否则开盾对空中单位也无敌
+    expect(nut.aerialGuard).toBe(false);
+  });
+
+  it('火豌豆：燃烧 + 破甲 + 对空打折', () => {
+    const f = WEAPONS.find((w) => w.id === 'firepea');
+    expect(f.kind).toBe('pea');
+    expect(f.burn.dps).toBeGreaterThan(0);
+    expect(f.burn.time).toBeGreaterThan(0);
+    expect(f.armorBreak).toBe(true);
+    // 对空副钥匙：能打气球但只有 25%
+    expect(f.aerial).toBe(0.25);
+  });
+
+  it('对空白名单：爆炸类 1 发必杀，仙人掌满伤，普通豌豆打不到', () => {
+    for (const id of ['cherry', 'cob', 'melon', 'jalapeno']) {
+      expect(WEAPONS.find((w) => w.id === id).aerial, id).toBe('explosion');
+    }
+    expect(WEAPONS.find((w) => w.id === 'cactus').aerial).toBe(1);
+    for (const id of ['pea', 'snow', 'repeater', 'threepeater', 'gatling']) {
+      expect(WEAPONS.find((w) => w.id === id).aerial, id).toBeUndefined();
+    }
   });
 
   it('战利品池覆盖五种只可拾取的植物', () => {
@@ -155,8 +194,43 @@ describe('config / ZOMBIES', () => {
     radius: 'number',
   };
 
-  it('五种僵尸类型齐全（含骷髅）', () => {
-    expect(Object.keys(ZOMBIES).sort()).toEqual(['boss', 'bucket', 'cone', 'normal', 'skeleton']);
+  it('七种僵尸类型齐全（含骷髅、橄榄球、气球）', () => {
+    expect(Object.keys(ZOMBIES).sort()).toEqual([
+      'balloon', 'boss', 'bucket', 'cone', 'football', 'normal', 'skeleton',
+    ]);
+  });
+
+  it('橄榄球僵尸：厚甲（buffalo 材质）+ 血厚 + 速度快', () => {
+    const f = ZOMBIES.football;
+    expect(f.armor.material).toBe('buffalo');
+    expect(f.armor.hp).toBe(140);
+    expect(f.hp).toBeGreaterThan(ZOMBIES.cone.hp);
+    // 全场第二快（仅次于普通僵尸），比铁桶快 68%
+    expect(f.speed).toBeGreaterThan(ZOMBIES.bucket.speed * 1.5);
+    expect(f.acc).toBe('helmet');
+  });
+
+  it('气球僵尸：空中单位，有飞行高度，血薄', () => {
+    const b = ZOMBIES.balloon;
+    expect(b.airborne).toBe(true);
+    expect(b.airHeight).toBe(2.2);
+    expect(b.hp).toBeLessThan(ZOMBIES.cone.hp);
+    expect(b.acc).toBe('balloon');
+  });
+
+  it('护甲材质表：塑料/金属/水牛角三种，吸收比例与特性齐全', () => {
+    for (const k of ['plastic', 'metal', 'buffalo']) {
+      const r = ARMOR_MATERIALS[k];
+      expect(typeof r.absorption, k).toBe('number');
+      expect(r.absorption, k).toBeGreaterThan(0);
+      expect(r.absorption, k).toBeLessThan(1);
+      expect(typeof r.burnImmune, k).toBe('boolean');
+      expect(typeof r.pierceBlock, k).toBe('boolean');
+    }
+    // 只有水牛角护甲怕火，火豌豆才因此成为橄榄球的克星
+    expect(ARMOR_MATERIALS.buffalo.burnImmune).toBe(false);
+    expect(ARMOR_MATERIALS.metal.burnImmune).toBe(true);
+    expect(ARMOR_MATERIALS.plastic.burnImmune).toBe(true);
   });
 
   it('骷髅和 Boss 都走骷髅模型，其余三类用僵尸 glb', () => {
@@ -187,14 +261,19 @@ describe('config / ZOMBIES', () => {
     }
   });
 
-  it('配件与类型对应（normal 无配件，其余按 acc 命名）', () => {
+  it('配件与类型对应（normal / skeleton 无配件，其余按 acc 命名）', () => {
     expect(ZOMBIES.normal.acc).toBeNull();
+    expect(ZOMBIES.skeleton.acc).toBeNull();
     expect(ZOMBIES.cone.acc).toBe('cone');
     expect(ZOMBIES.bucket.acc).toBe('bucket');
+    expect(ZOMBIES.football.acc).toBe('helmet');
+    expect(ZOMBIES.balloon.acc).toBe('balloon');
     expect(ZOMBIES.boss.acc).toBe('club');
   });
 
   it('难度随类型递增：hp / score / damage / radius 单调', () => {
+    // 橄榄球和气球是「横向展开」而不是「纵向加码」：橄榄球用护甲换血量，气球用高度换血量，
+    // 所以它们不进这条单调链（气球 hp 48 < 普通僵尸 62，是设计如此）
     const chain = [ZOMBIES.normal, ZOMBIES.cone, ZOMBIES.bucket, ZOMBIES.boss];
     for (let i = 1; i < chain.length; i++) {
       expect(chain[i].hp).toBeGreaterThan(chain[i - 1].hp);
@@ -272,21 +351,47 @@ describe('config / wavePlan', () => {
       const buckets = n >= 3 ? Math.max(1, Math.floor((n - 2) * 0.8)) : 0;
       // 骷髅第 4 波起掺进来，整波最多 SKELETON_MAX_ALIVE 只
       const skeletons = n >= 4 ? Math.min(SKELETON_MAX_ALIVE, 1 + Math.floor((n - 4) * 0.5)) : 0;
+      // 橄榄球第 4 波起、气球第 6 波起
+      const footballs = n >= 4 ? 1 + Math.floor((n - 4) * 0.6) : 0;
+      const balloons = n >= 6 ? 1 + Math.floor((n - 6) * 0.7) : 0;
       const boss = n % 5 === 0 ? 1 : 0;
       expect(count(plan, 'normal'), `n=${n} normals`).toBe(normals);
       expect(count(plan, 'cone'), `n=${n} cones`).toBe(cones);
       expect(count(plan, 'bucket'), `n=${n} buckets`).toBe(buckets);
       expect(count(plan, 'skeleton'), `n=${n} skeletons`).toBe(skeletons);
+      expect(count(plan, 'football'), `n=${n} footballs`).toBe(footballs);
+      expect(count(plan, 'balloon'), `n=${n} balloons`).toBe(balloons);
       expect(count(plan, 'boss'), `n=${n} boss`).toBe(boss);
-      expect(plan.length, `n=${n} total`).toBe(normals + cones + buckets + skeletons + boss);
+      expect(plan.length, `n=${n} total`).toBe(
+        normals + cones + buckets + skeletons + footballs + balloons + boss,
+      );
     }
   });
 
-  it('n=20：总量 = 33 普通 + 19 锥 + 14 桶 + 3 骷髅 + 1 boss = 70', () => {
+  it('n=20：总量 = 33 普通 + 19 锥 + 14 桶 + 3 骷髅 + 10 橄榄球 + 10 气球 + 1 boss = 90', () => {
     const plan = wavePlan(20);
-    expect(plan.length).toBe(4 + Math.floor(20 * 1.45) + Math.floor(19 * 1.05) + Math.max(1, Math.floor(18 * 0.8)) + 3 + 1);
-    expect(plan.length).toBe(70);
+    const expected = 4 + Math.floor(20 * 1.45) + Math.floor(19 * 1.05) + Math.max(1, Math.floor(18 * 0.8)) + 3 + 10 + 10 + 1;
+    expect(plan.length).toBe(expected);
+    expect(plan.length).toBe(90);
     expect(count(plan, 'skeleton')).toBe(SKELETON_MAX_ALIVE);
+    expect(count(plan, 'football')).toBe(10);
+    expect(count(plan, 'balloon')).toBe(10);
+  });
+
+  it('新僵尸首次出现的波次：橄榄球 n=4、气球 n=6', () => {
+    expect(count(wavePlan(3), 'football')).toBe(0);
+    expect(count(wavePlan(4), 'football')).toBe(1);
+    expect(count(wavePlan(5), 'balloon')).toBe(0);
+    expect(count(wavePlan(6), 'balloon')).toBe(1);
+  });
+
+  it('气球同屏配额：占同屏上限 20%（至少 1 只）', () => {
+    expect(AIR_QUOTA_RATIO).toBe(0.2);
+    expect(waveAirQuota(1)).toBe(1); // maxAlive 8 -> floor(1.6)=1
+    expect(waveAirQuota(12)).toBe(2); // maxAlive 14 -> floor(2.8)=2
+    for (let n = 1; n <= 40; n++) {
+      expect(waveAirQuota(n)).toBeLessThanOrEqual(Math.max(1, Math.floor(waveMaxAlive(n) * AIR_QUOTA_RATIO)));
+    }
   });
 
   it('洗牌不丢元素：多重集与公式一致', () => {

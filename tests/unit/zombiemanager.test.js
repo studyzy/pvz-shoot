@@ -128,11 +128,15 @@ describe('ZombieManager · 波次调度', () => {
     zm.startWave(4);
     expect(calls.onWaveStart).toEqual([4]);
     expect(zm.wave).toBe(4);
-    // 4 波：normal 4+5=9、cone floor(3×1.05)=3、bucket max(1, floor(2×0.8))=1 → 13
-    expect(zm.queue.length).toBe(13);
+    // 4 波：normal 4+5=9、cone floor(3×1.05)=3、bucket max(1, floor(2×0.8))=1、橄榄球 1 → 14
+    expect(zm.queue.length).toBe(14);
     expect(zm.queue.filter((t) => t === 'normal').length).toBe(9);
     expect(zm.queue.filter((t) => t === 'cone').length).toBe(3);
     expect(zm.queue.filter((t) => t === 'bucket').length).toBe(1);
+    expect(zm.queue.filter((t) => t === 'football').length).toBe(1);
+    // 气球第 6 波才出现
+    expect(zm.queue).not.toContain('balloon');
+    expect(zm.airQuota).toBe(config.waveAirQuota(4));
     expect(zm.queue).not.toContain('boss');
     expect(zm.hpMul).toBeCloseTo(1.33, 10);
     expect(zm.speedMul).toBeCloseTo(1.054, 10);
@@ -152,8 +156,8 @@ describe('ZombieManager · 波次调度', () => {
     const calls = collectCtx();
     zm.startWave(5);
     expect(zm.queue.filter((t) => t === 'boss').length).toBe(1);
-    // normal 4+7=11、cone floor(4×1.05)=4、bucket max(1, floor(3×0.8))=2、boss 1 → 18
-    expect(zm.queue.length).toBe(18);
+    // normal 4+7=11、cone floor(4×1.05)=4、bucket max(1, floor(3×0.8))=2、橄榄球 1、boss 1 → 19
+    expect(zm.queue.length).toBe(19);
     zm.startWave(20);
     expect(zm.maxAlive).toBe(14); // min(14, 18)
     expect(zm.interval).toBe(0.5); // max(0.5, 1.35-1.1)

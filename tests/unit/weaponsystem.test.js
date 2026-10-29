@@ -181,10 +181,15 @@ describe('装备与切换', () => {
     expect(W.current).toBe(2);
     W.trySwitch(1);
     expect(W.current).toBe(3);
+    // 植物栏现在 6 格：玉米炮之后是坚果(10)、火豌豆(11)，仍然跳过地面拾取的 4..9
+    W.trySwitch(1);
+    expect(W.current).toBe(10);
+    W.trySwitch(1);
+    expect(W.current).toBe(11);
     W.trySwitch(1);
     expect(W.current).toBe(0); // 回到第一把 starter，不会落到 repeater(4)
     W.trySwitch(-1);
-    expect(W.current).toBe(3);
+    expect(W.current).toBe(11);
   });
 
   it('手持战利品时 trySwitch 从第一把 starter 开始数', () => {

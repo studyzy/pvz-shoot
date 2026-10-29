@@ -1126,3 +1126,104 @@ describe('explodeAt', () => {
     expect(P.explodeAt(new THREE.Vector3(0, 0.4, 2), 5.6, 210, false)).toBe(0);
   });
 });
+// ---------------------------------------------------------------------------
+// 空中层级（气球）：对空白名单 / 高位射击 / 爆炸球距离
+// ---------------------------------------------------------------------------
+describe('ProjectileSystem · 空中目标', () => {
+  beforeEach(async () => {
+    await boot();
+    ctx.zombies.zombies.length = 0;
+    ctx.zombies.handleKill.mockClear();
+    P.clear();
+    ctx.player = { pos: new THREE.Vector3(0, 0, 30) };
+  });
+
+  // 气球替身：root 在 2.2 米高，命中球跟着抬
+  function placeBalloon(x, z) {
+    const z0 = fakeZombie(x, z, { type: 'balloon', maxHp: 48, hp: 48, radius: 0.46 });
+    z0.airborne = true;
+    z0.root.position.y = 2.2;
+    z0.getChest = (out) => out.set(x, 2.2 + 0.95, z);
+    z0.getHead = (out) => out.set(x, 2.2 + 1.45, z);
+    ctx.zombies.zombies.push(z0);
+    return z0;
+  }
+
+  function fireAt(air, aerial) {
+    const def = { id: 'x', speed: 74, damage: 15, color: 0x8ade2a, aerial };
+    // 从气球正前方水平射向气球胸口高度
+    const origin = new THREE.Vector3(0, 2.2 + 0.95, 3);
+    P.spawnPea(origin, new THREE.Vector3(0, 0, -1), def, false);
+    runUntilSettled();
+    return air;
+  }
+
+  it('普通弹丸（aerial 未配置）直接穿过去，气球不掉血', () => {
+    const b = placeBalloon(0, 0);
+    fireAt(b, undefined);
+    expect(b.hits).toBe(0);
+    expect(b.hp).toBe(48);
+  });
+
+  it('仙人掌（aerial=1）能打中气球', () => {
+    const b = placeBalloon(0, 0);
+    const def = { id: 'cactus', speed: 98, damage: 30, color: 0x9be15d, aerial: 1 };
+    P.spawnPea(new THREE.Vector3(0, 2.2 + 0.95, 3), new THREE.Vector3(0, 0, -1), def, false);
+    runUntilSettled();
+    expect(b.hits).toBe(1);
+  });
+
+  it('火豌豆（aerial=0.25）能打中，但伤害只有 25%', () => {
+    const b = placeBalloon(0, 0);
+    const def = { id: 'firepea', speed: 78, damage: 20, color: 0xff7a1a, aerial: 0.25 };
+    P.spawnPea(new THREE.Vector3(0, 2.2 + 0.95, 3), new THREE.Vector3(0, 0, -1), def, false);
+    runUntilSettled();
+    expect(b.hits).toBe(1);
+    // 20 * 0.25 = 5
+    expect(b.hp).toBe(43);
+  });
+
+  it('站在高处（≥1.5 米、水平 3 米内）时普通豌豆也能打到气球', () => {
+    ctx.player.pos.set(0, 1.6, 2);
+    const b = placeBalloon(0, 0);
+    // 玩家站高处，直接平射（不经过 canHitAirFromAbove 的倍率，仍是打法上的钥匙）
+    const def = { id: 'pea', speed: 74, damage: 15, color: 0x8ade2a };
+    P.spawnPea(new THREE.Vector3(0, 2.2 + 0.95, 3), new THREE.Vector3(0, 0, -1), def, false);
+    runUntilSettled();
+    expect(b.hits).toBe(1);
+  });
+
+  it('canHitAirFromAbove：高度不足或距离太远都返回 false', () => {
+    const b = placeBalloon(0, 0);
+    ctx.player.pos.set(0, 0.9, 1);
+    expect(P.canHitAirFromAbove(b)).toBe(false); // 高度不够
+    ctx.player.pos.set(0, 1.6, 10);
+    expect(P.canHitAirFromAbove(b)).toBe(false); // 水平太远
+    ctx.player.pos.set(0, 1.6, 2);
+    expect(P.canHitAirFromAbove(b)).toBe(true);
+  });
+
+  it('0.25 倍率对火豌豆生效、对仙人掌不生效', () => {
+    // 两只气球分两次测：同一场里一发会先打到近的那只
+    const a = placeBalloon(0, 0);
+    P.spawnPea(new THREE.Vector3(0, 3.15, 3), new THREE.Vector3(0, 0, -1), { id: 'cactus', speed: 98, damage: 30, color: 0, aerial: 1 }, false);
+    runUntilSettled();
+    expect(a.hp).toBe(18); // 30 满伤
+    ctx.zombies.zombies.length = 0;
+    const b = placeBalloon(0, 0);
+    P.spawnPea(new THREE.Vector3(0, 3.15, 3), new THREE.Vector3(0, 0, -1), { id: 'firepea', speed: 78, damage: 20, color: 0, aerial: 0.25 }, false);
+    runUntilSettled();
+    expect(b.hp).toBe(43); // 20 × 0.25 = 5
+  });
+
+  it('火豌豆弹丸带燃烧字段与火星尾迹（burn 会让弹丸吐粒子）', () => {
+    const b = placeBalloon(0, 0);
+    ctx.particles.burst = vi.fn();
+    P.spawnPea(new THREE.Vector3(0, 3.15, 3), new THREE.Vector3(0, 0, -1), {
+      id: 'firepea', speed: 78, damage: 20, color: 0, aerial: 0.25, burn: { dps: 8, time: 3 },
+    }, false);
+    runUntilSettled();
+    expect(b.hits).toBe(1);
+    expect(ctx.particles.burst).toHaveBeenCalled();
+  });
+});
