@@ -260,15 +260,22 @@ async function phaseStartup(ctx) {
   const lockCalls = await page.evaluate(() => window.__e2e.lockCalls);
   check(lockCalls > 0, '开始游戏后应调用 canvas.requestPointerLock()，实际调用 0 次');
 
-  // 真实键盘：W 前进
+  // 真实键盘：W 前进。
+  // 位移只取决于"跑了多少帧"，所以等"位移达标"而不是固定等 700ms——
+  // 固定墙钟在 CI 的软渲染上会把"机器慢"误判成"W 不生效"（同 mobile 摇杆那处）。
   const p0 = await page.evaluate(() => ({ x: window.__game.player.pos.x, z: window.__game.player.pos.z }));
   await page.keyboard.down('KeyW');
-  await page.waitForTimeout(700);
+  const W_TARGET = 0.5;
+  const wDeadline = Date.now() + 15000;
+  let moved = 0;
+  while (Date.now() < wDeadline) {
+    const p = await page.evaluate(() => ({ x: window.__game.player.pos.x, z: window.__game.player.pos.z }));
+    moved = Math.hypot(p.x - p0.x, p.z - p0.z);
+    if (moved > W_TARGET) break;
+  }
   await page.keyboard.up('KeyW');
   await page.waitForTimeout(150);
-  const p1 = await page.evaluate(() => ({ x: window.__game.player.pos.x, z: window.__game.player.pos.z }));
-  const moved = Math.hypot(p1.x - p0.x, p1.z - p0.z);
-  check(moved > 0.5, '按住 W 700ms 玩家应移动 > 0.5m，实际 ' + moved.toFixed(3) + 'm');
+  check(moved > W_TARGET, '按住 W 15s 内玩家应移动 > ' + W_TARGET + 'm，实际 ' + moved.toFixed(3) + 'm');
 
   // 真实鼠标：拖动转视角。无头里指针锁可能没生效，Controls 两条路径（locked mousemove / 拖动）
   // 任一生效都算通过——两条路径都是真实 DOM 事件驱动的。
@@ -751,8 +758,13 @@ async function phaseMobile(ctx) {
       type: 'touchStart',
       touchPoints: [{ x: jumpCenter.x, y: jumpCenter.y, id: 2 }],
     });
-    await page.waitForTimeout(120);
-    const jumped = await page.evaluate(() => window.__game.player.pos.y);
+    // 跳跃是"起跳后几帧内离地"，同样别用固定墙钟等
+    let jumped = 0;
+    const jumpDeadline = Date.now() + 8000;
+    while (Date.now() < jumpDeadline) {
+      jumped = await page.evaluate(() => window.__game.player.pos.y);
+      if (jumped > 0.05) break;
+    }
     await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
     check(jumped > 0.05, '点跳跃按钮后玩家应离地（pos.y > 0.05），实际 y=' + jumped.toFixed(3));
     // 落回地面，避免影响后续
@@ -773,17 +785,27 @@ async function phaseMobile(ctx) {
       type: 'touchMove',
       touchPoints: [{ x: beforeJoy.cx, y: beforeJoy.cy - beforeJoy.w * 0.44, id: 3 }],
     });
-    await page.waitForTimeout(600);
-    const joyState = await page.evaluate(() => ({
-      x: window.__game.player.pos.x,
-      z: window.__game.player.pos.z,
-      moveY: window.__game.controls.move.y,
-      joyActive: document.getElementById('joyBase').classList.contains('active'),
-    }));
+    // 摇杆位移由"实际跑了几帧"决定，不是由墙钟决定：SwiftShader 软渲染在 CI 上可能只有几帧/秒，
+    // 固定等 600ms 会把"机器慢"误判成"摇杆失效"（同一份代码：本地 0.85m、CI 0.35m）。
+    // 所以这里等待"位移达标"，只在超时后才算失败——测的是摇杆有没有驱动移动，不是测试机跑多快。
+    const JOY_TARGET = 0.4;
+    const joyDeadline = Date.now() + 15000;
+    let joyState = null;
+    let joyMoved = 0;
+    while (Date.now() < joyDeadline) {
+      joyState = await page.evaluate(() => ({
+        x: window.__game.player.pos.x,
+        z: window.__game.player.pos.z,
+        moveY: window.__game.controls.move.y,
+        joyActive: document.getElementById('joyBase').classList.contains('active'),
+      }));
+      joyMoved = Math.hypot(joyState.x - beforeJoy.x, joyState.z - beforeJoy.z);
+      if (joyMoved > JOY_TARGET) break;
+    }
     await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
-    const joyMoved = Math.hypot(joyState.x - beforeJoy.x, joyState.z - beforeJoy.z);
-    check(joyState.joyActive, '按住摇杆区域后 #joyBase 应加 .active');
-    check(joyMoved > 0.4, '推摇杆 600ms 玩家应移动 > 0.4m，实际 ' + joyMoved.toFixed(3) + 'm（move.y=' + joyState.moveY + '）');
+    check(joyState && joyState.joyActive, '按住摇杆区域后 #joyBase 应加 .active');
+    check(joyState && joyState.moveY > 0.5, '推摇杆后 controls.move.y 应接近 1，实际 ' + (joyState && joyState.moveY));
+    check(joyMoved > JOY_TARGET, '推摇杆 15s 内玩家应移动 > ' + JOY_TARGET + 'm，实际 ' + joyMoved.toFixed(3) + 'm（move.y=' + (joyState && joyState.moveY) + '）');
 
     // 竖屏：拦截层出现，且游戏不能处于 playing（checkOrientation 会暂停）
     await page.setViewportSize({ width: 390, height: 844 });
@@ -923,7 +945,11 @@ async function phasePerf(ctx) {
   check(perf.maxCalls > 0, '采样期间没有 draw call');
   // 采样窗口必须是完整的 10 秒墙钟（SwiftShader 帧率低，帧数少但时间要够）
   check(perf.windowSec >= 10, '采样窗口不足 10 秒：' + perf.windowSec.toFixed(2) + 's');
-  check(perf.frames >= 30, '10 秒内帧数过少（' + perf.frames + '），采样不足以代表峰值');
+  // 帧数下限按墙钟换算，不写死绝对帧数：CI 的 SwiftShader 软渲染约 3 帧/秒，
+  // 本地约 6 帧/秒，写死 30 帧等于在测"测试机够不够快"。真正要保证的是
+  // "采样窗口覆盖了足够多的渲染帧，峰值 draw call 有意义"，所以按 ≥2 帧/秒兜底。
+  const minFrames = Math.max(8, Math.floor(perf.windowSec * 2));
+  check(perf.frames >= minFrames, '10 秒内帧数过少（' + perf.frames + ' < ' + minFrames + '），采样不足以代表峰值');
   check(perf.maxCalls <= 350, 'draw call 峰值超过 350：' + perf.maxCalls);
   check(perf.maxTris <= 300000, '三角面峰值超过 300000：' + perf.maxTris);
   check(perf.maxZombies >= 3, '第 5 波采样期间应至少同屏 3 只僵尸，实际峰值 ' + perf.maxZombies);
