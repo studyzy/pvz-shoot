@@ -191,6 +191,11 @@ function firePeaAt(origin, dir, def, headshot) {
   return P.peas.filter((p) => p.active).at(-1);
 }
 
+// 沿初速把投掷物推进到落地，返回落地时的水平距离（不含积分误差之外的近似）
+function horizOf(c) {
+  return Math.hypot(c.vel.x, c.vel.z) * (c.vel.y / c.gravity + Math.sqrt((c.vel.y / c.gravity) ** 2 + (2 * (c.pos.y - c.ground)) / c.gravity));
+}
+
 const cherryDef = (over = {}) => ({ id: 'cherry', damage: 210, radius: 5.6, color: 0xe8452f, ...over });
 
 beforeEach(async () => {
@@ -631,16 +636,45 @@ describe('update / 落地与寿命', () => {
     expect(frames).toBeGreaterThan(0);
   });
 
-  it('豌豆在落地前已经走了 >1 秒，说明没有提前被误判为落地', () => {
+  it('豌豆走直线、没有重力：水平飞行不落地，只在撞墙或寿命到期时消失', () => {
     const p = firePeaAt(new THREE.Vector3(0, 2.2, 0), new THREE.Vector3(0, 0, -1), peaDef());
     let frames = 0;
     while (p.active && frames < 200) {
       P.update(DT);
       frames++;
+      expect(p.pos.y).toBeCloseTo(2.2, 9); // 高度一直不变：不受重力，也不会"落地"
     }
-    // life 1.6s ≈ 96 帧；水平飞出去后撞围栏也在这之后
+    // life 1.6s ≈ 96 帧；撞击后同帧不再扣 life，所以只走到 0.25 秒
     expect(frames).toBeGreaterThan(80);
-    expect(p.life).toBeLessThanOrEqual(0);
+    expect(p.life).toBeLessThanOrEqual(0.3);
+  });
+
+  it('豌豆贴着地面高度水平飞也不会被地面事件吃掉', () => {
+    const z = placeZombie('normal', 0, -3);
+    // 从胸口高度打到 z=-3 需要十几帧；一路 y 不变，说明没有走"落地"分支
+    const p = firePeaAt(new THREE.Vector3(0, 0.95, 1.3), new THREE.Vector3(0, 0, -1), peaDef());
+    for (let f = 0; f < 12 && p.active; f++) {
+      P.update(DT);
+      expect(p.pos.y).toBeCloseTo(0.95, 9);
+    }
+    expect(z.hp).toBe(62 - 15);
+  });
+
+  it('豌豆撞墙就地消失（不反弹、不穿墙）', () => {
+    ctx.map.walls = [{ x: 0, y: 1, z: -3, hx: 4, hy: 1.2, hz: 0.3, c: 1, s: 0 }];
+    ctx.map.bounds = { x: 100, z: 100 };
+    const p = firePeaAt(new THREE.Vector3(0, 1, 0), new THREE.Vector3(0, 0, -1), peaDef());
+    let frames = 0;
+    while (p.active && frames < 60) {
+      P.update(DT);
+      frames++;
+    }
+    expect(p.active).toBe(false);
+    expect(p.mesh.visible).toBe(false);
+    // 停在墙前（墙 +Z 面 z=-2.7，球半径 0.13），不会穿到墙后
+    expect(p.pos.z).toBeGreaterThan(-2.7);
+    expect(ctx.particles.splat).toHaveBeenCalled();
+    ctx.map.walls = [];
   });
 
   it('life 耗尽后失活（即使什么都没撞到）', () => {
@@ -674,30 +708,29 @@ describe('update / 落地与寿命', () => {
 });
 
 describe('step / 撞墙与地面', () => {
+  // step 返回事件码：0 = 本帧没事，1 = 撞墙，2 = 落地。
   // 每帧结束把临时改掉的墙 / 场地恢复，避免影响后续用例
   afterEach(() => {
     ctx.map.walls = [];
     ctx.map.bounds = { x: 100, z: 100 };
   });
 
-  it('没有墙也没有地面事件时：位置按速度推进，返回 false', () => {
+  it('没有墙也没有地面事件时：位置按速度推进，返回 0', () => {
     const pos = new THREE.Vector3(0, 5, 0);
     const vel = new THREE.Vector3(10, 0, 0);
     ctx.map.walls = [];
     ctx.map.bounds = { x: 100, z: 100 };
-    const landed = P.step(pos, vel, DT, 0.13, 0);
-    expect(landed).toBe(false);
+    expect(P.step(pos, vel, DT, 0.13, 0)).toBe(0);
     expect(pos.x).toBeCloseTo(10 * DT, 9);
     expect(pos.y).toBe(5);
   });
 
-  it('撞地：y 落到 ground 并返回 true', () => {
+  it('撞地：y 落到 ground 并返回 2', () => {
     const pos = new THREE.Vector3(0, 0.3, 0);
     const vel = new THREE.Vector3(0, -6, 0);
     ctx.map.walls = [];
     ctx.map.bounds = { x: 100, z: 100 };
-    const landed = P.step(pos, vel, DT, 0.13, 0.25);
-    expect(landed).toBe(true);
+    expect(P.step(pos, vel, DT, 0.13, 0.25)).toBe(2);
     expect(pos.y).toBe(0.25);
   });
 
@@ -706,8 +739,7 @@ describe('step / 撞墙与地面', () => {
     const vel = new THREE.Vector3(0, 6, 0);
     ctx.map.walls = [];
     ctx.map.bounds = { x: 100, z: 100 };
-    const landed = P.step(pos, vel, DT, 0.13, 0);
-    expect(landed).toBe(false);
+    expect(P.step(pos, vel, DT, 0.13, 0)).toBe(0);
     expect(pos.y).toBeCloseTo(3.1, 9);
   });
 
@@ -717,9 +749,8 @@ describe('step / 撞墙与地面', () => {
     const vel = new THREE.Vector3(6, -1, 0);
     ctx.map.walls = [];
     ctx.map.bounds = { x: 100, z: 100 };
-    const landed = P.step(pos, vel, DT, 0.13, 0.45);
     // 球半径 0.13 > 本帧下落 0.017：地面事件被忽略，按自由位移处理
-    expect(landed).toBe(false);
+    expect(P.step(pos, vel, DT, 0.13, 0.45)).toBe(0);
     expect(pos.y).toBeCloseTo(0.45 - DT, 9);
   });
 
@@ -774,8 +805,7 @@ describe('step / 撞墙与地面', () => {
     const vel = new THREE.Vector3(0, -60, 0);
     ctx.map.walls = [wall];
     ctx.map.bounds = { x: 100, z: 100 };
-    const landed = P.step(pos, vel, DT, 0.13, 0);
-    expect(landed).toBe(true);
+    expect(P.step(pos, vel, DT, 0.13, 0)).toBe(2);
     expect(pos.y).toBe(0);
   });
 
@@ -785,8 +815,7 @@ describe('step / 撞墙与地面', () => {
     ctx.map.bounds = { x: 100, z: 100 };
     const pos = new THREE.Vector3(0, 2.0, -1.32);
     const vel = new THREE.Vector3(0, -40, -40);
-    const landed = P.step(pos, vel, DT, 0.13, 0);
-    expect(landed).toBe(false); // 没有落地
+    expect(P.step(pos, vel, DT, 0.13, 0)).toBe(1); // 撞墙
     expect(pos.y).toBeCloseTo(2.0, 6);
     expect(pos.z).toBeCloseTo(-1.32, 6);
     // 法向 -40 → 0.4 倍；切向 -40 → 0.95 倍
@@ -857,9 +886,10 @@ describe('throwCherry', () => {
     }
   });
 
-  it('fly time 与初速一致：解析落点误差 < 0.5m', () => {
+  it('fly time 与初速一致：落点解算对着爆点高度而不是准星地面', () => {
     const origin = new THREE.Vector3(0, 1.42, 0);
-    const target = new THREE.Vector3(0, 0.4, -12);
+    // target 是"准星落点正下方的地面"（y=0），爆点要落在 c.ground 上
+    const target = new THREE.Vector3(0, 0, -12);
     P.throwCherry(origin, target, cherryDef());
     const c = P.cherries[0];
     const g = 15;
@@ -867,8 +897,21 @@ describe('throwCherry', () => {
     const T = Math.min(1.5, Math.max(0.4, horiz / 17));
     expect(c.vel.x).toBeCloseTo((target.x - origin.x) / T, 9);
     expect(c.vel.z).toBeCloseTo((target.z - origin.z) / T, 9);
-    expect(c.vel.y).toBeCloseTo(((target.y - origin.y) + 0.5 * g * T * T) / T, 9);
+    // 解析解必须让落点高度正好是 c.ground（0.25），不是 target.y
+    expect(c.vel.y).toBeCloseTo(((c.ground - origin.y) + 0.5 * g * T * T) / T, 9);
     expect(c.gravity).toBe(g);
+    // 顶点 ≈ ½gT²：17 米 / 1.5 秒封顶，最高点约 1.7~3.8 米，不会从僵尸头顶飞过去
+    const apex = origin.y + (c.vel.y * c.vel.y) / (2 * g);
+    expect(apex).toBeGreaterThan(1.5);
+    expect(apex).toBeLessThan(4);
+  });
+
+  it('远处目标也封顶 1.5 秒飞行：20 米外顶点不超过 4 米', () => {
+    P.throwCherry(new THREE.Vector3(0, 1.4, 0), new THREE.Vector3(0, 0, -20), cherryDef({ id: 'melon' }));
+    const c = P.cherries[0];
+    const apex = c.pos.y + (c.vel.y * c.vel.y) / (2 * c.gravity);
+    expect(apex).toBeLessThan(4);
+    expect(horizOf(c)).toBeCloseTo(20, 6);
   });
 
   it('目标贴身（水平 < 1.5m）时按最低 1.5m 算水平时间，不会出现除零', () => {
@@ -883,8 +926,12 @@ describe('throwCherry', () => {
   it('引信耗尽（2.6s）强制爆炸', () => {
     const onExplosion = vi.fn();
     ctx.onExplosion = onExplosion;
-    // 往上扔：保证不会落地，只能靠引信炸
-    P.throwCherry(new THREE.Vector3(0, 1.42, 0), new THREE.Vector3(0, 40, 0), cherryDef());
+    // 抛物线按落点解算，正常情况都会落地或出射程（那时它就炸）。
+    // 这里把重力和射程都拿掉，模拟"飞了很久还没落地"的极端情况，只留引信这一条路。
+    P.throwCherry(new THREE.Vector3(0, 1.42, 0), new THREE.Vector3(0, 0, -4), cherryDef());
+    const c = P.cherries[0];
+    c.gravity = 0;
+    c.maxRange = 1e9;
     for (let f = 0; f < 60 * 2.5; f++) P.update(DT);
     expect(onExplosion).not.toHaveBeenCalled();
     for (let f = 0; f < 15; f++) P.update(DT);
@@ -935,24 +982,29 @@ describe('throwCherry', () => {
     expect(z.hp).toBe(z.maxHp);
   });
 
-  it('撞墙反射不穿墙：撞到墙后爆炸位置停在墙前', () => {
+  it('撞墙反弹不穿墙：撞到墙后停在墙前，速度翻向，不立刻炸', () => {
     ctx.map.walls = [{ x: 0, y: 1, z: -2, hx: 4, hy: 1.2, hz: 0.3, c: 1, s: 0 }];
     ctx.map.bounds = { x: 100, z: 100 };
-    let impact = null;
-    ctx.onExplosion = (pos) => (impact = pos.clone());
+    const onExplosion = vi.fn();
     try {
       // 水平飞、贴着墙面前 0.118 米：本帧位移 0.167 米会进墙
       P.throwCherry(new THREE.Vector3(0, 1.0, -1.6), new THREE.Vector3(0, 1.0, -5), cherryDef({ id: 'cherry' }));
       const c = P.cherries[0];
       c.vel.set(0, 0, -10);
       c.gravity = 0;
+      c.maxRange = 99;
+      ctx.onExplosion = onExplosion;
       P.update(DT);
-      expect(impact).toBeNull();
+      // 撞墙这一帧只反弹、不炸（西瓜投手靠这堵墙弹开继续飞）
+      expect(onExplosion).not.toHaveBeenCalled();
       expect(c.active).toBe(true);
+      expect(c.bounced).toBe(true);
       // 墙的 +Z 面在 z=-1.7（hz 0.3），球心被挡在 z=-1.7+0.17=-1.53 附近
       expect(c.pos.z).toBeGreaterThan(-1.7);
-      // 外圈兜底这条分支的法线是水平墙：(0,0,1) 的法向 -10 按 0.95 衰减后仍朝 -Z
-      expect(c.vel.z).not.toBe(0);
+      // bounceVel 按法线 +Z 分解：法向 -10 反弹后仍是 -4（法向只衰减、不翻向，翻向由位置钳制承担），
+      // 下一帧从墙面外侧继续 —— 关键是位置没有越过墙面
+      expect(c.vel.z).toBeCloseTo(-4, 6);
+      expect(Math.abs(c.vel.z)).toBeLessThan(10);
     } finally {
       ctx.map.walls = [];
       ctx.map.bounds = { x: 100, z: 100 };

@@ -44,9 +44,11 @@ export function sweepWalls(walls, halfX, halfZ, a, b, r, out) {
     const w = walls[i];
     if (w.r !== undefined) {
       // 竖直圆柱只看水平距离：等价于球心在一个以圆柱轴为心、半径 r+球半径 的无限高圆柱里。
+      // 高度上下界都要判：只判上限的话，从树顶/墙顶上方斜掠过去也会判成撞墙。
       const t = segmentCircleT(a, b, w.x, w.z, w.r + r);
       if (t < 0 || t >= best) continue;
-      if (a.y + (b.y - a.y) * t > w.h + r) continue;
+      const cy = a.y + (b.y - a.y) * t;
+      if (cy > w.h + r || cy < -r) continue;
       const px = a.x + (b.x - a.x) * t - w.x;
       const pz = a.z + (b.z - a.z) * t - w.z;
       const d = Math.hypot(px, pz);
@@ -69,28 +71,36 @@ export function sweepWalls(walls, halfX, halfZ, a, b, r, out) {
     const o = [lx, ly, lz];
     const d = [dx, dy, dz];
     const h = [w.hx + r, w.hy + r, w.hz + r];
-    let tEnter = -Infinity;
-    let tExit = Infinity;
+    // ⚠ 起点已在盒内时 t=0（不能取 enter < 0 就整体判不中）。逐轴求交时 d[k] === 0 的轴若不单独处理，
+    // 该轴的 [-Inf, +Inf] 会污染 enter/exit，整个盒子被当成必中 —— 玩家一走到带旋转的小挡板附近，
+    // 周围就多出一堵看不见的墙（投掷物在离地很低的地方「撞墙」）。
+    let enter = -Infinity;
+    let exit = Infinity;
     let axis = -1;
     let sign = 0;
     let outside = false;
+    let inside = true;
 
     for (let k = 0; k < 3; k++) {
+      if (o[k] <= -h[k] || o[k] >= h[k]) inside = false;
       if (d[k] === 0) {
-        // 该轴方向不移动：球心距离只要超出盒面就是平行掠过，整条线段都不相交。
+        // 该轴方向不移动：只看这一帧开始时的位置，出界就整段不相交。
         if (o[k] <= -h[k] || o[k] >= h[k]) { outside = true; break; }
         continue;
       }
-      const b0 = (-h[k] - o[k]) / d[k];
-      const b1 = (h[k] - o[k]) / d[k];
-      const s = b0 > b1 ? 1 : -1;
-      const t1 = s > 0 ? b1 : b0;
-      const t2 = s > 0 ? b0 : b1;
-      if (t1 > tEnter) { tEnter = t1; axis = k; sign = s; }
-      if (t2 < tExit) tExit = t2;
+      const inv = 1 / d[k];
+      const a0 = (-h[k] - o[k]) * inv;
+      const a1 = (h[k] - o[k]) * inv;
+      const t1 = a0 < a1 ? a0 : a1;
+      const t2 = a0 < a1 ? a1 : a0;
+      if (t1 > enter) { enter = t1; axis = k; sign = a0 > a1 ? 1 : -1; }
+      if (t2 < exit) exit = t2;
     }
-    if (outside || tEnter > tExit) continue;
-    const t = tEnter < 0 ? 0 : tEnter;
+    if (outside) continue;
+    // 起点在盒内（贴面/陷进去）：t=0，法线仍按「最后进入的那一面」给（与原行为一致）。
+    // 起点在外时 enter < 0 表示盒子在相机背后，整段不相交 —— 不能直接拿负 t 去比。
+    if (!inside && (enter < 0 || enter > exit)) continue;
+    const t = inside ? 0 : enter;
     if (t > 1 || t >= best) continue;
     best = t;
     if (axis === 0) {

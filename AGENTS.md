@@ -97,6 +97,13 @@ npm run preview   # 预览构建产物
 → 击杀时 `ZombieManager.handleKill()`（计分 ×1.5 爆头、掉阳光、Boss 清理）
 → `ctx.onKill` → `Game.stats` + HUD。
 
+**弹道方向必须从相机出发，不能从枪口出发。** `models[i].muzzle` 在视图模型里、比准星低约 0.28 米、偏右约 0.25 米，从枪口朝准星打会系统性偏右下（近距离尤其明显），这是"子弹和准星对不上"的老 bug。现在 `tryFire` 里：
+- 直线弹种（`kind: 'pea' | 'hitscan'`，没写 `arc`）从 `camera.position` 出发，方向 = 相机或瞄准辅助的解算点，**没有重力**；
+- 只有 `arc: true` 的投掷物（樱桃、西瓜）从枪口出手，有重力（`ProjectileSystem.throwCherry` 解算抛物线，落点对着 `c.ground`，飞行时间封顶 1.5 秒）；
+- 准星落点统一走 `WeaponSystem.groundRange()`（准星正前方的地面点，水平 2～22 米），玉米炮/辣椒的即时爆炸和投掷物共用，别各写一套。
+
+**撞墙规则**：豌豆撞墙就地消失（`ProjectileSystem.update` 里 `step()` 返回非 0 就回收），投掷物撞墙由 `step()` 返回 1 交给 `stepCherry` 反弹后继续飞、落地（返回 2）才炸。`HitWalls.sweepWalls` 是唯一判定入口，改它要小心 `d[k] === 0` 的轴——那里出过"整个盒子必中"，表现为地图上凭空多出看不见的墙。
+
 爆炸走 `ZombieManager.damageArea()`，按距离衰减（中心 100%，边缘 45%），并在内部完成击杀结算。
 
 地面拾取的植物走另一条线：`WeaponPickups` 检测玩家距离 → `WeaponSystem.pickup(index)` 设置`carried`与满弹匣 → 立即装备。**枪免费捡，子弹用阳光买**：开火扣弹药；打空后 `tryReload()` 自动扣 `cost × ammo` 续一整梭子，阳光不够则 `locked`（枪不丢，HUD 变暗显示"缺阳光"），攒够后自动续弹。只有主动按 5 才 `dropLoot()` 回豌豆。
@@ -306,7 +313,7 @@ CI（`.github/workflows/ci.yml`）在每次 push 到 main 和每个 PR 上跑三
 
 | job | 内容 | 失败条件 |
 | --- | --- | --- |
-| **UT + 集成测试** | `vitest run --coverage`（812 用例） | 任何用例失败；覆盖率低于 `vitest.config.js` 的 `thresholds`（语句/行 98%、分支 94%、函数 97%） |
+| **UT + 集成测试** | `vitest run --coverage`（833 用例） | 任何用例失败；覆盖率低于 `vitest.config.js` 的 `thresholds`（语句/行 98%、分支 94%、函数 97%） |
 | **浏览器级 E2E** | `playwright-core install --with-deps chromium` + `npm run test:e2e`（7 场景） | 任一场景 FAIL 或页面出现 console.error / pageerror |
 | **生产构建** | `npm run build` | 构建失败 |
 
@@ -324,7 +331,7 @@ CI（`.github/workflows/ci.yml`）在每次 push 到 main 和每个 PR 上跑三
 - **普通**骷髅只在雪地图出现、同屏最多 3 只——它单只 9 个 draw call（僵尸 2 个），详见 5.3.1。想提高上限先想办法合并它的蒙皮网格。巨型骷髅 Boss 不受此限（每波 1 只）。
 - 僵尸用的是 Quaternius `Idle/Walk/Idle_Attack/Death/HitReact` 五段动画，攻击节奏由代码控制（`attackTimer` 1.28 秒）而不是动画事件对齐；没有 IK、没有动画事件回调，脚在急转弯时仍会轻微滑步。要完全贴合得接 IK 或动画事件。
 - Boss（巨型骷髅，约 4.48 米，手持带钉木棒）只有高血量/高伤害/大攻击距离，没有专属技能；木棒只是外观，不单独计算护甲或伤害。
-- 爆炸无视遮挡（地图开阔）；辅助瞄准不预判移动。
+- 爆炸位置本身不判遮挡（范围伤害照算），但豌豆和投掷物会被地图 `walls` 挡住；辅助瞄准不预判移动。
 - 僵尸默认不做网格寻路；雪地用 1 米网格流场绕开田字四柱（`IceWorld.updateNav`），其他地图仍是直线追击 + 分离 + 碰撞推出，并带贴墙滑动。
 - 割草机是装饰，不会触发清场。
 - 地面武器同时只能拿一把，不能手动丢弃或囤两把；再捡一把会替换当前战利品。续弹自动完成，没有换弹动画。

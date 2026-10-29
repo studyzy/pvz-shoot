@@ -282,6 +282,42 @@ describe('sweepWalls / 旋转盒', () => {
     expect(t).toBeCloseTo(3.3 / 15, 9);
     expectNormal(out, { x: 0, y: 1, z: 0 });
   });
+
+  // 回归：d[k] === 0 的轴曾算出 [-Infinity, +Infinity]，污染 enter/exit 的比较，
+  // 让整个盒子无条件命中 —— 后院割草机（0.52 rad）周围因此出现一堵看不见的墙，
+  // 投掷物在离地 4 米、「离割草机 17 米」的地方就报撞墙，西瓜在墙根提前炸。
+  it('起点在外、盒子在身后的斜向短线段不会误判命中', () => {
+    const out = vec();
+    // 从 (2, 1, 0) 朝 -X 飞：盒子在身后，整段都不相交
+    expect(sweepWalls([box(0, 1, 0, 1, 1, 1)], 100, 100, vec(2, 1, 0), vec(1.2, 1.1, 0.05), 0.13, out)).toBe(-1);
+  });
+
+  it('起点在盒面外侧 0.01 米、朝远离盒子的方向发射：t < 0，判定不命中', () => {
+    const out = vec();
+    // 外扩面在 x = 1 + 0.13，起点 1.14 刚好压在上面，朝 +X 走
+    const t = sweepWalls([box(0, 1, 0, 1, 1, 1)], 100, 100, vec(1.14, 1, 0.5), vec(3, 1, 0.5), 0.13, out);
+    expect(t).toBeLessThan(0);
+  });
+
+  it('x/z 方向都不移动的竖直下落不会命中远处的旋转盒', () => {
+    const yaw = 0.5236;
+    const mower = { x: 0, y: 0.36, z: 5, hx: 0.45, hy: 0.36, hz: 0.3, c: Math.cos(yaw), s: Math.sin(yaw) };
+    const out = vec();
+    // 水平离盒心 17 米、从 5 米高竖直落下来：三条轴里有两条全程出界
+    expect(sweepWalls([mower], 100, 100, vec(0, 5, -12), vec(0, 4, -12), 0.17, out)).toBe(-1);
+    // 沿 -Z 飞过来但在盒子上方 3 米：同样不中
+    expect(sweepWalls([mower], 100, 100, vec(0, 4, 12), vec(0, 4, -12), 0.17, out)).toBe(-1);
+  });
+
+  it('只有一个轴不移动时仍按真实几何判定：正上方命中、侧面掠过不中', () => {
+    const yaw = 0.5236;
+    const mower = { x: 0, y: 0.36, z: 5, hx: 0.45, hy: 0.36, hz: 0.3, c: Math.cos(yaw), s: Math.sin(yaw) };
+    const out = vec();
+    // 只沿 Y 下落、水平位置正好在盒顶上方（盒顶 0.72 + 球 0.17）：命中
+    expect(sweepWalls([mower], 100, 100, vec(0, 2, 5), vec(0, 0.8, 5), 0.17, out)).toBeGreaterThanOrEqual(0);
+    // 只沿 Z 移动、但高度在盒子上方 3 米：不中
+    expect(sweepWalls([mower], 100, 100, vec(-2, 4, 8), vec(-2, 4, 2), 0.17, out)).toBe(-1);
+  });
 });
 
 describe('sweepWalls / 外圈兜底与多墙', () => {

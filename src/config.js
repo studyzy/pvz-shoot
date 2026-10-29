@@ -71,6 +71,8 @@ export const WEAPONS = [
     cooldown: 1.3,
     damage: 210,
     kind: 'lob',
+    // arc：有重力的投掷物。直线弹种（pea / hitscan）统一从准星出发，不参与重力，撞墙即消失
+    arc: true,
     speed: 21,
     radius: 5.6,
     color: 0xe8452f,
@@ -179,6 +181,7 @@ export const WEAPONS = [
     cooldown: 1.55,
     damage: 280,
     kind: 'lob',
+    arc: true,
     speed: 21,
     radius: 6.6,
     color: 0x3fae3a,

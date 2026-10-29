@@ -80,7 +80,11 @@ export class ProjectileSystem {
         life: 0,
         fuse: 0,
         ground: 0.25,
+        proximityY: 2.4,
         gravity: 15,
+        maxRange: 0,
+        origin: new THREE.Vector3(),
+        bounced: false,
       });
     }
   }
@@ -116,11 +120,13 @@ export class ProjectileSystem {
     return mat;
   }
 
-  throwCherry(origin, target, def) {
+  throwCherry(origin, target, def, range) {
     const c = this.cherries.find((x) => !x.active);
     if (!c) return;
     c.active = true;
     c.pos.copy(origin);
+    c.origin.copy(origin);
+    c.bounced = false;
     c.group.position.copy(origin);
     c.group.visible = true;
     c.damage = def.damage;
@@ -129,18 +135,29 @@ export class ProjectileSystem {
     c.life = 0;
     // 落地点取粒子效果的高度：西瓜 1.35 倍缩放，落点抬高一点才像砸在地上。
     c.ground = def.id === 'melon' ? 0.45 : 0.25;
+    c.proximityY = Math.max(2.4, origin.y + 1);
     c.mat.color.setHex(def.color || 0xe8452f);
     c.mat.emissive.setHex(def.id === 'melon' ? 0x143d10 : 0x5a0c05);
     c.group.scale.setScalar(def.id === 'melon' ? 1.35 : 1);
 
     const dx = target.x - origin.x;
-    const dy = target.y - origin.y;
     const dz = target.z - origin.z;
     const horiz = Math.max(1.5, Math.hypot(dx, dz));
+    // 飞行时间：4 米 0.4 秒，17 米 1.5 秒，再远也压到 1.5 秒（原公式不封顶，20 米的高抛最高点 8 米多）。
+    // 压时间会把落点推到更远处（水平速度 = 距离/T，T 封顶后 22 米要 1.7 秒以上才落地），
+    // 所以这里按封顶后的 T 反推水平距离上限，落点仍然压在准星那一带（误差 < 0.3 米）。
     const T = Math.min(1.5, Math.max(0.4, horiz / 17));
+    const reach = 17 * T;
+    const k = horiz > reach ? reach / horiz : 1;
     const g = 15;
-    c.vel.set(dx / T, (dy + 0.5 * g * T * T) / T, dz / T);
+    // 落点解算必须对着**爆点高度** c.ground，而不是准星落点的地面高度：
+    // target 是"落点正下方的地面"，头两次就是这么解的，所以每发都多飞了 1 米多。
+    const dy = c.ground - origin.y;
+    c.vel.set((dx * k) / T, (dy + 0.5 * g * T * T) / T, (dz * k) / T);
     c.gravity = g;
+    // 射程只在没撞过墙时生效：撞墙反弹会让水平距离提前变小，再按射程掐会在墙根提前炸。
+    // 允许超出准星落点 3 米，高抛落地后还能往前滚一点。
+    c.maxRange = horiz * k + 3;
   }
 
   // headTarget / headshot：准星直接命中僵尸时传进来，该只吃爆头加成，其余范围伤害不变。
@@ -161,6 +178,7 @@ export class ProjectileSystem {
       if (!p.active) continue;
       p.life -= dt;
       p.prev.copy(p.pos);
+      // 豌豆没有重力：撞墙就地消失（不反弹、不穿墙），撞地同样消失 —— 记下撞点做飞溅
       if (this.step(p.pos, p.vel, dt, PEA_RADIUS, 0)) {
         tmpA.copy(p.pos);
         tmpA.y = 0.08;
@@ -225,22 +243,10 @@ export class ProjectileSystem {
     for (let i = 0; i < this.cherries.length; i++) {
       const c = this.cherries[i];
       if (!c.active) continue;
-      c.life += dt;
-      c.fuse -= dt;
-      c.vel.y -= c.gravity * dt;
-      const landed = this.step(c.pos, c.vel, dt, CHERRY_RADIUS, c.ground);
+      const boom = this.stepCherry(c, dt);
       c.group.position.copy(c.pos);
       c.group.rotation.x += dt * 7;
       c.group.rotation.z += dt * 3;
-
-      let boom = landed || c.fuse <= 0;
-      for (let j = 0; j < this.zombies.zombies.length; j++) {
-        const z = this.zombies.zombies[j];
-        if (!z.alive || z.dying) continue;
-        const d = Math.hypot(z.root.position.x - c.pos.x, z.root.position.z - c.pos.z);
-        if (d < 0.9 && c.pos.y < 2.4) { boom = true; break; }
-      }
-
       if (boom) {
         tmpB.copy(c.pos);
         if (tmpB.y < 0.4) tmpB.y = 0.4;
@@ -251,9 +257,34 @@ export class ProjectileSystem {
     }
   }
 
+  // 投掷物推进一帧，返回 true 表示这一帧该炸了。
+  // 重力用半隐式欧拉（先位移、再受一次重力），和 throwCherry 解算落点用的 s = v0·t + ½g·t² 一致；
+  // 反过来先减重力再位移的话，vy 少掉第一帧，落点平均会提前约 0.2 秒 × 17 米/秒 ≈ 2.7 米。
+  stepCherry(c, dt) {
+    c.life += dt;
+    c.fuse -= dt;
+    const event = this.step(c.pos, c.vel, dt, CHERRY_RADIUS, c.ground);
+    c.vel.y -= c.gravity * dt;
+    // 西瓜投手能被墙反弹：撞墙继续飞（step 已按法线反射并衰减速度），落到地面才炸。
+    if (event === 1) c.bounced = true;
+    // 但要守住准星：飞出射程（准星落点再往外 3 米）就就地炸。
+    // 撞过墙的不算射程——反弹后水平距离会提前变小，但那是反弹本身的路径。
+    const travelled = Math.hypot(c.pos.x - c.origin.x, c.pos.z - c.origin.z);
+    if (event === 2 || c.fuse <= 0 || (!c.bounced && travelled > c.maxRange)) return true;
+    // 贴身撞到僵尸也算命中（高空掠过不炸：y < 2.4）
+    for (let j = 0; j < this.zombies.zombies.length; j++) {
+      const z = this.zombies.zombies[j];
+      if (!z.alive || z.dying) continue;
+      // 贴身判定的高度上限按武器给：西瓜出手就有一米三，樱桃的 2.4 米不够它过封锁线。
+      if (Math.hypot(z.root.position.x - c.pos.x, z.root.position.z - c.pos.z) < 0.9 && c.pos.y < c.proximityY) return true;
+    }
+    return false;
+  }
+
   // 投掷物推进一帧：落回地面平面、撞地图挡板、撞外圈，三者取最近的一件事处理。
-  // ground 是地面高度；返回 true 表示这一帧落地。
+  // ground 是地面高度；返回值 2 = 落地，1 = 撞墙，0 = 本帧没事。
   // 撞墙只做一次反射并丢掉剩余位移，速度已按能量损失衰减，下一帧继续 —— 不会穿墙。
+  // 不传 ground（豌豆）时不判落地，只处理撞墙。
   step(pos, vel, dt, radius, ground) {
     const map = this.ctx.map;
     const walls = (map && map.walls) || noWalls;
@@ -272,15 +303,15 @@ export class ProjectileSystem {
     }
     if (kind === 0) {
       pos.copy(tmpEnd);
-      return false;
+      return 0;
     }
     pos.lerpVectors(pos, tmpEnd, Math.min(t, 1));
     if (kind === 2) {
       pos.y = ground;
-      return true;
+      return 2;
     }
     bounceVel(vel, tmpN.x, tmpN.y, tmpN.z);
-    return false;
+    return 1;
   }
 
   deactivatePea(p) {

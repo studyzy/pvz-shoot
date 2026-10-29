@@ -311,6 +311,13 @@ export class HUD {
     this.bossFill.style.width = Math.max(0, Math.min(1, ratio)) * 100 + '%';
   }
 
+  // 投掷物（西瓜）走抛物线，准星只表示「落点方向」，所以换成圆圈准星，和直线弹种区分开
+  setCrosshair(arc) {
+    if (this.arcCross === arc) return;
+    this.arcCross = arc;
+    this.crosshair.classList.toggle('arc', arc);
+  }
+
   setAimLock(on) {
     if (this.aimLock === on) return;
     this.aimLock = on;
@@ -393,6 +400,7 @@ export class HUD {
     this.hitmarkerEl.classList.remove('show', 'head');
     this.crosshair.classList.remove('lock');
     this.aimLock = false;
+    this.setCrosshair(false);
     this.damageEl.classList.remove('show');
     this.bannerEl.classList.remove('show');
     this.tutorialEl.classList.add('fade');

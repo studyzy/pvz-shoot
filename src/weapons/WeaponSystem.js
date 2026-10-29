@@ -11,6 +11,7 @@ const tmpHead = new THREE.Vector3();
 const tmpMuzzle = new THREE.Vector3();
 const tmpSegEnd = new THREE.Vector3();
 const tmpTarget = new THREE.Vector3();
+const tmpAim = new THREE.Vector3();
 const UP = new THREE.Vector3(0, 1, 0);
 const outlineMat = new THREE.MeshBasicMaterial({ color: 0x213c08, side: THREE.BackSide });
 
@@ -606,6 +607,8 @@ export class WeaponSystem {
     this.cooldown = Math.max(0, this.cooldown - dt);
     this.swapAnim = Math.max(0, this.swapAnim - dt * 4);
     this.recoil = Math.max(0, this.recoil - dt * 6);
+    // 相机视野是各弹种共用的「准星」，弹道都按它解算，不再跟着视图模型的摆动走
+    this.ctx.hud.setCrosshair(!!WEAPONS[this.current].arc);
 
     const req = controls.consumeWeaponRequest();
     if (req >= 0) this.equip(req);
@@ -675,38 +678,46 @@ export class WeaponSystem {
     }
     this.cooldown = def.cooldown;
 
-    const assist = this.assist && this.resolveAssist(this.assist);
+    // 辅助瞄准（只有直线弹种）：把弹道方向扭向锁定的僵尸。
+    // 投掷物不扭方向，改成把落点挪到锁定的僵尸脚下 —— 它用的是完全不同的落点解算。
+    const assist = !def.arc && this.assist && this.resolveAssist(this.assist);
     const targetPoint = assist ? assist.point : this.forwardPoint(70, tmpTarget);
     const headshot = !!assist && assist.head;
     const model = this.models[this.current];
     model.muzzle.getWorldPosition(tmpMuzzle);
-    const shots = Math.max(1, def.shots || 1);
 
-    if (def.kind === 'pea') {
-      for (let s = 0; s < shots; s++) {
-        tmpOrigin.copy(tmpMuzzle);
-        tmpTo.copy(targetPoint).sub(tmpOrigin).normalize();
-        if (shots > 1) {
-          const off = (s - (shots - 1) * 0.5) * (def.spread || 0.03);
-          tmpTo.applyAxisAngle(UP, off);
-        }
-        this.ctx.projectiles.spawnPea(tmpOrigin, tmpTo, def, headshot);
+    if (def.arc) {
+      // 有重力的投掷物（西瓜/樱桃）：落点就是准星指的那片地。
+      // 准星锁定了僵尸就砸它脚下：视线只在背身时贴地，顺着视线投影落点会越过头顶落到后头去。
+      const range = this.groundRange(tmpAim);
+      const lock = this.assist;
+      if (lock && lock.zombie.alive && !lock.zombie.dying) {
+        tmpAim.set(lock.zombie.root.position.x, 0, lock.zombie.root.position.z);
+        range.dist = clamp(Math.hypot(tmpAim.x - this.camera.position.x, tmpAim.z - this.camera.position.z), 2, 22);
       }
-      this.particlesAtMuzzle(def, shots);
-      if (def.slow) this.ctx.sfx.shootIce();
-      else this.ctx.sfx.shootPea();
-    } else if (def.kind === 'lob') {
-      tmpOrigin.copy(tmpMuzzle);
-      if (!assist) {
-        // aim at the ground in front of the player
-        this.camera.getWorldDirection(tmpFwd);
-        const t = tmpFwd.y < -0.02 ? (tmpOrigin.y - 0.2) / -tmpFwd.y : 16;
-        targetPoint.copy(this.camera.position).addScaledVector(tmpFwd, Math.min(t, 22));
-      }
-      this.ctx.projectiles.throwCherry(tmpOrigin, targetPoint, def);
+      this.ctx.projectiles.throwCherry(tmpMuzzle, tmpAim, def, range);
       this.ctx.sfx.throwCherry();
     } else {
-      this.hitscan(def, targetPoint, headshot);
+      // 直线弹道从**相机**出发（不是枪口）：枪口在枪管里、还比准星低一点，
+      // 从枪口朝准星打会在近距离系统性地偏右下，远一点又偏右 —— 这就是"子弹和准星不一致"。
+      // 真正的子弹从眼睛发出不真实，但 FPS 里看得见的只有准星，先保证打哪儿中哪儿。
+      tmpOrigin.copy(this.camera.position);
+      const shots = Math.max(1, def.shots || 1);
+      if (def.kind === 'pea') {
+        for (let s = 0; s < shots; s++) {
+          tmpTo.copy(targetPoint).sub(tmpOrigin).normalize();
+          if (shots > 1) {
+            const off = (s - (shots - 1) * 0.5) * (def.spread || 0.03);
+            tmpTo.applyAxisAngle(UP, off);
+          }
+          this.ctx.projectiles.spawnPea(tmpOrigin, tmpTo, def, headshot);
+        }
+        this.particlesAtMuzzle(def, shots);
+        if (def.slow) this.ctx.sfx.shootIce();
+        else this.ctx.sfx.shootPea();
+      } else {
+        this.hitscan(def);
+      }
     }
 
     this.recoil = Math.min(1.6, this.recoil + 0.9);
@@ -732,20 +743,17 @@ export class WeaponSystem {
     });
   }
 
-  hitscan(def, targetPoint, aimHead) {
+  // 从相机沿视线扫掠僵尸：返回第一个被命中的 { zombie, head, dist, pos }，没打到返回 null。
+  // 瞬时命中（玉米炮/辣椒）和西瓜落点判定共用，保证「准星指谁」在两条线上算法一致。
+  raycastZombies() {
     this.camera.getWorldDirection(tmpFwd);
     tmpOrigin.copy(this.camera.position);
-    const maxDist = 90;
-    tmpSegEnd.copy(tmpOrigin).addScaledVector(tmpFwd, maxDist);
-
+    tmpSegEnd.copy(tmpOrigin).addScaledVector(tmpFwd, 90);
     let bestT = 2;
-    let bestPos = null;
-    let bestZ = null;
-    let headshot = aimHead;
+    let hit = null;
     for (let i = 0; i < this.ctx.zombies.zombies.length; i++) {
       const z = this.ctx.zombies.zombies[i];
       if (!z.alive || z.dying) continue;
-      if (aimHead && z !== this.assist.zombie) continue;
       // hitRadiusScale：骷髅模型体块比例不同，半径跟着模型走（僵尸默认 1，口径不变）
       const rs = z.hitRadiusScale || 1;
       z.getChest(tmpChest);
@@ -754,10 +762,8 @@ export class WeaponSystem {
       const t2 = segmentSphereT(tmpOrigin, tmpSegEnd, tmpHead, 0.36 * z.scaleFactor * rs);
       let t = -1;
       let head = false;
-      if (aimHead) {
-        t = t2 >= 0 ? t2 : t1;
-        head = true;
-      } else if (t2 >= 0 && (t1 < 0 || t2 <= t1)) {
+      // 和 ProjectileSystem 同一套判定：头部球更小时严格比较 t，同 t 头部优先
+      if (t2 >= 0 && (t1 < 0 || t2 <= t1)) {
         t = t2;
         head = true;
       } else if (t1 >= 0) {
@@ -765,29 +771,33 @@ export class WeaponSystem {
       }
       if (t >= 0 && t < bestT) {
         bestT = t;
-        bestZ = z;
-        headshot = head;
-        bestPos = new THREE.Vector3().copy(tmpOrigin).addScaledVector(tmpFwd, maxDist * t);
+        hit = { zombie: z, head, dist: 90 * t, pos: new THREE.Vector3().copy(tmpOrigin).addScaledVector(tmpFwd, 90 * t) };
       }
     }
+    return hit;
+  }
 
-    let impact;
-    if (bestPos) {
-      impact = bestPos;
-    } else {
-      let t = maxDist;
-      if (tmpFwd.y < -0.01) {
-        const g = (tmpOrigin.y - 0.15) / -tmpFwd.y;
-        if (g > 0 && g < maxDist) t = g;
-      }
-      impact = new THREE.Vector3().copy(tmpOrigin).addScaledVector(tmpFwd, t);
-      if (impact.y < 0.15) impact.y = 0.15;
-      if (t >= maxDist) impact.copy(targetPoint);
-    }
-
-    this.ctx.projectiles.explodeAt(impact, def.radius, def.damage, true, bestZ, headshot);
+  hitscan(def) {
+    this.camera.getWorldDirection(tmpFwd);
+    tmpOrigin.copy(this.camera.position);
+    const hit = this.raycastZombies();
+    const impact = hit ? hit.pos : this.groundRange(tmpAim).point;
+    this.ctx.projectiles.explodeAt(impact, def.radius, def.damage, true, hit && hit.zombie, !!hit && hit.head);
     this.ctx.sfx.cannon();
     this.ctx.shake(0.55);
+  }
+
+  // 投掷物的落点：准星正前方那片地。
+  // 视线水平或朝上时与地面永不相交，退化成「准星指向的前方 16 米，最多 22 米」。
+  // 返回 { dist：离相机的水平距离, y：落点地面高度 }，落点本身写进 out。
+  groundRange(out) {
+    this.camera.getWorldDirection(tmpFwd);
+    tmpOrigin.copy(this.camera.position);
+    const flat = Math.hypot(tmpFwd.x, tmpFwd.z);
+    let horiz = tmpFwd.y < -0.02 ? (tmpOrigin.y * flat) / -tmpFwd.y : 16;
+    horiz = clamp(horiz, 2, 22);
+    out.set(tmpOrigin.x + (tmpFwd.x / flat) * horiz, 0, tmpOrigin.z + (tmpFwd.z / flat) * horiz);
+    return { dist: horiz, y: 0, point: out };
   }
 
   findAimTarget(def) {
@@ -842,6 +852,8 @@ export class WeaponSystem {
     }
     this.carried = -1;
     this.ctx.hud.setLoot(-1);
+    // 重开一局若不走武器 update（例如暂停中清 HUD），圆形准星会残留到下一局第一帧
+    this.ctx.hud.setCrosshair(false);
     this.equip(0, true);
   }
 }

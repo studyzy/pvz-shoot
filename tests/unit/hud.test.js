@@ -8,6 +8,39 @@ const $ = (id) => document.getElementById(id);
 const starterWeapons = WEAPONS.filter((w) => w.starter);
 const click = (el) => el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
 
+describe('HUD 投掷物准星', () => {
+  let hud;
+
+  beforeEach(() => {
+    installGlobals();
+    mountIndexHtml();
+    hud = new HUD();
+  });
+
+  it('setCrosshair(true) 给准星加 arc 类，false 去掉；重复设置不重复触发', () => {
+    const el = $('crosshair');
+    expect(el.classList.contains('arc')).toBe(false);
+    hud.setCrosshair(true);
+    expect(el.classList.contains('arc')).toBe(true);
+    hud.setCrosshair(true); // 缓存命中，仍是 arc
+    expect(el.classList.contains('arc')).toBe(true);
+    hud.setCrosshair(false);
+    expect(el.classList.contains('arc')).toBe(false);
+  });
+
+  it('reset() 清掉 arc 与 lock，回到直线准星', () => {
+    const el = $('crosshair');
+    hud.setCrosshair(true);
+    hud.setAimLock(true);
+    hud.reset();
+    expect(el.classList.contains('arc')).toBe(false);
+    expect(el.classList.contains('lock')).toBe(false);
+    // reset 后缓存也要同步：再设一次 true 仍能生效
+    hud.setCrosshair(true);
+    expect(el.classList.contains('arc')).toBe(true);
+  });
+});
+
 describe('HUD', () => {
   let hud;
 

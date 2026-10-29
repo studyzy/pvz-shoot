@@ -474,6 +474,13 @@ describe('开火：阳光与冷却', () => {
     }
   });
 
+  it('reset() 会把准星从圆形（投掷物）切回直线', () => {
+    const spy = vi.spyOn(game.hud, 'setCrosshair');
+    W.reset();
+    expect(spy).toHaveBeenCalledWith(false);
+    spy.mockRestore();
+  });
+
   it('swapAnim / recoil 随时间衰减', () => {
     W.swapAnim = 1;
     W.recoil = 1;
@@ -482,6 +489,123 @@ describe('开火：阳光与冷却', () => {
     expect(W.swapAnim).toBe(0); // max(0, 1 - 0.25*4)
     expect(W.recoil).toBe(0); // max(0, 1 - 0.25*6)
     expect(W.cooldown).toBeCloseTo(0.75, 9);
+  });
+});
+
+describe('开火：准星与弹道一致（回归）', () => {
+  // 旧实现从枪口（视图模型里、比准星低 0.28 米、偏右 0.25 米）朝准星打：
+  // 近距离系统性偏右下、远一点偏右，玩家看到的准星和落点永远是两回事。
+  it('豌豆从相机（准星）出发、正前方水平打：每颗子弹的 y 都等于眼睛高度', () => {
+    clearField();
+    arm(999);
+    W.current = 0;
+    W.cooldown = 0;
+    lookForward();
+    game.player.recoil = 0;
+    game.player.applyCamera(game.camera);
+    game.camera.updateMatrixWorld(true);
+    const eyeY = game.camera.position.y;
+    const probe = probeProjectiles();
+    try {
+      fireOnce();
+      const pea = probe.peas[0];
+      expect(pea.origin.y).toBeCloseTo(eyeY, 9);
+      expect(pea.origin.distanceTo(game.camera.position)).toBeCloseTo(0, 9);
+      // 正前方平打：方向水平
+      expect(Math.abs(pea.dir.y)).toBeLessThan(1e-6);
+    } finally {
+      probe.restore();
+      W.reset();
+    }
+  });
+
+  it('准星正对僵尸时弹丸方向就指着它（不再被枪口位置带偏）', () => {
+    clearField();
+    arm(999);
+    W.current = 0;
+    W.cooldown = 0;
+    lookForward();
+    const p = game.player.pos;
+    const zombie = spawn('normal', p.x, p.z - 12);
+    const chest = new THREE.Vector3();
+    zombie.getChest(chest);
+    const eye = new THREE.Vector3(0, game.camera.position.y, p.z);
+    game.player.pitch = Math.atan2(chest.y - eye.y, 12);
+    game.player.yaw = Math.atan2(-(chest.x - eye.x), -(chest.z - eye.z));
+    game.player.recoil = 0;
+    game.player.applyCamera(game.camera);
+    game.camera.updateMatrixWorld(true);
+    const toChest = chest.clone().sub(game.camera.position).normalize();
+    const probe = probeProjectiles();
+    try {
+      fireOnce();
+      // 有辅助瞄准时瞄点会吸附到胸口；无论吸没吸，方向都必须贴近"相机→瞄准点"
+      const pea = probe.peas[0];
+      if (W.assist) {
+        const aim = W.resolveAssist(W.assist).point;
+        expect(pea.dir.dot(aim.clone().sub(game.camera.position).normalize())).toBeGreaterThan(0.9999);
+      } else {
+        expect(pea.dir.dot(toChest)).toBeGreaterThan(0.999);
+      }
+    } finally {
+      probe.restore();
+      clearField();
+      W.reset();
+    }
+  });
+
+  it('西瓜有重力：throwCherry 收到准星落点，落点不在相机高度上', () => {
+    clearField();
+    arm(999);
+    W.pickup(8);
+    W.current = 8;
+    W.cooldown = 0;
+    lookForward();
+    game.player.pitch = -0.3;
+    game.player.applyCamera(game.camera);
+    game.camera.updateMatrixWorld(true);
+    const probe = probeProjectiles();
+    try {
+      fireOnce();
+      const { target, def } = probe.cherries[0];
+      expect(def.arc).toBe(true);
+      expect(target.y).toBeCloseTo(0, 9); // 落点贴地
+      const horiz = Math.hypot(target.x - game.camera.position.x, target.z - game.camera.position.z);
+      expect(horiz).toBeGreaterThan(2);
+      expect(horiz).toBeLessThan(6);
+    } finally {
+      probe.restore();
+      W.dropLoot();
+    }
+  });
+
+  it('准星锁定了僵尸时，西瓜落点直接砸在它脚下（不被视线投影带过头顶）', () => {
+    clearField();
+    arm(999);
+    W.pickup(8);
+    W.current = 8;
+    W.cooldown = 0;
+    lookForward();
+    const p = game.player.pos;
+    const zombie = spawn('normal', p.x + 3, p.z - 10);
+    const chest = new THREE.Vector3();
+    zombie.getChest(chest);
+    game.player.pitch = Math.atan2(chest.y - 1.66, Math.hypot(chest.x, chest.z - p.z));
+    game.player.yaw = Math.atan2(-(chest.x - p.x), -(chest.z - p.z));
+    game.player.recoil = 0;
+    game.player.applyCamera(game.camera);
+    game.camera.updateMatrixWorld(true);
+    const probe = probeProjectiles();
+    try {
+      fireOnce();
+      const { target } = probe.cherries[0];
+      expect(target.x).toBeCloseTo(zombie.root.position.x, 6);
+      expect(target.z).toBeCloseTo(zombie.root.position.z, 6);
+    } finally {
+      probe.restore();
+      W.dropLoot();
+      clearField();
+    }
   });
 });
 
@@ -609,29 +733,29 @@ describe('开火：弹道分支', () => {
     }
   });
 
-  it('樱桃没有辅助目标时落点取视线与地面交点（限制 22 米）', () => {
+  it('樱桃没有辅助目标时落点取准星正前方那片地（水平距离，23° 俯角约 3.9 米）', () => {
     clearField();
     arm(999);
     W.current = 2;
     W.cooldown = 0;
     lookForward();
-    // 略微低头：视线与地面 y=0.2 相交（applyCamera 会带上 recoil，这里先清零）
-    game.player.recoil = 0;
-    game.player.pitch = -0.05;
+    // 低头 0.4 rad：视线与地面相交的水平距离 = 1.66 / tan(0.4) ≈ 3.9 米
+    game.player.pitch = -0.4;
     game.player.applyCamera(game.camera);
     game.camera.updateMatrixWorld(true);
     const probe = probeProjectiles();
     try {
       fireOnce();
       const target = probe.cherries[0].target;
-      const dir = target.clone().sub(game.camera.position);
-      const dist = dir.length();
-      // 落点沿视线、且不超过 22 米上限（相机 recoil 会让俯角每帧变化，故不卡精确值）
-      expect(dist).toBeLessThanOrEqual(22.001);
-      expect(dist).toBeGreaterThan(15);
-      expect(target.y).toBeGreaterThan(0);
+      const cam = game.camera.position;
       const fwd = game.camera.getWorldDirection(new THREE.Vector3());
-      expect(dir.clone().normalize().dot(fwd)).toBeCloseTo(1, 5);
+      // 落点就在视线的正下方投影上：方向一致、贴地
+      expect(target.y).toBeCloseTo(0, 9);
+      expect(Math.atan2(target.x - cam.x, -(target.z - cam.z))).toBeCloseTo(Math.atan2(fwd.x, -fwd.z), 5);
+      const horiz = Math.hypot(target.x - cam.x, target.z - cam.z);
+      expect(horiz).toBeCloseTo((cam.y * Math.hypot(fwd.x, fwd.z)) / -fwd.y, 4);
+      expect(horiz).toBeGreaterThan(3);
+      expect(horiz).toBeLessThan(5);
     } finally {
       probe.restore();
       W.current = 0;
@@ -1042,7 +1166,7 @@ describe('hitscan（玉米炮）', () => {
     }
   });
 
-  it('视线打空时爆炸点落在视线与地面交点上（y 被夹到 ≥0.15）', async () => {
+  it('视线打空时爆炸点落在视线与地面的交点上', async () => {
     clearField();
     arm(999);
     W.current = 3;
@@ -1055,7 +1179,8 @@ describe('hitscan（玉米炮）', () => {
     try {
       fireOnce();
       const e = probe.explosions[0];
-      expect(e.pos.y).toBeCloseTo(0.15, 6);
+      // 以前把爆炸点抬到 0.15 米，看着像"半空炸开"；落点就是准星指到的地面
+      expect(e.pos.y).toBeCloseTo(0, 6);
       expect(e.pos.z).toBeLessThan(game.camera.position.z);
     } finally {
       probe.restore();
@@ -1064,7 +1189,7 @@ describe('hitscan（玉米炮）', () => {
     }
   });
 
-  it('无法确定地面交点时爆炸点退回到视线尽头（targetPoint）', async () => {
+  it('抬头发射（视线与地面不相交）时爆炸点退回到准星前方 16 米', async () => {
     clearField();
     arm(999);
     W.current = 3;
@@ -1077,11 +1202,12 @@ describe('hitscan（玉米炮）', () => {
     try {
       fireOnce();
       const e = probe.explosions[0];
-      // 抬高视线：沿视线 90 米处的点
+      // 抬头：视线与地面永不相交，退化成水平方向 16 米处的地面点
       const camPos = game.camera.position.clone();
       const dir = new THREE.Vector3();
       game.camera.getWorldDirection(dir);
-      const expected = camPos.clone().addScaledVector(dir, 70);
+      const flat = Math.hypot(dir.x, dir.z);
+      const expected = new THREE.Vector3(camPos.x + (dir.x / flat) * 16, 0, camPos.z + (dir.z / flat) * 16);
       expect(e.pos.distanceTo(expected)).toBeLessThan(1e-6);
     } finally {
       probe.restore();

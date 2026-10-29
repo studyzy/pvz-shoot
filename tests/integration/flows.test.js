@@ -542,6 +542,117 @@ describe('5. 射击 → 击杀 → 掉阳光 → 拾取', () => {
   });
 });
 
+describe('5.5 准星与弹道一致（回归）', () => {
+  const resetField = () => {
+    game.zombies.zombies.forEach((z) => z.dispose());
+    game.zombies.zombies.length = 0;
+    game.zombies.queue = [];
+    game.zombies.state = 'idle';
+    game.projectiles.clear();
+  };
+
+  it.each([6, 12, 25, 40])('准星压在胸口、%i 米外开一枪必定命中', async (dist) => {
+    game.start();
+    giveSun(999);
+    resetField();
+    game.weapons.reset();
+    game.weapons.current = 0;
+    const p = game.player.pos;
+    const zombie = spawnZombieAt(game, 'normal', p.x, p.z - dist, { speedMul: 0 });
+    const chest = zombie.getChest(new THREE.Vector3());
+    await aimAt(game, chest.x, chest.y, chest.z);
+    game.update(1 / 60); // 瞄准辅助先算一遍
+    readyToFire(game, 999);
+    game.controls.setFiring(true);
+    game.update(1 / 60);
+    game.controls.setFiring(false);
+    // 子弹有飞行时间，按 60 帧/秒推进到它消失
+    for (let i = 0; i < 120 && game.projectiles.peas.some((q) => q.active); i++) game.update(1 / 60);
+    expect(zombie.hp).toBeLessThan(zombie.maxHp);
+  });
+
+  it('豌豆撞墙就地消失，不会穿过墙打到后面的僵尸', async () => {
+    game.start();
+    giveSun(999);
+    resetField();
+    game.weapons.reset();
+    const p = game.player.pos;
+    const zombie = spawnZombieAt(game, 'normal', p.x, p.z - 12, { speedMul: 0 });
+    const chest = zombie.getChest(new THREE.Vector3());
+    // 在中间插一道比僵尸还高的墙（地图 walls 就是投掷物/弹丸的挡板）
+    game.map.walls.push({ x: p.x, y: 1.5, z: p.z - 6, hx: 3, hy: 1.5, hz: 0.2, c: 1, s: 0 });
+    try {
+      await aimAt(game, chest.x, chest.y, chest.z);
+      game.update(1 / 60);
+      readyToFire(game, 999);
+      game.controls.setFiring(true);
+      game.update(1 / 60);
+      game.controls.setFiring(false);
+      for (let i = 0; i < 120 && game.projectiles.peas.some((q) => q.active); i++) game.update(1 / 60);
+      expect(zombie.hp).toBe(zombie.maxHp);
+      expect(game.projectiles.peas.some((q) => q.active)).toBe(false);
+    } finally {
+      game.map.walls.pop();
+    }
+  });
+
+  it('西瓜投手走抛物线：出手带垂直速度、有顶点、落地才炸', () => {
+    game.start();
+    giveSun(999);
+    resetField();
+    game.weapons.reset();
+    game.weapons.pickup(8); // 西瓜
+    expect(game.weapons.current).toBe(8);
+    const P = game.projectiles;
+    // 手上（枪口）出手，目标 12 米外贴地 —— 和开火时传进去的参数一致
+    const muzzle = new THREE.Vector3();
+    game.weapons.models[8].muzzle.getWorldPosition(muzzle);
+    P.throwCherry(muzzle, new THREE.Vector3(muzzle.x, 0, muzzle.z - 12), WEAPONS[8], { dist: 12, y: 0 });
+    const c = P.cherries.find((q) => q.active);
+    expect(c.active).toBe(true);
+    // 垂直速度就是"重力弹道"的标志：直线弹种 vy 恒为 0，这里由解算式给出
+    expect(Math.abs(c.vel.y)).toBeGreaterThan(1);
+    expect(c.gravity).toBeGreaterThan(0);
+    let maxY = c.pos.y;
+    let hitWall = false;
+    // 只推进到它落地：继续 update 会让池里的弹位被下一帧复用，读到的是别的飞行物
+    for (let i = 0; i < 200 && c.active; i++) {
+      game.update(1 / 60);
+      maxY = Math.max(maxY, c.pos.y);
+      if (c.bounced) hitWall = true;
+    }
+    expect(maxY).toBeGreaterThan(2); // 抛物线有顶点
+    expect(c.active).toBe(false); // 最终落地爆炸
+  });
+
+  it('西瓜撞墙会反弹继续飞（只有投掷物能弹墙）', () => {
+    game.start();
+    giveSun(999);
+    resetField();
+    const P = game.projectiles;
+    const muzzle = new THREE.Vector3();
+    game.weapons.models[8].muzzle.getWorldPosition(muzzle);
+    // 落点正前方 8 米处立一道 4 米高的墙：西瓜会先撞上去
+    const wallZ = muzzle.z - 8;
+    game.map.walls.push({ x: muzzle.x, y: 2, z: wallZ, hx: 4, hy: 2, hz: 0.25, c: 1, s: 0 });
+    try {
+      P.throwCherry(muzzle, new THREE.Vector3(muzzle.x, 0, muzzle.z - 12), WEAPONS[8], { dist: 12, y: 0 });
+      const c = P.cherries.find((q) => q.active);
+      let bouncedZ = null;
+      for (let i = 0; i < 200 && c.active; i++) {
+        game.update(1 / 60);
+        if (c.bounced && bouncedZ === null) bouncedZ = c.pos.z;
+      }
+      // 确实撞过墙，而且撞完之后还继续活着飞了一段（没有撞墙即炸）
+      expect(bouncedZ).not.toBeNull();
+      expect(bouncedZ).toBeGreaterThan(wallZ);
+      expect(c.active).toBe(false);
+    } finally {
+      game.map.walls.pop();
+    }
+  });
+});
+
 describe('6. 爆头', () => {
   it('瞄头部击杀：handleKill 收到 headshot=true，分数 ×1.5', async () => {
     game.start();
