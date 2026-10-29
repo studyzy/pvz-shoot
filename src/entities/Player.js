@@ -187,7 +187,10 @@ export class Player {
       const dx = this.pos.x - z.root.position.x;
       const dz = this.pos.z - z.root.position.z;
       const d = Math.hypot(dx, dz);
-      const min = z.radius * z.scaleFactor + TUNING.playerRadius;
+      // z.radius 已是世界空间半径（Zombie 碰撞推出、ZombieManager 分离/范围伤害都直接用它），
+      // 这里再乘 scaleFactor 是二次缩放：Boss 推离半径变成 0.9×2.3+0.42=2.49 米，
+      // 比它自己的攻击距离（1.15+2.3×0.55=2.415）还大 —— 玩家永远被推在攻击范围外，巨人僵尸咬不到人。
+      const min = z.radius + TUNING.playerRadius;
       if (d < min && d > 0.0001) {
         const push = (min - d) / d;
         this.pos.x += dx * push * 0.85;

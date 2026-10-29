@@ -567,10 +567,12 @@ describe('Player 与僵尸碰撞', () => {
     ...extra,
   });
 
-  it('活僵尸把玩家推出到 radius*scaleFactor + playerRadius 以外（每帧 85%）', () => {
+  it('活僵尸把玩家推出到 radius + playerRadius 以外（每帧 85%）', () => {
     const p = makePlayer({ x: 0.5, z: 0 });
     const z = zombie(0, 0);
-    const min = z.radius * z.scaleFactor + TUNING.playerRadius;
+    // z.radius 已是世界空间半径，不再乘 scaleFactor —— 二次缩放曾让 Boss 的推离半径
+    // （0.9×2.3+0.42=2.49 米）大于它自己的攻击距离（1.15+2.3×0.55=2.415），巨人僵尸永远咬不到人。
+    const min = z.radius + TUNING.playerRadius;
     p.update(dt, makeControls(), flatTerrain(), [z]);
     const d = Math.hypot(p.pos.x, p.pos.z);
     // 推出量只走 85%：d' = d + (min - d) * 0.85
@@ -581,17 +583,19 @@ describe('Player 与僵尸碰撞', () => {
   it('多帧后玩家被稳定推到最小距离之外', () => {
     const p = makePlayer({ x: 0.5, z: 0 });
     const z = zombie(0, 0);
-    const min = z.radius * z.scaleFactor + TUNING.playerRadius;
+    const min = z.radius + TUNING.playerRadius;
     for (let i = 0; i < 60; i++) p.update(dt, makeControls(), flatTerrain(), [z]);
     expect(Math.hypot(p.pos.x, p.pos.z)).toBeGreaterThanOrEqual(min - 1e-9);
   });
 
-  it('scaleFactor 参与最小距离计算（Boss）', () => {
+  it('推离半径必须小于 Boss 的攻击距离（radius 不再乘 scaleFactor）', () => {
     const p = makePlayer({ x: 1, z: 0 });
     const z = zombie(0, 0, 0.9, 1.85);
-    const min = 0.9 * 1.85 + TUNING.playerRadius;
+    const min = 0.9 + TUNING.playerRadius;
     p.update(dt, makeControls(), flatTerrain(), [z]);
     expect(Math.hypot(p.pos.x, p.pos.z)).toBeCloseTo(1 + (min - 1) * 0.85, 9);
+    // 回归底线：推离半径不得把玩家顶出 Boss 的攻击范围（1.15 + scale×0.55）
+    expect(min).toBeLessThan(1.15 + z.scaleFactor * 0.55);
   });
 
   it('dying / dead 僵尸不参与推出', () => {
