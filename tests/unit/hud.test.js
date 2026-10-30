@@ -665,3 +665,92 @@ describe('HUD', () => {
     });
   });
 });
+
+// 按钮回调都没设时，点一遍不能崩（bind 里那一串 if (this.onXxx)）
+describe('HUD · 回调未设置时的点击', () => {
+  beforeEach(() => {
+    installGlobals();
+    mountIndexHtml();
+  });
+
+  it('所有按钮在回调未设置时点击都是空操作', () => {
+    const h = new HUD();
+    const ids = ['startBtn', 'resumeBtn', 'restartBtn', 'againBtn', 'pauseBtn', 'duoBtn', 'duoShare'];
+    for (const id of ids) {
+      const el = $(id);
+      if (!el) continue;
+      expect(() => click(el), id).not.toThrow();
+    }
+    // 槽位按钮同样安全
+    for (const b of h.slotButtons || []) expect(() => click(b)).not.toThrow();
+  });
+
+  it('回调设了之后点击确实会触发', () => {
+    const h = new HUD();
+    const calls = [];
+    h.onStart = () => calls.push('start');
+    h.onResume = () => calls.push('resume');
+    h.onRestart = () => calls.push('restart');
+    h.onAgain = () => calls.push('again');
+    h.onPause = () => calls.push('pause');
+    for (const id of ['startBtn', 'resumeBtn', 'restartBtn', 'againBtn', 'pauseBtn']) {
+      const el = $(id);
+      if (el) click(el);
+    }
+    expect(calls.length).toBeGreaterThan(0);
+  });
+
+  it('槽位按钮点击会调用 onSlotSelect（回调存在时）', () => {
+    const h = new HUD();
+    const picks = [];
+    h.onSlotSelect = (role, pos) => picks.push([role, pos]);
+    h.buildDock();
+    for (const b of h.slotButtons) click(b);
+    expect(picks.length).toBe(h.slotButtons.length);
+  });
+});
+
+describe('HUD · setCharges（充能植物颗数）', () => {
+  beforeEach(() => {
+    installGlobals();
+    mountIndexHtml();
+  });
+
+  it('找到对应槽位时写角标、控制 poor 类；找不到索引时也不崩', () => {
+    const h = new HUD();
+    h.buildDock();
+    // 槽位按钮存在时：按每个按钮的 index 各设一次
+    const idxs = new Set(h.weaponButtons.map((w) => w.index).filter((i) => i >= 0));
+    for (const i of idxs) {
+      expect(() => h.setCharges(i, 3, 3)).not.toThrow();
+      expect(() => h.setCharges(i, 0, 3)).not.toThrow();
+    }
+    // 不存在的索引：走完循环后安全返回
+    expect(() => h.setCharges(-999, 1, 3)).not.toThrow();
+  });
+
+  it('同一颗数重复设置会被缓存短路（不重复写 DOM）', () => {
+    const h = new HUD();
+    h.buildDock();
+    const w = h.weaponButtons.find((x) => x.index >= 0);
+    if (!w) return;
+    h.setCharges(w.index, 2, 3);
+    const badge = w.btn.querySelector('.wcost');
+    const before = badge.textContent;
+    h.setCharges(w.index, 2, 3);
+    expect(badge.textContent).toBe(before);
+  });
+
+  it('颗数从 >0 变 0 会加上 poor 类，再变回正数会去掉', () => {
+    const h = new HUD();
+    h.buildDock();
+    const w = h.weaponButtons.find((x) => x.index >= 0);
+    if (!w) return;
+    h.setCharges(w.index, 1, 3);
+    expect(w.btn.classList.contains('poor')).toBe(false);
+    h.setCharges(w.index, 0, 3);
+    expect(w.btn.classList.contains('poor')).toBe(true);
+    h.setCharges(w.index, 2, 3);
+    expect(w.btn.classList.contains('poor')).toBe(false);
+  });
+});

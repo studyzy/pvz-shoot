@@ -59,7 +59,7 @@ describe('联机协议', () => {
     expect(cleanMapId('snow')).toBe('snow');
     expect(cleanMapId('lava')).toBe('backyard');
     expect(cleanMapId(null)).toBe('backyard');
-    expect(MAP_IDS).toEqual(['backyard', 'snow', 'dust']);
+    expect(MAP_IDS).toEqual(['backyard', 'snow', 'dust', 'forest']);
     expect(cleanBuild(' v1 ')).toBe('v1');
     expect(cleanBuild(null)).toBe('dev');
     expect(cleanBuild('x'.repeat(40))).toHaveLength(32);

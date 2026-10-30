@@ -89,8 +89,10 @@ describe('双人倒地/救援', () => {
     game.player.downTimer = 0.1;
     game.updateDuoRescue(0.2);
     expect(session.sendWipe).toHaveBeenCalled();
-    expect(game.state).toBe('menu');
-    expect(game.duo).toBeNull();
+    // 团灭后停在结算页（会话保留，等「再来一局」或离开），不再直接回菜单
+    expect(game.state).toBe('over');
+    expect(game.duo).not.toBeNull();
+    expect(session.close).not.toHaveBeenCalled();
   });
 
   it('guest 应用 pstate g.down/hp：本地倒地与复活；h.down 弹横幅', async () => {

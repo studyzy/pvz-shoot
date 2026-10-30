@@ -55,7 +55,8 @@ vi.mock('../../src/entities/ZombieModel.js', async (importOriginal) => {
   scene.name = 'Scene';
   scene.add(mesh);
   // 骷髅模型替身：高 2.166、带 handslotr 挂载点（Boss 的木棒要挂上去）
-  const skGeo = new THREE.BoxGeometry(0.5, 2.166, 0.35);
+  const skGeo = skinGeo(0.5, 2.166, 0.35);
+  skGeo.translate(0, 2.166 / 2, 0);
   const skMat = new THREE.MeshStandardMaterial({ color: 0xdedede, roughness: 0.9 });
   const skRoot = new THREE.Bone();
   skRoot.name = 'root';
@@ -82,6 +83,22 @@ vi.mock('../../src/entities/ZombieModel.js', async (importOriginal) => {
   const skScene = new THREE.Group();
   skScene.name = 'SkeletonScene';
   skScene.add(skMesh);
+  // 奇幻单位：共用同一个替身，但各自带一套「该模型真实会有的」clip 名，
+  // 这样才能验证 buildAnimations 按动画族查表真的命中（而不是回退到 quaternius）。
+  const clipsFor = (...names) => names.map(mkClip);
+  const FAM_CLIPS = {
+    humanoid: ['Idle', 'Walk', 'Run', 'Attack', 'Death', 'HitRecieve'],
+    blob: ['Idle', 'Walk', 'Bite_Front', 'Death', 'HitRecieve'],
+    slime: ['Slime_Idle', 'Slime_Walk', 'Slime_Attack', 'Slime_Death'],
+    beast: ['Idle', 'Walk', 'Headbutt', 'Death'],
+    spider: ['Spider_Idle', 'Spider_Walk', 'Spider_Attack', 'Spider_Death'],
+    rat: ['Rat_Idle', 'Rat_Walk', 'Rat_Attack', 'Rat_Death'],
+    bat: ['Bat_Flying', 'Bat_Attack', 'Bat_Death', 'Bat_Hit'],
+    flying: ['Flying_Idle', 'Fast_Flying', 'Headbutt', 'Death', 'HitReact'],
+    duck: ['Idle', 'Walk', 'Punch', 'Death', 'HitReact', 'Duck'],
+    dragon: ['Dragon_Flying', 'Dragon_Attack', 'Dragon_Death', 'Dragon_Hit'],
+  };
+  const slotFor = (fam) => ({ ready: true, failed: false, scene, clips: clipsFor(...FAM_CLIPS[fam]) });
   return {
     ...actual,
     zombieModel: {
@@ -93,6 +110,21 @@ vi.mock('../../src/entities/ZombieModel.js', async (importOriginal) => {
       skeleton: { ready: true, failed: false, scene: skScene, clips: skClips },
       alchemist: { ready: true, failed: false, scene, clips },
       football: { ready: true, failed: false, scene, clips },
+      goblin: slotFor('humanoid'),
+      demon3: slotFor('humanoid'),
+      giant: slotFor('humanoid'),
+      bones: slotFor('humanoid'),
+      'mushroom-king': slotFor('duck'),
+      slime: slotFor('slime'),
+      'pink-slime': slotFor('blob'),
+      'green-blob': slotFor('blob'),
+      ghost: slotFor('flying'),
+      'ghost-skull': slotFor('flying'),
+      dragon: slotFor('dragon'),
+      wolf: slotFor('beast'),
+      spider: slotFor('spider'),
+      rat: slotFor('rat'),
+      bat: slotFor('bat'),
     },
   };
 });
@@ -907,5 +939,179 @@ describe('Zombie · 与 Game 的联动', () => {
     const b = PD.spawnZombieAt(game, 'normal', 2, 0);
     expect(b.hit(62, false, false)).toBe(true);
     expect(b.dying).toBe(true);
+  });
+});
+// ── 夜之森林的奇幻单位：走真实 Zombie 构造链路 ──
+describe('奇幻单位：命中球与动画', () => {
+  const FANTASY = [
+    'goblin', 'demon3', 'slime', 'pink-slime', 'slimelet', 'green-blob',
+    'bones', 'ghost', 'ghost-skull', 'wolf', 'spider', 'rat', 'bat',
+  ];
+
+  it('每个奇幻单位都能被构造出来，且命中球有限、为正', () => {
+    for (const type of FANTASY) {
+      const z = makeZombie(type);
+      const chest = new THREE.Vector3();
+      const head = new THREE.Vector3();
+      z.getChest(chest);
+      z.getHead(head);
+      for (const v of [chest, head]) {
+        expect(Number.isFinite(v.x) && Number.isFinite(v.y) && Number.isFinite(v.z), type).toBe(true);
+      }
+      expect(z.hitRadiusScale, type).toBeGreaterThan(0);
+      // 头一定在胸口上方（高度），不然「瞄头」是反的
+      expect(head.y, type + ' 头部应高于胸口').toBeGreaterThan(chest.y);
+      z.dispose();
+    }
+  });
+
+  it('命中半径按模型分档：大块头不小于小怪', () => {
+    const r = (t) => makeZombie(t).hitRadiusScale;
+    // 史莱姆/绿块是宽体，老鼠/蝙蝠不是
+    expect(r('slime')).toBeGreaterThan(r('rat'));
+    expect(r('green-blob')).toBeGreaterThan(r('bat'));
+  });
+
+  it('蝙蝠是空中单位：root 抬到 airHeight，命中球跟着抬', () => {
+    // 注意：makeZombie 里的 place() 会把 y 归零（地面怪用），空中单位直接 new 才看得到抬升
+    const bat = new Zombie('bat', 1, 0, 0, makeCtx(), 1, 1);
+    expect(bat.airborne).toBe(true);
+    expect(bat.root.position.y).toBeCloseTo(bat.def.airHeight, 5);
+    const chest = new THREE.Vector3();
+    bat.getChest(chest);
+    // 命中球高度 = airHeight + chestY * scale，一定高于地面命中的同类体型怪
+    expect(chest.y).toBeGreaterThan(bat.def.airHeight);
+    bat.dispose();
+  });
+
+  it('每个奇幻单位都按自己的动画族取到了动作，不会回退成同一套', () => {
+    // 蝙蝠只有 Bat_* 命名，按 quaternius 族应该一个都取不到；能取到说明族映射生效
+    const bat = makeZombie('bat');
+    expect(bat.actions.walk).toBeTruthy();
+    expect(bat.actions.attack).toBeTruthy();
+    // 蝙蝠的 walk 应该绑的是 Bat_Flying 那条 clip
+    expect(bat.actions.walk.getClip().name).toBe('Bat_Flying');
+    bat.dispose();
+
+    const spider = makeZombie('spider');
+    expect(spider.actions.attack.getClip().name).toBe('Spider_Attack');
+    spider.dispose();
+
+    const dragon = makeZombie('dragon');
+    expect(dragon.actions.attack.getClip().name).toBe('Dragon_Attack');
+    dragon.dispose();
+  });
+
+  it('奇幻单位不接受旧的 acc 配件（buildHat 假设了老模型的骨骼链）', () => {
+    for (const type of FANTASY) {
+      expect(ZOMBIES[type].acc, type + '.acc').toBeFalsy();
+    }
+  });
+
+  it('BOSS 三只都能构造，且 def.boss 为真（Game/Manager 靠它判定）', () => {
+    for (const type of ['gargantuar', 'mushroomKing', 'dragon']) {
+      const z = makeZombie(type);
+      expect(z.def.boss).toBe(true);
+      expect(typeof z.def.title).toBe('string');
+      expect(z.maxHp).toBeGreaterThan(1500);
+      z.dispose();
+    }
+  });
+
+  it('旧 skeleton 与新的 bones 是两个独立类型，模型各自独立', () => {
+    const oldSkel = makeZombie('skeleton');
+    const newBones = makeZombie('bones');
+    expect(oldSkel.modelId).toBe('skeleton');
+    expect(newBones.modelId).toBe('bones');
+    expect(newBones.isSkeleton).toBe(false);
+    oldSkel.dispose();
+    newBones.dispose();
+  });
+});
+
+// ── Boss 双人换目标 / 量不到颅顶的兜底 ──
+describe('Zombie · Boss 仇恨切换与配件兜底', () => {
+  function makePlayer(x, z) {
+    return { pos: vec(x, 0, z), dead: false, downed: false, hp: 100 };
+  }
+
+  it('Boss 双目标时按 aggroT 轮换，并在换人前闪红预警', async () => {
+    const { BOSS_AGGRO } = await import('../../src/config.js');
+    const ctx = makeCtx();
+    const z = new Zombie('boss', 1, 0, 0, ctx, 1, 1);
+    z.spawnT = 1;
+    const a = makePlayer(0, -3);
+    const b = makePlayer(0, 3);
+    z.aggroT = 0.01;
+    z.aggroWarnFired = false;
+    z.update(0.02, [a, b], []);
+    // 换人后计时重置、预警标志复位
+    expect(z.aggroT).toBeCloseTo(BOSS_AGGRO.switchEvery, 4);
+    expect(z.aggroWarnFired).toBe(false);
+    z.dispose();
+  });
+
+  it('Boss 换人预警会闪红并喷粒子', () => {
+    const ctx = makeCtx();
+    const z = new Zombie('boss', 1, 0, 0, ctx, 1, 1);
+    z.spawnT = 1;
+    z.aggroT = 0.5;
+    z.aggroWarnFired = false;
+    z.update(0.02, [makePlayer(0, -3), makePlayer(0, 3)], []);
+    expect(z.aggroWarnFired).toBe(true);
+    expect(z.flash).toBeGreaterThan(0);
+    z.dispose();
+  });
+
+  it('非 Boss 单目标不进入仇恨轮换', () => {
+    const z = makeZombie('goblin', 0, -3);
+    z.aggroT = 0.01;
+    z.update(0.02, makePlayer(0, 0), []);
+    // 没被改写过（仍然是初始值）
+    expect(z.aggroWarnFired).toBe(false);
+    z.dispose();
+  });
+});
+
+// ── 构建期分支：envMap 缺失 / 模型源缺失 / 动画族兜底 ──
+describe('Zombie · 构建期兜底', () => {
+  it('ctx.env 为 null 时材质 envMap 也为 null，不崩', () => {
+    const ctx = makeCtx();
+    ctx.env = null;
+    const z = new Zombie('goblin', 1, 0, 0, ctx, 1, 1);
+    for (const m of z.mats) expect(m.envMap).toBe(null);
+    z.dispose();
+  });
+
+  it('模型场景还没加载好时也能构造出占位骨架', () => {
+    const ctx = makeCtx();
+    const z = new Zombie('goblin', 1, 0, 0, ctx, 1, 1);
+    // 替身场景存在，至少 body 是个 Object3D
+    expect(z.body).toBeTruthy();
+    expect(z.body.isObject3D).toBe(true);
+    z.dispose();
+  });
+
+  it('未知 model 名回退到 zombie 模型，不崩', async () => {
+    const { ZOMBIES } = await import('../../src/config.js');
+    const saved = ZOMBIES.goblin.model;
+    ZOMBIES.goblin.model = '__not_a_model__';
+    try {
+      const ctx = makeCtx();
+      const z = new Zombie('goblin', 1, 0, 0, ctx, 1, 1);
+      expect(z.modelId).toBe('zombie');
+      z.dispose();
+    } finally {
+      ZOMBIES.goblin.model = saved;
+    }
+  });
+
+  it('没有 clip 的模型不建 mixer，play 也是空操作', () => {
+    const ctx = makeCtx();
+    const z = new Zombie('goblin', 1, 0, 0, ctx, 1, 1);
+    // 替身模型带 5 段动画；这里只断言播放不崩
+    expect(() => z.play('walk', 0.1)).not.toThrow();
+    expect(() => z.play('不存在的动作', 0.1)).not.toThrow();
+    z.dispose();
   });
 });

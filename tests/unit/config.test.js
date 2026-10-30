@@ -16,6 +16,9 @@ import {
   ARMOR_MATERIALS,
   AIR_QUOTA_RATIO,
   waveAirQuota,
+  bossForWave,
+  BOSS_ROTATION,
+  waveTotal,
 } from '../../src/config.js';
 import { MODELS } from '../../src/entities/ZombieModel.js';
 
@@ -215,10 +218,32 @@ describe('config / ZOMBIES', () => {
     radius: 'number',
   };
 
-  it('七种僵尸类型齐全（含骷髅、橄榄球、气球）', () => {
-    expect(Object.keys(ZOMBIES).sort()).toEqual([
-      'balloon', 'boss', 'bucket', 'cone', 'football', 'normal', 'skeleton',
-    ]);
+  it('原七种僵尸类型齐全（含骷髅、橄榄球、气球）', () => {
+    // 夜之森林新增了奇幻单位，这里只断言老七种仍在，不锁死完整清单
+    const legacy = ['balloon', 'boss', 'bucket', 'cone', 'football', 'normal', 'skeleton'];
+    for (const id of legacy) expect(ZOMBIES[id], id).toBeTruthy();
+  });
+
+  it('夜之森林的 12 种奇幻单位 + 3 只 BOSS 都在表里', () => {
+    const fantasy = [
+      'goblin', 'demon3', 'slime', 'pink-slime', 'slimelet', 'green-blob',
+      'bones', 'ghost', 'ghost-skull', 'wolf', 'spider', 'rat', 'bat',
+    ];
+    for (const id of fantasy) expect(ZOMBIES[id], id).toBeTruthy();
+    for (const id of ['gargantuar', 'mushroomKing', 'dragon']) {
+      expect(ZOMBIES[id].boss, id).toBe(true);
+      expect(typeof ZOMBIES[id].title).toBe('string');
+    }
+  });
+
+  it('奇幻单位都登记了模型与阳光掉落', () => {
+    for (const [id, def] of Object.entries(ZOMBIES)) {
+      if (!def.model) continue;
+      expect(MODELS[def.model], id + ' -> MODELS').toBeTruthy();
+      if (!def.boss && !['normal', 'football', 'skeleton'].includes(id)) {
+        expect(typeof def.sun, id + '.sun').toBe('number');
+      }
+    }
   });
 
   it('模型归属：普通僵尸用 alchemist.glb、橄榄球用 football.glb，路障/铁桶仍用原来的 zombie.glb', () => {
@@ -320,14 +345,20 @@ describe('config / ZOMBIES', () => {
     }
   });
 
-  it('boss 的每一项战斗数值都是全场最大（除速度）', () => {
-    const rest = Object.entries(ZOMBIES).filter(([k]) => k !== 'boss').map(([, z]) => z);
-    for (const field of ['hp', 'damage', 'score', 'scale', 'radius']) {
-      const max = Math.max(...rest.map((z) => z[field]));
-      expect(ZOMBIES.boss[field], `boss.${field}`).toBeGreaterThan(max);
+  it('每个 BOSS 的 hp / damage / score 都优于所有非 BOSS 单位', () => {
+    // 改成数据驱动：不再只认 'boss' 一个 type，任何 def.boss 都要满足
+    const bosses = Object.entries(ZOMBIES).filter(([, z]) => z.boss);
+    const rest = Object.entries(ZOMBIES).filter(([, z]) => !z.boss).map(([, z]) => z);
+    expect(bosses.length).toBeGreaterThanOrEqual(3);
+    for (const [id, b] of bosses) {
+      for (const field of ['hp', 'damage', 'score']) {
+        const max = Math.max(...rest.map((z) => z[field]));
+        expect(b[field], `${id}.${field}`).toBeGreaterThan(max);
+      }
+      // BOSS 必须能被玩家风筝：明显慢于玩家移速（5.4），且不比普通僵尸快
+      expect(b.speed, `${id}.speed < 玩家移速`).toBeLessThan(TUNING.playerSpeed * 0.5);
+      expect(b.speed, `${id}.speed <= 普通僵尸`).toBeLessThanOrEqual(ZOMBIES.normal.speed);
     }
-    const minSpeed = Math.min(...rest.map((z) => z.speed));
-    expect(ZOMBIES.boss.speed).toBeLessThanOrEqual(minSpeed);
   });
 
   it('普通僵尸 scale=1，作为命中球高度换算基准（见 Zombie.getChest/getHead）', () => {
@@ -373,13 +404,14 @@ describe('config / wavePlan', () => {
     expect(count(wavePlan(4), 'bucket')).toBe(1);
   });
 
-  it('n=5：铁桶 floor(3*0.8)=2 且追加 boss', () => {
+  it('n=5：铁桶 floor(3*0.8)=2 且追加轮换表里的 BOSS', () => {
     const plan = wavePlan(5);
     expect(count(plan, 'bucket')).toBe(2);
-    expect(count(plan, 'boss')).toBe(1);
+    expect(plan.filter((t) => ZOMBIES[t].boss).length).toBe(1);
+    expect(count(plan, 'gargantuar')).toBe(1); // 第 5 波 = 轮换表第一只
   });
 
-  it('n=1..20：数量公式与 boss 只在 n%5===0 出现', () => {
+  it('n=1..20：普通地图数量公式与 BOSS 只在地图 5 波出现', () => {
     for (let n = 1; n <= 20; n++) {
       const plan = wavePlan(n);
       const normals = 4 + Math.floor(n * 1.45);
@@ -390,14 +422,14 @@ describe('config / wavePlan', () => {
       // 橄榄球第 4 波起、气球第 6 波起
       const footballs = n >= 4 ? 1 + Math.floor((n - 4) * 0.6) : 0;
       const balloons = n >= 6 ? 1 + Math.floor((n - 6) * 0.7) : 0;
-      const boss = n % 5 === 0 ? 1 : 0;
+      const boss = bossForWave(n) ? 1 : 0;
       expect(count(plan, 'normal'), `n=${n} normals`).toBe(normals);
       expect(count(plan, 'cone'), `n=${n} cones`).toBe(cones);
       expect(count(plan, 'bucket'), `n=${n} buckets`).toBe(buckets);
       expect(count(plan, 'skeleton'), `n=${n} skeletons`).toBe(skeletons);
       expect(count(plan, 'football'), `n=${n} footballs`).toBe(footballs);
       expect(count(plan, 'balloon'), `n=${n} balloons`).toBe(balloons);
-      expect(count(plan, 'boss'), `n=${n} boss`).toBe(boss);
+      expect(plan.filter((t) => ZOMBIES[t].boss).length, `n=${n} boss`).toBe(boss);
       expect(plan.length, `n=${n} total`).toBe(
         normals + cones + buckets + skeletons + footballs + balloons + boss,
       );
@@ -458,8 +490,8 @@ describe('config / wavePlan', () => {
     expect(count(plan, 'normal')).toBe(4);
     expect(count(plan, 'cone')).toBe(0);
     expect(count(plan, 'bucket')).toBe(0);
-    // 0 % 5 === 0 会追加 boss —— 真实行为记录，调用方从 1 开始
-    expect(count(plan, 'boss')).toBe(1);
+    // n<5 不出 BOSS（bossForWave 在 n<5 时返回 null）
+    expect(plan.filter((t) => ZOMBIES[t].boss).length).toBe(0);
   });
 });
 

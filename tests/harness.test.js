@@ -19,7 +19,7 @@ describe('integration harness', () => {
     const { createGame } = await import('./helpers/game.js');
     const { game } = await createGame();
     expect(game.state).toBe('menu');
-    expect(game.maps.map((m) => m.id)).toEqual(['backyard', 'snow', 'dust']);
+    expect(game.maps.map((m) => m.id)).toEqual(['backyard', 'snow', 'dust', 'forest']);
   });
 
   it('ZombieModel 就绪（gltf 替身已按真实 glb 结构注入）', async () => {

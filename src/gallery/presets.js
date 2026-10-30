@@ -42,8 +42,106 @@ export const GALLERY_TYPES = [
   {
     id: 'boss',
     name: '巨型骷髅',
-    subtitle: '骷髅 Boss',
-    desc: '约 4.48 米高，手持带钉木棒；每 5 波出现一只。',
+    subtitle: '骷髅王 Boss',
+    desc: '约 4.48 米高，手持带钉木棒；每 5 波轮换出现。',
+  },
+
+  // ── 夜之森林 · 奇幻单位 ──
+  {
+    id: 'goblin',
+    name: '哥布林',
+    subtitle: '哥布林族',
+    desc: '瘦小快腿，成群冲锋；最便宜也最烦人的一类。',
+  },
+  {
+    id: 'demon3',
+    name: '小恶魔',
+    subtitle: '哥布林族',
+    desc: '哥布林的强化版，耐打一些，从第 6 波起补位。',
+  },
+  {
+    id: 'slime',
+    name: '史莱姆',
+    subtitle: '史莱姆族',
+    desc: '一弹一弹地前进，自带微光；夜里最显眼的那团。',
+  },
+  {
+    id: 'pink-slime',
+    name: '粉史莱姆',
+    subtitle: '史莱姆族',
+    desc: '死亡时分裂成 2 只小史莱姆，别在它残血时站太近。',
+  },
+  {
+    id: 'slimelet',
+    name: '小史莱姆',
+    subtitle: '分裂产物',
+    desc: '粉史莱姆裂出来的小只，血薄但快；不会再分裂。',
+  },
+  {
+    id: 'green-blob',
+    name: '绿块',
+    subtitle: '史莱姆族',
+    desc: '又厚又慢，表皮会弹开豌豆（塑料护甲）。',
+  },
+  {
+    id: 'bones',
+    name: '骷髅兵',
+    subtitle: '亡灵族',
+    desc: '成群的骨头兵，脆但人多；夜之森林才是它们的家。',
+  },
+  {
+    id: 'ghost',
+    name: '幽灵',
+    subtitle: '亡灵族',
+    desc: '半透明地飘过来，夜里最难看清的一只。',
+  },
+  {
+    id: 'ghost-skull',
+    name: '骷髅幽灵',
+    subtitle: '亡灵族',
+    desc: '更小更快的幽灵，像一盏乱飞的灯。',
+  },
+  {
+    id: 'wolf',
+    name: '狼',
+    subtitle: '兽族',
+    desc: '全场最快的怪，贴地从侧翼包抄；听见脚步就该转身。',
+  },
+  {
+    id: 'spider',
+    name: '蜘蛛',
+    subtitle: '兽族',
+    desc: '趴在草丛里不动，等你走近才扑上来。',
+  },
+  {
+    id: 'rat',
+    name: '老鼠',
+    subtitle: '兽族',
+    desc: '极小、极快、成群；逼你低头看地面。',
+  },
+  {
+    id: 'bat',
+    name: '蝙蝠',
+    subtitle: '兽族 · 飞行',
+    desc: '飞在 2 米高，普通弹丸打不到；同屏最多 2 只。',
+  },
+  {
+    id: 'gargantuar',
+    name: '巨人',
+    subtitle: '夜之森林 Boss',
+    desc: '举拳砸地，红圈出现时走开；硬直期间是输出窗口。',
+  },
+  {
+    id: 'mushroomKing',
+    name: '蘑菇王',
+    subtitle: '夜之森林 Boss',
+    desc: '蹲下时减伤 75%，等它起身再集火。',
+  },
+  {
+    id: 'dragon',
+    name: '巨龙',
+    subtitle: '夜之森林 Boss',
+    desc: '飞起来打不到，落地俯冲那 2 秒才是机会。',
   },
 ];
 
@@ -82,7 +180,8 @@ export function typeInfo(id) {
   const meta = typeMeta(id);
   const modelId = def.model || 'zombie';
   const model = MODELS[modelId] || MODELS.zombie;
-  const height = (model.height || 1.8) * (def.scale || 1);
+  // 新模型走 targetHeight 归一化，没有 height 字段
+  const height = (model.height || model.targetHeight || 1.8) * (def.scale || 1);
   const air = def.airborne ? def.airHeight || 2.2 : 0;
   // 锥帽/铁桶会把头顶再抬高 0.6 米左右；不单独算进取景，图鉴里帽子会被顶栏裁掉。
   const hat = def.acc === 'cone' ? 0.65 : def.acc === 'bucket' ? 0.55 : 0;

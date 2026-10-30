@@ -228,7 +228,7 @@ describe('1. 菜单与地图选择', () => {
   it('开局渲染三张地图卡片，默认选中后院，startBtn 文案来自 startLabel', () => {
     expect(game.state).toBe('menu');
     const cards = [...$('mapSelect').querySelectorAll('.map-card')];
-    expect(cards.map((c) => c.dataset.map)).toEqual(['backyard', 'snow', 'dust']);
+    expect(cards.map((c) => c.dataset.map)).toEqual(['backyard', 'snow', 'dust', 'forest']);
     expect(cards[0].querySelector('.map-name').textContent).toBe('戴夫的后院');
     expect(cards[1].querySelector('.map-tag').textContent).toBe('FY_ICEWORLD');
     expect(cards[0].classList.contains('active')).toBe(true);
@@ -760,18 +760,19 @@ describe('7. 波次推进与 Boss', () => {
     game.zombies.zombies.forEach((z) => z.dispose());
     game.zombies.zombies.length = 0;
     game.zombies.startWave(5);
-    expect(game.zombies.queue).toContain('boss');
+    // 第 5 波的 BOSS 是轮换表第一只（巨人）
+    expect(game.zombies.queue).toContain('gargantuar');
 
     // 只留 boss，其余排队清掉，避免干扰
-    game.zombies.queue = ['boss'];
+    game.zombies.queue = ['gargantuar'];
     const before = game.zombies.zombies.length;
     step(game, 40);
     const boss = game.zombies.boss;
     expect(boss).toBeTruthy();
-    expect(boss.type).toBe('boss');
+    expect(boss.type).toBe('gargantuar');
     expect(game.zombies.zombies.length).toBe(before + 1);
     expect(hidden($('bossBar'))).toBe(false);
-    expect($('banner').textContent).toBe('巨人僵尸出现了!');
+    expect($('banner').textContent).toBe('巨人出现了!');
 
     // 推进一帧后 boss 血条按比例写入
     step(game, 1);
@@ -1540,10 +1541,11 @@ describe('15. 浏览器事件与生命周期细节', () => {
   it('onKill 累加分数与击杀、boss 额外镜头震动', async () => {
     const { game: g } = await createGame();
     g.shakeAmp = 0;
-    g.onKill({ type: 'normal' }, 100, false);
+    // 传真实 def：onKill 现在按 def.boss 判 BOSS（数据驱动，不再看 type 字符串）
+    g.onKill({ type: 'normal', def: ZOMBIES.normal }, 100, false);
     expect(g.stats.score).toBe(100);
     expect(g.shakeAmp).toBe(0);
-    g.onKill({ type: 'boss' }, 2500, true);
+    g.onKill({ type: 'boss', def: ZOMBIES.boss }, 2500, true);
     expect(g.stats.score).toBe(2600);
     expect(g.stats.kills).toBe(2);
     expect(g.shakeAmp).toBeCloseTo(0.9, 5);

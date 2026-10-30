@@ -316,6 +316,63 @@ export function desertSkyTexture() {
   return tex;
 }
 
+let _nightSky = null;
+// 夜空：顶部墨蓝 → 地平线偏紫，中段留一点月光冷色，便于和远景树影拉开层次。
+export function nightSkyTexture() {
+  if (_nightSky) return _nightSky;
+  const c = document.createElement('canvas');
+  c.width = 8;
+  c.height = 512;
+  const ctx = c.getContext('2d');
+  const grd = ctx.createLinearGradient(0, 0, 0, 512);
+  grd.addColorStop(0, '#050a18');
+  grd.addColorStop(0.3, '#0b1430');
+  grd.addColorStop(0.55, '#16244a');
+  grd.addColorStop(0.76, '#2a3a5e');
+  grd.addColorStop(0.9, '#3d4a63');
+  grd.addColorStop(1, '#4a5570');
+  ctx.fillStyle = grd;
+  ctx.fillRect(0, 0, 8, 512);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  _nightSky = tex;
+  return tex;
+}
+
+let _forestFloor = null;
+// 林地面：深苔绿 + 零星枯叶斑点，用噪声点铺，不引外部贴图。
+export function forestFloorTexture() {
+  if (_forestFloor) return _forestFloor;
+  const c = document.createElement('canvas');
+  c.width = c.height = 256;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#1d2f1a';
+  ctx.fillRect(0, 0, 256, 256);
+  for (let i = 0; i < 900; i++) {
+    const x = Math.random() * 256;
+    const y = Math.random() * 256;
+    const r = Math.random() * 2.6 + 0.6;
+    const g = 26 + Math.random() * 40;
+    ctx.fillStyle = 'rgba(' + (g * 0.55 | 0) + ',' + (g | 0) + ',' + (g * 0.45 | 0) + ',' + (0.35 + Math.random() * 0.4).toFixed(2) + ')';
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  // 一点枯叶暖色，避免整片死绿
+  for (let i = 0; i < 70; i++) {
+    ctx.fillStyle = 'rgba(96,74,38,0.35)';
+    ctx.beginPath();
+    ctx.arc(Math.random() * 256, Math.random() * 256, Math.random() * 2 + 0.8, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(26, 26);
+  _forestFloor = tex;
+  return tex;
+}
+
 let _blob = null;
 export function blobShadowTexture() {
   if (_blob) return _blob;
@@ -385,7 +442,7 @@ export function cloudTexture() {
 let _envs = null;
 // 程序化户外环境贴图（PMREM）：只给 PBR 材质提供反射与高光，不参与场景雾/背景。
 export function outdoorEnvironment(renderer, mapId) {
-  const key = mapId === 'snow' ? 'snow' : mapId === 'dust' ? 'dust' : 'backyard';
+  const key = mapId === 'snow' ? 'snow' : mapId === 'dust' ? 'dust' : mapId === 'forest' ? 'forest' : 'backyard';
   if (_envs && _envs[key]) return _envs[key];
   if (!_envs) _envs = {};
 
@@ -405,6 +462,12 @@ export function outdoorEnvironment(renderer, mapId) {
     sky.addColorStop(0.5, '#9cc0d2');
     sky.addColorStop(0.82, '#ecd9ac');
     sky.addColorStop(1, '#f7ecc9');
+  } else if (key === 'forest') {
+    // 夜之森林：环境贴图只给 PBR 材质提供冷色反光，别用白天的蓝天，否则模型会发亮
+    sky.addColorStop(0, '#060c1c');
+    sky.addColorStop(0.5, '#1b2b4d');
+    sky.addColorStop(0.82, '#3b4a6b');
+    sky.addColorStop(1, '#55627e');
   } else {
     sky.addColorStop(0, '#2b6ab8');
     sky.addColorStop(0.45, '#8ecdf5');
@@ -421,6 +484,9 @@ export function outdoorEnvironment(renderer, mapId) {
   } else if (key === 'dust') {
     ground.addColorStop(0, '#e6cf9f');
     ground.addColorStop(1, '#a5804a');
+  } else if (key === 'forest') {
+    ground.addColorStop(0, '#24401f');
+    ground.addColorStop(1, '#0d1a0b');
   } else {
     ground.addColorStop(0, '#7ba24a');
     ground.addColorStop(1, '#3d5320');
@@ -428,10 +494,11 @@ export function outdoorEnvironment(renderer, mapId) {
   ctx.fillStyle = ground;
   ctx.fillRect(0, 32, 128, 32);
 
+  const moon = key === 'forest';
   const sun = ctx.createRadialGradient(22, 11, 0, 22, 11, 16);
-  sun.addColorStop(0, 'rgba(255,250,232,1)');
-  sun.addColorStop(0.35, 'rgba(255,246,214,0.55)');
-  sun.addColorStop(1, 'rgba(255,246,214,0)');
+  sun.addColorStop(0, moon ? 'rgba(198,220,255,1)' : 'rgba(255,250,232,1)');
+  sun.addColorStop(0.35, moon ? 'rgba(160,190,240,0.45)' : 'rgba(255,246,214,0.55)');
+  sun.addColorStop(1, moon ? 'rgba(140,170,220,0)' : 'rgba(255,246,214,0)');
   ctx.fillStyle = sun;
   ctx.fillRect(0, 0, 48, 32);
 

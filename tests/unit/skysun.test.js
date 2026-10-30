@@ -128,3 +128,35 @@ describe('SkySun · 与 SunOrbs.spawnSky 的契约', () => {
     expect(active[0].pos.y).toBeCloseTo(SUN_SKY.height, 6);
   });
 });
+describe('SkySun · 边界与重置', () => {
+  it('没有地图或没有 bounds 时直接返回，不崩也不刷', () => {
+    const spawned = [];
+    for (const map of [null, {}, { bounds: null }]) {
+      const sky = new SkySun({ map, sunOrbs: { spawnSky: (x, z) => spawned.push({ x, z }) } });
+      expect(() => sky.update(SUN_SKY.interval * 2)).not.toThrow();
+    }
+    expect(spawned).toHaveLength(0);
+  });
+
+  it('极端小地图（半边长小于 edgeMargin）也不会刷到界外', () => {
+    const spawned = [];
+    const sky = new SkySun({
+      map: { bounds: { x: 1, z: 1 } },
+      sunOrbs: { spawnSky: (x, z) => spawned.push({ x, z }) },
+    });
+    sky.update(SUN_SKY.interval);
+    expect(spawned).toHaveLength(1);
+    expect(Math.abs(spawned[0].x)).toBeLessThanOrEqual(1);
+    expect(Math.abs(spawned[0].z)).toBeLessThanOrEqual(1);
+  });
+
+  it('超长单帧（dt 远大于 interval）也只落一颗，不会连发', () => {
+    const spawned = [];
+    const sky = new SkySun({
+      map: { bounds: { x: 20, z: 20 } },
+      sunOrbs: { spawnSky: (x, z) => spawned.push({ x, z }) },
+    });
+    sky.update(SUN_SKY.interval * 5);
+    expect(spawned).toHaveLength(1);
+  });
+});

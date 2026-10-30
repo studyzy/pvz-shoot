@@ -1,6 +1,7 @@
 import { Arena } from './Arena.js';
 import { IceWorld } from './IceWorld.js';
 import { DustYard } from './DustYard.js';
+import { NightForest } from './NightForest.js';
 
 export const MAPS = [
   {
@@ -29,6 +30,15 @@ export const MAPS = [
     desc: '致敬 de_dust2：中门、长 A、B 长廊三线压进',
     startLabel: '进入沙城',
     create: (scene) => new DustYard(scene),
+  },
+  {
+    id: 'forest',
+    name: '夜之森林',
+    short: '森林',
+    tag: 'NIGHT FOREST',
+    desc: '奇幻夜间大森林：哥布林、史莱姆、亡灵与野兽各族出没',
+    startLabel: '进入夜之森林',
+    create: (scene) => new NightForest(scene),
   },
 ];
 

@@ -546,3 +546,35 @@ describe('SunOrbs 天降阳光', () => {
     for (const o of orbs.orbs) expect(o.sky).toBe(false);
   });
 });
+
+describe('SunOrbs · 池扩容', () => {
+  it('ensureCapacity 只增不减；扩容后新槽可用、重复调用不重复建', () => {
+    const { orbs } = makeOrbs();
+    const before = orbs.orbs.length;
+    orbs.ensureCapacity(before + 12);
+    expect(orbs.orbs.length).toBe(before + 12);
+    const grown = orbs.orbs.length;
+    // 再要更小的容量：不回收
+    orbs.ensureCapacity(4);
+    expect(orbs.orbs.length).toBe(grown);
+    // 新加的槽是隐藏的
+    for (let i = before; i < grown; i++) {
+      expect(orbs.orbs[i].group.visible).toBe(false);
+      expect(orbs.orbs[i].active).toBeFalsy();
+    }
+  });
+
+  it('扩容出来的球可以直接用 spawn 激活', () => {
+    const { orbs } = makeOrbs();
+    orbs.ensureCapacity(60);
+    orbs.spawn(new THREE.Vector3(1, 0, 1), 1);
+    expect(activeOrbs(orbs).length).toBe(1);
+  });
+
+  it('池满又扩容后仍能继续生成', () => {
+    const { orbs } = makeOrbs();
+    orbs.ensureCapacity(80);
+    for (let i = 0; i < 50; i++) orbs.spawn(new THREE.Vector3(i * 0.1, 0, 0), 1);
+    expect(activeOrbs(orbs).length).toBeGreaterThan(28);
+  });
+});

@@ -12,9 +12,10 @@ const ERR_TEXT = {
   BAD: '联机请求无效',
   DUPLICATE: '账号已在另一处重连',
   JOIN_EXPIRED: '邀请链接已失效，点击双人重新匹配',
+  REMATCH_TIMEOUT: '队友没有再来一局，对局结束',
 };
 
-const FATAL = new Set(['BUILD', 'VERSION', 'ACCESS', 'BUSY', 'WAIT_TIMEOUT', 'DUPLICATE', 'JOIN_EXPIRED']);
+const FATAL = new Set(['BUILD', 'VERSION', 'ACCESS', 'BUSY', 'WAIT_TIMEOUT', 'DUPLICATE', 'JOIN_EXPIRED', 'REMATCH_TIMEOUT']);
 const HOST_FLAG = 'pvz-duo-host';
 
 function round(v, n = 2) {
@@ -78,6 +79,7 @@ export class DuoSession {
     this.pendingJump = false;
     this.pendingFire = false;
     this.pendingShield = false;
+    this.pendingShieldHp = 0;
     this.snapSeq = 0;
     this.history = [];
   }
@@ -176,6 +178,19 @@ export class DuoSession {
         this.state = 'playing';
         this.matchMapId = d.mapId || this.matchMapId;
         this.seed = d.seed || this.seed;
+        if (d.rematch && this.game.duo) {
+          // 再来一局：服务器交换了座位，host 身份跟着换
+          this.seat = Number.isInteger(d.seat) ? d.seat : this.seat;
+          this.host = this.seat === 0;
+          this.game.startDuoRound({
+            mapId: this.matchMapId,
+            seed: this.seed,
+            t0: d.t0,
+            seat: this.seat,
+            round: d.round,
+          });
+          break;
+        }
         if (this.game.duo) {
           this.game.hud && this.game.hud.setDuoStatus('已重连', 'ok');
           break;
@@ -226,10 +241,16 @@ export class DuoSession {
       if (this.game.applyGuestHit) this.game.applyGuestHit(msg.d);
     } else if (msg.t === 'aoe') {
       if (this.game.applyGuestAoe) this.game.applyGuestAoe(msg.d);
+    } else if (msg.t === 'claim') {
+      if (this.game.applyGuestClaim) this.game.applyGuestClaim(msg.d);
+    } else if (msg.t === 'drop') {
+      if (this.game.applyGuestDrop) this.game.applyGuestDrop(msg.d);
     } else if (msg.t === 'sun') {
       if (this.game.spendSun) this.game.spendSun(Number(msg.d.n) || 0);
+    } else if (msg.t === 'resync') {
+      if (this.game.applyResync) this.game.applyResync(msg.d);
     } else if (msg.t === 'wipe') {
-      if (this.game.endDuo) this.game.endDuo('WIPE', msg.d);
+      if (this.game.onDuoWipe) this.game.onDuoWipe(msg.d);
     } else if (msg.t === 'pause') {
       if (this.game.pause) this.game.pause(true);
     } else if (msg.t === 'resume') {
@@ -252,6 +273,7 @@ export class DuoSession {
     if (li.jump) this.pendingJump = true;
     this.pendingFire = !!(g.controls && g.controls.firing);
     this.pendingShield = !!(g.wallNuts && g.wallNuts.active);
+    this.pendingShieldHp = g.wallNuts ? Math.round(g.wallNuts.hp) : 0;
   }
 
   update(dt) {
@@ -278,6 +300,7 @@ export class DuoSession {
         jump: this.pendingJump,
         fire: this.pendingFire,
         shield: this.pendingShield,
+        sh: this.pendingShieldHp,
       })
     );
     this.pendingLook.x = 0;
@@ -316,6 +339,7 @@ export class DuoSession {
           firing: !!(g.netControls && g.netControls.firing),
           down: !!ng.downed,
           downT: round(ng.downTimer || 0, 1),
+          sh: Math.round(ng.shield ? ng.shield.hp : 0),
         }
       : null;
     const zs = g.zombies && g.zombies.zombies ? g.zombies.zombies.map((z) => z.serialize()) : [];
@@ -334,6 +358,7 @@ export class DuoSession {
         kills: g.duoKills ? g.duoKills.slice() : [0, 0],
         wave: g.zombies ? g.zombies.wave : 0,
         bossHp: boss ? Math.max(0, boss.hp / boss.maxHp) : 0,
+        o: g.sunOrbs ? g.sunOrbs.serialize() : [],
       })
     );
   }
@@ -385,6 +410,41 @@ export class DuoSession {
     );
   }
 
+  // guest → host：请求拿一件共享补给（kind 预留给阳光球）
+  sendClaim(kind, id) {
+    if (this.host || this.state !== 'playing' || !this.net || !id) return;
+    this.net.relay(encode('claim', { kind, id, seq: this.game.lastWorldSeq || 0 }));
+  }
+
+  // guest → host：丢枪也要在 host 的权威世界里落地，否则队友看不到
+  sendPickupDrop(index, x, z) {
+    if (this.host || this.state !== 'playing' || !this.net || !(index >= 0)) return;
+    this.net.relay(
+      encode('drop', {
+        i: index,
+        x: Math.round(x * 100) / 100,
+        z: Math.round(z * 100) / 100,
+      })
+    );
+  }
+
+  // host → guest：共享补给列表（有变化才发，≤10 件）
+  sendPickups(list) {
+    if (!this.host || this.state !== 'playing' || !this.net) return;
+    this.net.relay(encode('evt', { type: 'pickups', list: list || [] }));
+  }
+
+  // host → guest：客人刷新/重连后的完整世界快照（波次/阳光/分数/僵尸/补给/阳光球）
+  sendResync(d) {
+    if (!this.host || this.state !== 'playing' || !this.net || !d) return;
+    this.net.relay(encode('resync', d));
+  }
+
+  sendEvent(d) {
+    if (!this.host || this.state !== 'playing' || !this.net || !d) return;
+    this.net.relay(encode('evt', d));
+  }
+
   sendZombieSpawn(z) {
     if (!this.net || this.state !== 'playing' || !z || !z.serialize) return;
     this.net.relay(encode('evt', { type: 'zspawn', z: z.serialize() }));
@@ -397,6 +457,13 @@ export class DuoSession {
 
   sendPause(on) {
     if (this.net) this.net.relay(encode(on ? 'pause' : 'resume'));
+  }
+
+  // 结算页「再来一局」：服务器收齐两个人的请求才换种子 + 换座位重开
+  sendRematch() {
+    if (this.state !== 'playing' || !this.net) return false;
+    this.net.send(MSG.REMATCH);
+    return true;
   }
 
   sendMap(id) {

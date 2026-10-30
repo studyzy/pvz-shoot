@@ -25,6 +25,35 @@ export const SUN_SKY = {
   edgeMargin: 3,
 };
 
+// 双人缩放：人数 ×2 但同屏上限不变，靠「更耐打的怪 + 更密的波次」加压力。
+// 设计依据见 docs/design/DESIGN-duo-online.md §6：总 HP ×2.25、人均压力 1.12×。
+// 双人竞争/合作层（见设计稿 §4.2 / §5.2）
+export const COOP = { window: 2, mul: 1.08 };
+export const BOUNTY = { bonus: 300, fromWave: 2 };
+export const AIRDROP = {
+  everyWaves: 3,
+  delay: 20,
+  warn: 5,
+  sun: 40,
+  score: 200,
+  weapons: ['gatling', 'melon', 'firepea', 'cactus'],
+};
+export const BOSS_AGGRO = { switchEvery: 8, warn: 1 };
+
+export const DUO = {
+  countMul: 1.5,
+  hpMul: 1.5,
+  bossHpMul: 1.33,
+  spawnIntervalMul: 0.9,
+  maxAlive: 14,
+  airQuotaBonus: 1,
+  startSun: 80,
+  maxSun: 400,
+  skySunInterval: 22,
+  intermission: 5.0,
+  sunOrbPool: 40,
+};
+
 export const WEAPONS = [
   {
     id: 'pea',
@@ -398,6 +427,9 @@ export const ZOMBIES = {
     speed: 1.3,
     damage: 26,
     score: 2500,
+    boss: true,
+    title: '骷髅王',
+    sun: 7,
     // 巨型骷髅：骷髅原始高 2.166 × SKELETON_SCALE 0.9 × 2.3 ≈ 4.48 米
     scale: 2.3,
     model: 'skeleton',
@@ -416,7 +448,131 @@ export const ZOMBIES = {
     acc: null,
     radius: 0.5,
   },
+
+  // ══════════════════════════════════════════════════════════════════════
+  // 夜之森林 · 奇幻单位（全部来自 aigc/monsters，CC0 1.0）
+  // 数值口径：普通僵尸 hp 62 / speed 2.05 / damage 9 是基准线。
+  // 族群分工：哥布林=快脆、史莱姆=分裂弹跳、亡灵=成群、兽=伏击。
+  // ══════════════════════════════════════════════════════════════════════
+
+  // ── 哥布林族：脆、快、成群 ──
+  goblin: {
+    hp: 55, speed: 2.6, damage: 8, score: 90,
+    scale: 1, model: 'goblin', acc: null, radius: 0.4,
+    sun: 1,
+  },
+  // 小恶魔：哥布林的强化版，W6 起补位
+  demon3: {
+    hp: 80, speed: 2.2, damage: 12, score: 140,
+    scale: 1, model: 'demon3', acc: null, radius: 0.44,
+    sun: 1,
+  },
+
+  // ── 史莱姆族：弹跳、分裂、厚 ──
+  slime: {
+    hp: 70, speed: 1.5, damage: 10, score: 110,
+    scale: 1, model: 'slime', acc: null, radius: 0.48,
+    sun: 1,
+  },
+  // 粉史莱姆：死亡分裂成 2 只小史莱姆
+  'pink-slime': {
+    hp: 45, speed: 1.8, damage: 7, score: 90,
+    scale: 1, model: 'pink-slime', acc: null, radius: 0.42,
+    sun: 1,
+    split: { into: 'slimelet', count: 2 },
+  },
+  // 分裂出的小史莱姆：不再分裂（模型复用 slime，缩小）
+  slimelet: {
+    hp: 22, speed: 2.3, damage: 5, score: 30,
+    scale: 0.55, model: 'slime', acc: null, radius: 0.26,
+    sun: 1,
+  },
+  // 绿块：厚、慢、弹开豌豆（轻护甲）
+  'green-blob': {
+    hp: 120, speed: 1.2, damage: 13, score: 180,
+    scale: 1, model: 'green-blob', acc: null, radius: 0.56,
+    armor: { material: 'plastic', hp: 60 },
+    sun: 2,
+  },
+
+  // ── 亡灵族：成群、夜里显形 ──
+  // 注意：type 故意叫 bones 而不是 skeleton —— skeleton 那个 type 有 9 dc 的旧限流
+  // （SKELETON_MAX_ALIVE / spawnOne 里的换队逻辑），新骷髅只要 3 dc，不该吃这条。
+  bones: {
+    hp: 90, speed: 1.9, damage: 14, score: 160,
+    scale: 1, model: 'bones', acc: null, radius: 0.46,
+    sun: 1,
+  },
+  ghost: {
+    hp: 70, speed: 1.7, damage: 11, score: 190,
+    scale: 1, model: 'ghost', acc: null, radius: 0.46,
+    sun: 2,
+  },
+  'ghost-skull': {
+    hp: 50, speed: 2.1, damage: 9, score: 130,
+    scale: 1, model: 'ghost-skull', acc: null, radius: 0.38,
+    sun: 1,
+  },
+
+  // ── 兽族：快、伏击、成群 ──
+  wolf: {
+    hp: 75, speed: 3.0, damage: 15, score: 170,
+    scale: 1, model: 'wolf', acc: null, radius: 0.5,
+    sun: 2,
+  },
+  spider: {
+    hp: 60, speed: 1.4, damage: 14, score: 150,
+    scale: 1, model: 'spider', acc: null, radius: 0.5,
+    sun: 1,
+  },
+  rat: {
+    hp: 25, speed: 3.2, damage: 4, score: 40,
+    scale: 1, model: 'rat', acc: null, radius: 0.24,
+    sun: 1,
+  },
+  // 蝙蝠：飞行单位，吃 AIR_QUOTA_RATIO 的同屏配额
+  bat: {
+    hp: 40, speed: 2.4, damage: 7, score: 120,
+    scale: 1, model: 'bat', acc: null, radius: 0.36,
+    airborne: true, airHeight: 2.0,
+    sun: 1,
+  },
+
+  // ══════════════════════════════════════════════════════════════════════
+  // 夜之森林 · BOSS（每 5 波一只，按 BOSS_ROTATION 轮换）
+  // boss: true 是数据驱动开关——ZombieManager / Game 都读它，不要再写死 type === 'boss'。
+  // ══════════════════════════════════════════════════════════════════════
+  gargantuar: {
+    hp: 1560, speed: 1.15, damage: 30, score: 3000,
+    scale: 1.0, model: 'giant', acc: null, radius: 0.85,
+    boss: true, title: '巨人',
+    slam: { range: 2.6, radius: 2.3, telegraph: 0.85, recover: 1.4 },
+    sun: 7,
+  },
+  mushroomKing: {
+    hp: 1620, speed: 1.05, damage: 28, score: 3100,
+    scale: 1.0, model: 'mushroom-king', acc: null, radius: 0.8,
+    boss: true, title: '蘑菇王',
+    duck: { period: 9, duration: 3, reduce: 0.25 },
+    sun: 7,
+  },
+  dragon: {
+    hp: 1740, speed: 1.25, damage: 34, score: 3300,
+    scale: 1.0, model: 'dragon', acc: null, radius: 0.9,
+    boss: true, title: '巨龙',
+    dive: { high: 3.2, ground: 0, period: 7, groundTime: 2 },
+    sun: 8,
+  },
 };
+
+// 每 5 波出一个 BOSS，按这张表轮换（第 5/25/45… 波 = 巨人，第 10 波 = 骷髅王 …）。
+export const BOSS_ROTATION = ['gargantuar', 'boss', 'mushroomKing', 'dragon'];
+
+// 第 n 波该出哪只 BOSS；不是 BOSS 波返回 null。
+export function bossForWave(n) {
+  if (n < 5 || n % 5 !== 0) return null;
+  return BOSS_ROTATION[(Math.floor(n / 5) - 1) % BOSS_ROTATION.length];
+}
 
 // 普通骷髅（skeleton 类型）的同屏上限：单只 9 个 skinned mesh，比普通僵尸贵 4.5 倍，必须限流。
 // 注意：Boss 也是骷髅模型，但它每波只有 1 只，不吃这条上限。
@@ -454,7 +610,76 @@ export const COLORS = {
   sky: 0xcfe9ff,
 };
 
-export function wavePlan(n) {
+// 奇幻族群在夜之森林里的出场节奏：[首波, 每波增量, 单波上限]
+// 总量守恒：奇幻怪从普通僵尸里扣，不叠加，否则第 20 波怪量会翻倍。
+export const FANTASY_PLAN = {
+  goblin: [1, 0.5, 5],
+  slime: [1, 0.35, 4],
+  rat: [2, 0.3, 3],
+  wolf: [3, 0.4, 3],
+  bones: [4, 0.35, 3],
+  spider: [5, 0.3, 2],
+  ghost: [6, 0.3, 2],
+  demon3: [6, 0.3, 2],
+  'pink-slime': [7, 0.28, 2],
+  bat: [8, 0.25, 2],
+  'green-blob': [9, 0.22, 2],
+  'ghost-skull': [11, 0.2, 2],
+};
+
+// 一张图这一波总共出多少只（不含 BOSS）。普通地图和森林共用这一条口径，
+// 保证「换成奇幻怪」不会偷偷改难度曲线。
+export function waveTotal(n) {
+  const normals = 4 + Math.floor(n * 1.45);
+  const cones = n >= 2 ? Math.floor((n - 1) * 1.05) : 0;
+  const buckets = n >= 3 ? Math.max(1, Math.floor((n - 2) * 0.8)) : 0;
+  const skeletons = n >= 4 ? Math.min(SKELETON_MAX_ALIVE, 1 + Math.floor((n - 4) * 0.5)) : 0;
+  const footballs = n >= 4 ? 1 + Math.floor((n - 4) * 0.6) : 0;
+  const balloons = n >= 6 ? 1 + Math.floor((n - 6) * 0.7) : 0;
+  return normals + cones + buckets + skeletons + footballs + balloons;
+}
+
+// 森林专属波次：奇幻单位替换普通僵尸，总只数与普通地图一致。
+function forestWavePlan(n) {
+  const list = [];
+  const total = waveTotal(n);
+  const picks = [];
+  for (const id in FANTASY_PLAN) {
+    const [start, rate, cap] = FANTASY_PLAN[id];
+    if (n < start) continue;
+    const k = Math.min(cap, Math.floor((n - start) * rate) + 1);
+    for (let i = 0; i < k; i++) picks.push(id);
+  }
+  // 总量守恒：奇幻怪最多占 (总只数 - 4)，普通僵尸始终留 4 只保底。
+  const room = Math.max(0, total - 4);
+  const fantasy = picks.length > room ? picks.slice(0, room) : picks;
+  const normals = total - fantasy.length;
+  for (let i = 0; i < normals; i++) list.push('normal');
+  for (let i = 0; i < fantasy.length; i++) list.push(fantasy[i]);
+  return withBoss(shuffle(list), n);
+}
+
+// BOSS 洗牌后插到队首：否则它排在十几个普通怪后面，玩家要等很久才见到，
+// 甚至因为同屏上限一直排不上（实测：不加这条第 5 波打了 20 秒 BOSS 还没出来）。
+function withBoss(list, n) {
+  const boss = bossForWave(n);
+  if (!boss) return list;
+  return [boss].concat(list);
+}
+
+function shuffle(list) {
+  for (let i = list.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    const t = list[i];
+    list[i] = list[j];
+    list[j] = t;
+  }
+  return list;
+}
+
+// mapId 可选：传 'forest' 走奇幻波次，其余地图保持原来的僵尸波次（零回归）。
+export function wavePlan(n, mapId) {
+  if (mapId === 'forest') return forestWavePlan(n);
   const list = [];
   const normals = 4 + Math.floor(n * 1.45);
   const cones = n >= 2 ? Math.floor((n - 1) * 1.05) : 0;
@@ -471,14 +696,24 @@ export function wavePlan(n) {
   for (let i = 0; i < skeletons; i++) list.push('skeleton');
   for (let i = 0; i < footballs; i++) list.push('football');
   for (let i = 0; i < balloons; i++) list.push('balloon');
-  if (n % 5 === 0) list.push('boss');
-  for (let i = list.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    const t = list[i];
-    list[i] = list[j];
-    list[j] = t;
+  return withBoss(shuffle(list), n);
+}
+
+// 双人波次：把非 Boss 条目循环补到 countMul 倍，Boss 保持 1 只。
+// 单独导出便于单测，ZombieManager 只在 host 侧调用。
+export function duoWavePlan(plan) {
+  const normals = [];
+  const bosses = [];
+  for (let i = 0; i < plan.length; i++) {
+    const def = ZOMBIES[plan[i]];
+    if (def && def.boss) bosses.push(plan[i]);
+    else normals.push(plan[i]);
   }
-  return list;
+  if (!normals.length) return bosses.slice();
+  const target = Math.round(normals.length * DUO.countMul);
+  const out = [];
+  for (let i = 0; i < target; i++) out.push(normals[i % normals.length]);
+  return out.concat(bosses);
 }
 
 export function waveMaxAlive(n) {

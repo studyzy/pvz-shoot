@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
-import { blobShadowTexture } from '../world/materials.js';
-import { ZOMBIES, ARMOR_MATERIALS } from '../config.js';
+import { blobShadowTexture, glowTexture } from '../world/materials.js';
+import { ZOMBIES, ARMOR_MATERIALS, COOP, BOSS_AGGRO } from '../config.js';
 import { zombieModel, ZOMBIE_SCALE, MODELS, findClip } from './ZombieModel.js';
 import { clamp, rand, TAU } from '../utils.js';
 
@@ -77,6 +77,27 @@ const HIT = {
   alchemist: { chest: 0.83, head: 1.44, radius: 0.85 },
   // 橄榄球模型原始高 1.938（头心 1.747、胸心 1.408）；下面的数已乘 MODELS.football.scale 0.95，调用方再乘类型 scale。
   football: { chest: 1.34, head: 1.66, radius: 1 },
+
+  // ── 夜之森林的奇幻单位 ──
+  // 这些模型都按 targetHeight 归一化过，所以下面填的是**归一化后**的世界米口径，
+  // 调用方仍会再乘类型的 scaleFactor。头部球半径始终小于胸口球（见 §5.3 硬规则）。
+  goblin: { chest: 0.82, head: 1.18, radius: 0.85 },
+  demon3: { chest: 0.85, head: 1.22, radius: 0.85 },
+  slime: { chest: 0.45, head: 0.72, radius: 1.05 },
+  'pink-slime': { chest: 0.42, head: 0.66, radius: 1.05 },
+  'green-blob': { chest: 0.55, head: 0.88, radius: 1.1 },
+  bones: { chest: 0.88, head: 1.42, radius: 0.8 },
+  ghost: { chest: 0.95, head: 1.55, radius: 0.85 },
+  'ghost-skull': { chest: 0.62, head: 0.95, radius: 0.8 },
+  // 四足：胸口（躯干）低于头，但半径仍然头 < 身体
+  wolf: { chest: 0.58, head: 0.72, radius: 0.72 },
+  spider: { chest: 0.32, head: 0.42, radius: 0.85 },
+  rat: { chest: 0.14, head: 0.2, radius: 0.8 },
+  bat: { chest: 0.28, head: 0.38, radius: 0.8 },
+
+  giant: { chest: 0.95, head: 1.5, radius: 1 },
+  'mushroom-king': { chest: 0.9, head: 1.4, radius: 0.9 },
+  dragon: { chest: 0.85, head: 1.35, radius: 0.9 },
 };
 
 let shadowMatShared = null;
@@ -92,6 +113,135 @@ function shadowMaterial() {
   }
   return shadowMatShared;
 }
+
+// ── 动画族 ────────────────────────────────────────────────────────────────
+// 每个模型 id 归属一个动画命名族；族的候选名按优先级排列，取第一个命中的 clip。
+// 新增模型：先在 ANIM_FAMILIES 里挂上族名，族已存在就不用动别的地方。
+export const ANIM_NAMES = {
+  // Quaternius 僵尸（zombie.glb 与炼金/橄榄球都对齐了这套命名）
+  quaternius: {
+    idle: ['idle'],
+    walk: ['walk'],
+    attack: ['idle_attack', 'run_attack'],
+    die: ['death'],
+    hit: ['hitreact'],
+  },
+  // KayKit 骷髅（Walking_A / 1H_Melee_Attack_Chop / Death_A / Hit_A）
+  kaykit: {
+    idle: ['idle_combat', 'idle'],
+    walk: ['walking_a', 'walking_b', 'idle'],
+    attack: ['1h_melee_attack_chop', '1h_melee_attack_slice_horizontal', 'idle_combat'],
+    die: ['death_a', 'death_b'],
+    hit: ['hit_a', 'hit_b'],
+  },
+  // 人形怪族：Attack / Death / HitRecieve / Idle / Jump / Run / Walk
+  humanoid: {
+    idle: ['idle'],
+    walk: ['walk', 'run'],
+    attack: ['attack', 'punch', 'bite_front'],
+    die: ['death'],
+    hit: ['hitrecieve', 'hitreact'],
+  },
+  // 软体族：Bite_Front / Dance / Death / HitRecieve / Idle / Jump / No / Walk / Yes
+  blob: {
+    idle: ['idle'],
+    walk: ['walk', 'jump'],
+    attack: ['bite_front', 'bite_inplace', 'punch', 'headbutt'],
+    die: ['death'],
+    hit: ['hitrecieve', 'hitreact'],
+  },
+  // 史莱姆专属：Slime_Attack / Slime_Death / Slime_Idle / Slime_Walk
+  slime: {
+    idle: ['slime_idle', 'idle'],
+    walk: ['slime_walk', 'walk'],
+    attack: ['slime_attack', 'bite_front'],
+    die: ['slime_death', 'death'],
+    hit: ['hitrecieve', 'hitreact', 'hit'],
+  },
+  // 四足兽：Death / Headbutt / Idle / Jump_* / Run / Walk
+  beast: {
+    idle: ['idle'],
+    walk: ['walk', 'run', 'gallop'],
+    attack: ['headbutt', 'bite_front', 'punch'],
+    die: ['death'],
+    hit: ['hitreact', 'hitrecieve'],
+  },
+  // 蜘蛛：Spider_Attack / Spider_Death / Spider_Idle / Spider_Jump / Spider_Walk
+  spider: {
+    idle: ['spider_idle', 'idle'],
+    walk: ['spider_walk', 'spider_jump'],
+    attack: ['spider_attack', 'bite_front'],
+    die: ['spider_death', 'death'],
+    hit: ['hitrecieve', 'hitreact', 'hit'],
+  },
+  // 老鼠：Rat_Attack / Rat_Death / Rat_Idle / Rat_Jump / Rat_Run / Rat_Walk
+  rat: {
+    idle: ['rat_idle', 'idle'],
+    walk: ['rat_walk', 'rat_run'],
+    attack: ['rat_attack', 'bite_front'],
+    die: ['rat_death', 'death'],
+    hit: ['hitrecieve', 'hitreact', 'hit'],
+  },
+  // 蝙蝠：Bat_Attack / Bat_Attack2 / Bat_Death / Bat_Flying / Bat_Hit（没有 HitReact，用 Bat_Hit）
+  bat: {
+    idle: ['bat_flying'],
+    walk: ['bat_flying'],
+    attack: ['bat_attack', 'bat_attack2'],
+    die: ['bat_death'],
+    hit: ['bat_hit', 'hitrecieve'],
+  },
+  // 幽灵/飞行怪：Death / Fast_Flying / Flying_Idle / Headbutt / HitReact / Punch
+  // 注意：带 Fast_Flying 不代表会飞，是否悬空只由 def.airborne 决定。
+  flying: {
+    idle: ['flying_idle', 'idle'],
+    walk: ['fast_flying', 'flying_idle', 'walk'],
+    attack: ['headbutt', 'punch', 'bite_front'],
+    die: ['death'],
+    hit: ['hitreact', 'hitrecieve'],
+  },
+  // 有 Duck 的怪：Death / Duck / HitReact / Idle / Jump… / Punch / Run / Walk / Wave / Weapon
+  duck: {
+    idle: ['idle'],
+    walk: ['walk', 'run'],
+    attack: ['punch', 'attack', 'headbutt'],
+    die: ['death'],
+    hit: ['hitreact', 'hitrecieve'],
+  },
+  // 龙：Dragon_Attack / Dragon_Attack2 / Dragon_Death / Dragon_Flying / Dragon_Hit
+  dragon: {
+    idle: ['dragon_flying'],
+    walk: ['dragon_flying'],
+    attack: ['dragon_attack', 'dragon_attack2', 'headbutt'],
+    die: ['dragon_death', 'death'],
+    hit: ['dragon_hit', 'hitreact'],
+  },
+};
+
+export const ANIM_FAMILIES = {
+  zombie: 'quaternius',
+  alchemist: 'quaternius',
+  football: 'quaternius',
+  skeleton: 'kaykit',
+
+  goblin: 'humanoid',
+  demon3: 'humanoid',
+  giant: 'humanoid',
+  'mushroom-king': 'duck',
+  bones: 'humanoid',
+
+  slime: 'slime',
+  'pink-slime': 'blob',
+  'green-blob': 'blob',
+
+  ghost: 'flying',
+  'ghost-skull': 'flying',
+  dragon: 'dragon',
+
+  wolf: 'beast',
+  spider: 'spider',
+  rat: 'rat',
+  bat: 'bat',
+};
 
 export class Zombie {
   constructor(type, wave, x, z, ctx, hpMul, speedMul) {
@@ -140,6 +290,18 @@ export class Zombie {
     this.rotY = rand(0, TAU);
     this.animSpeed = 0;
     this.targetSeat = 0;
+    // 双人：协同集火（2 s 内两人都打过 → 之后 ×1.08）与悬赏标记
+    this.age = 0;
+    this.coopA = -99;
+    this.coopB = -99;
+    this.coop = false;
+    this.bounty = false;
+    this.markBounty = null;
+    this.markCoop = null;
+    // 双人 Boss：每 8 s 强制换目标，换之前 1 s 吼叫预警
+    this.aggroT = BOSS_AGGRO.switchEvery;
+    this.aggroWarnFired = false;
+    this.preferSeat = null;
 
     // 材质护甲层：护甲有自己的血，打空就掉下来（acc 网格隐藏）。
     // material 决定吸收比例、怕不怕火、挡不挡穿透 —— 一条字段解释所有武器的克制关系。
@@ -182,10 +344,9 @@ export class Zombie {
 
   // 当前类型用哪份模型资源：普通僵尸直接用 zombieModel 本体，其它压在自己的槽里
   modelSource() {
-    if (this.modelId === 'skeleton') return zombieModel.skeleton;
-    if (this.modelId === 'alchemist') return zombieModel.alchemist;
-    if (this.modelId === 'football') return zombieModel.football;
-    return zombieModel;
+    if (this.modelId === 'zombie') return zombieModel;
+    // 其余模型各自压在自己的槽里（skeleton/alchemist/football + 奇幻单位）
+    return zombieModel[this.modelId] || zombieModel;
   }
 
   buildRig() {
@@ -194,11 +355,17 @@ export class Zombie {
     const src = this.modelSource();
     const def = MODELS[this.modelId];
     this.isSkeleton = this.modelId === 'skeleton';
+    // 两层缩放不能混：
+    //   root.scale = def.scale（类型的体型倍率）
+    //   body.scale = 模型自身的归一化缩放（MODELS[id].scale；老四套手写，新模型加载时算好）
+    // 新模型已经把缩放烘进 scene，这里必须填 1，否则二次缩放。
+    const modelScale = def.targetHeight ? 1 : ((src && src.scale) || def.scale || 1);
 
     // 骨骼模型每个僵尸克隆一份：骨骼必须独立，材质也要独立（白闪/冰冻）
     // 骨骼模型必须用 SkeletonUtils.clone，否则所有僵尸共享同一套骨骼会一起动
     this.body = src.scene ? cloneSkinned(src.scene) : new THREE.Group();
-    this.body.scale.setScalar(def.scale);
+    // 归一化过的模型（targetHeight）缩放已经烘进 scene，别再乘一遍
+    this.body.scale.setScalar(modelScale);
     this.model.add(this.body);
 
     this.mats = [];
@@ -241,22 +408,18 @@ export class Zombie {
       }
       return null;
     };
-    // 骷髅用 KayKit 的命名（Walking_A / 1H_Melee_Attack_Chop / Death_A …），僵尸用 Quaternius 的
-    const want = this.isSkeleton
-      ? {
-          idle: pick(['idle_combat', 'idle']),
-          walk: pick(['walking_a', 'walking_b', 'idle']),
-          attack: pick(['1h_melee_attack_chop', '1h_melee_attack_slice_horizontal', 'idle_combat']),
-          die: pick(['death_a', 'death_b']),
-          hit: pick(['hit_a', 'hit_b']),
-        }
-      : {
-          idle: pick(['idle']),
-          walk: pick(['walk']),
-          attack: pick(['idle_attack', 'run_attack']),
-          die: pick(['death']),
-          hit: pick(['hitreact']),
-        };
+    // 按**动画族**取候选名，不按模型逐个写分支（见 docs/design/DESIGN-night-forest.md §1.4：
+    // 40 个 aigc 怪只有约 12 个命名族，加一只新怪只是往族上挂，不用再写 if）。
+    // ANIM_FAMILIES 是纯数据，单元测试直接校验每个 ZOMBIES 类型都能落到一个族上。
+    const family = ANIM_FAMILIES[this.modelId] || (this.isSkeleton ? 'kaykit' : 'quaternius');
+    const names = ANIM_NAMES[family] || ANIM_NAMES.quaternius;
+    const want = {
+      idle: pick(names.idle),
+      walk: pick(names.walk),
+      attack: pick(names.attack),
+      die: pick(names.die),
+      hit: pick(names.hit),
+    };
     for (const k in want) {
       if (!want[k]) continue;
       const a = this.mixer.clipAction(want[k]);
@@ -312,7 +475,10 @@ export class Zombie {
     // （scaleFactor）；骨骼链里**多出来**的部分（僵尸 glb 的 CharacterArmature 100 倍）才要抵掉。
     // 曾经直接除以骨骼世界缩放，把模型缩放也除掉了 —— 交通锥/铁桶的世界尺寸只剩身体的
     // 1/1.55，大半截陷进脑袋里，看起来像「没戴帽子」；Boss 木棒同理缩水一半。
-    const hatWorldScale = MODELS[this.modelId].scale * this.scaleFactor;
+    // 归一化过的模型（targetHeight）缩放记在槽上（加载时算的），MODELS[id].scale 是 undefined
+    const hatSrc = this.modelSource();
+    const modelScaleForHat = MODELS[this.modelId].scale || (hatSrc && hatSrc.scale) || 1;
+    const hatWorldScale = modelScaleForHat * this.scaleFactor;
     let hatScale = 1;
     let headScale = 1;
     if (headBone) {
@@ -580,7 +746,15 @@ export class Zombie {
     this.lastHitBy = source;
     if (o && o.burn) this.burnSource = source;
     const type = (o && o.type) || 'pea';
-    let amount = dmg;
+    // 协同集火：标记成立**之后**的伤害才吃 1.08，凑成标记的这一下不算
+    let amount = dmg * (this.coop ? COOP.mul : 1);
+    if (source === 0) this.coopA = this.age;
+    else this.coopB = this.age;
+    const coop = this.age - this.coopA <= COOP.window && this.age - this.coopB <= COOP.window;
+    if (coop !== this.coop) {
+      this.coop = coop;
+      this.setCoopMark(coop);
+    }
 
     // 护甲：按材质吸收，护甲自己扣血；吸收比例之外的部分才落到血条上。
     if (this.armorHp > 0 && this.armorRule) {
@@ -660,6 +834,48 @@ export class Zombie {
   }
 
   // host 快照里的单只僵尸：id/type/位置/朝向/血量/动画状态/减速。
+  // 悬赏/协同的头顶标记：用一张发光贴图，不额外建几何
+  setCoopMark(on) {
+    if (on && !this.markCoop) {
+      const m = new THREE.Sprite(
+        new THREE.SpriteMaterial({
+          map: glowTexture(),
+          color: 0x63d8ff,
+          transparent: true,
+          blending: THREE.AdditiveBlending,
+          depthWrite: false,
+          opacity: 0.85,
+        })
+      );
+      m.scale.set(1.1, 1.1, 1);
+      m.position.y = 2.45;
+      this.root.add(m);
+      this.markCoop = m;
+    }
+    if (this.markCoop) this.markCoop.visible = !!on;
+  }
+
+  setBounty(on) {
+    this.bounty = !!on;
+    if (on && !this.markBounty) {
+      const m = new THREE.Sprite(
+        new THREE.SpriteMaterial({
+          map: glowTexture(),
+          color: 0xffc21f,
+          transparent: true,
+          blending: THREE.AdditiveBlending,
+          depthWrite: false,
+          opacity: 0.95,
+        })
+      );
+      m.scale.set(1.6, 1.6, 1);
+      m.position.y = 2.75;
+      this.root.add(m);
+      this.markBounty = m;
+    }
+    if (this.markBounty) this.markBounty.visible = !!on;
+  }
+
   serialize() {
     let st = 0;
     if (this.dying) st = 3;
@@ -675,6 +891,8 @@ export class Zombie {
       hp: Math.round(this.hp),
       st,
       sl: this.slowTimer > 0 ? 1 : 0,
+      bo: this.bounty ? 1 : 0,
+      co: this.coop ? 1 : 0,
     };
   }
 
@@ -687,6 +905,9 @@ export class Zombie {
     this.root.rotation.y = s.yaw;
     this.hp = s.hp;
     this.slowTimer = s.sl ? 0.2 : 0;
+    if (!!s.bo !== this.bounty) this.setBounty(!!s.bo);
+    if (!!s.co !== this.coop) this.setCoopMark(!!s.co);
+    this.coop = !!s.co;
     if (s.st === 3) {
       if (!this.dying) {
         this.dying = true;
@@ -713,6 +934,7 @@ export class Zombie {
   update(dt, player, colliders) {
     if (this.dead) return;
     if (this._hatPending) this.mountHeadTop();
+    this.age += dt;
 
     if (this.remote) {
       if (this.dying) {
@@ -808,15 +1030,48 @@ export class Zombie {
     }
 
     const targets = Array.isArray(player) ? player : [player];
+    // Boss 双目标：每 8 s 强制换人，换之前 1 s 红光亮起 + 吼叫预警
+    if (this.def.boss && targets.length > 1) {
+      this.aggroT -= dt;
+      if (this.aggroT <= BOSS_AGGRO.warn && !this.aggroWarnFired) {
+        this.aggroWarnFired = true;
+        this.flash = Math.max(this.flash, 0.5);
+        if (this.ctx && this.ctx.particles) {
+          this.ctx.particles.burst({
+            pos: tmpV.set(this.root.position.x, this.root.position.y + 1.6, this.root.position.z),
+            color: [0xff2a1a, 0xff6a3a],
+            count: 10,
+            speed: 2.4,
+            size: 0.14,
+            life: 0.5,
+            gravity: -1,
+          });
+        }
+      }
+      if (this.aggroT <= 0) {
+        this.aggroT = BOSS_AGGRO.switchEvery;
+        this.aggroWarnFired = false;
+        // 换到当前目标之外的那个座位
+        const other = targets[1 - this.targetSeat];
+        if (other && !other.dead && !other.downed) this.preferSeat = 1 - this.targetSeat;
+      }
+    }
     let target = null;
     let bestDist = Infinity;
-    for (let i = 0; i < targets.length; i++) {
-      const p = targets[i];
-      if (!p || p.dead || p.downed) continue;
-      const d = Math.hypot(p.pos.x - this.root.position.x, p.pos.z - this.root.position.z);
-      if (d < bestDist) {
-        bestDist = d;
-        target = p;
+    if (this.preferSeat !== null) {
+      const pref = targets[this.preferSeat];
+      if (pref && !pref.dead && !pref.downed) target = pref;
+      this.preferSeat = null;
+    }
+    if (!target) {
+      for (let i = 0; i < targets.length; i++) {
+        const p = targets[i];
+        if (!p || p.dead || p.downed) continue;
+        const d = Math.hypot(p.pos.x - this.root.position.x, p.pos.z - this.root.position.z);
+        if (d < bestDist) {
+          bestDist = d;
+          target = p;
+        }
       }
     }
     if (!target) {

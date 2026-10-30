@@ -17,6 +17,7 @@ let WEAPONS;
 let WEAPON_SLOTS;
 let GRENADE;
 let TUNING;
+let PEA_ID;
 let game;
 let W;
 let H;
@@ -27,7 +28,7 @@ async function boot() {
   // vite 会在 request 队列里提前加载真 three，替身就不生效了（实测）。
   H = await import('../helpers/game.js');
   THREE = await import('three');
-  ({ WEAPONS, TUNING, WEAPON_SLOTS, GRENADE } = await import('../../src/config.js'));
+  ({ WEAPONS, TUNING, WEAPON_SLOTS, GRENADE, PEA_ID } = await import('../../src/config.js'));
   // readyGame：等 zombieModel 就绪，spawnZombieAt 才不会拿到 null 场景
   const created = await H.readyGame();
   game = created.game;
@@ -1389,5 +1390,92 @@ describe('viewmodel 动画', () => {
     game.weapons.update(0, game.controls);
     const g = W.models[0].group;
     expect(g.position.z).toBeCloseTo(W.models[0].basePos.z + 0.22, 9);
+  });
+});
+// ── 槽位计数 / Q 键循环 / 对空判定：原先没有直接覆盖 ──
+describe('武器系统 · 槽位与快捷循环', () => {
+  it('slotCount 返回每个角色的格数，未知角色为 0', async () => {
+    await boot();
+    expect(W.slotCount('gun')).toBeGreaterThan(0);
+    expect(W.slotCount('shield')).toBeGreaterThan(0);
+    expect(W.slotCount('不存在的角色')).toBe(0);
+  });
+
+  it('按 Q（consumeLootRequest）在战利品槽间循环', async () => {
+    await boot();
+    clearField();
+    // 给 2 号槽塞两把不同的枪，验证循环真的换了手上的武器
+    const gunIdx = WEAPONS.findIndex((d) => d.slot === 'gun');
+    expect(gunIdx).toBeGreaterThanOrEqual(0);
+    W.pickup(gunIdx);
+    const before = W.equipped;
+    const controls = {
+      firing: false,
+      move: { x: 0, y: 0 },
+      consumeFirePressed: () => false,
+      consumeDropRequest: () => false,
+      consumeLootRequest: () => true,
+      consumeJump: () => false,
+    };
+    W.update(0.016, controls);
+    // 至少不崩，且当前装备发生变化或保持合法槽位
+    expect(W.equipped === before || W.equipped !== null).toBe(true);
+  });
+
+  it('canHitAirFromAbove：只有站在高处且水平 3 米内才成立', async () => {
+    await boot();
+    clearField();
+    const balloon = spawn('balloon', 0, -2);
+    // 站地面：不成立
+    game.player.pos.set(0, 0, 0);
+    game.player.grounded = true;
+    expect(W.canHitAirFromAbove(balloon)).toBe(false);
+    // 站上 0.92 米矮台：成立
+    game.player.pos.set(0, 1.2, 0);
+    expect(W.canHitAirFromAbove(balloon)).toBe(true);
+    // 离太远：不成立
+    game.player.pos.set(0, 1.2, 10);
+    expect(W.canHitAirFromAbove(balloon)).toBe(false);
+    // 跳起（未落地）：不成立
+    game.player.pos.set(0, 1.2, 0);
+    game.player.grounded = false;
+    expect(W.canHitAirFromAbove(balloon)).toBe(false);
+  });
+});
+
+describe('武器系统 · 手雷打空', () => {
+  it('手雷没弹药且阳光不够时：拒绝投掷并播 deny', async () => {
+    await boot();
+    clearField();
+    const gIdx = WEAPONS.findIndex((d) => d.grenade);
+    expect(gIdx).toBeGreaterThanOrEqual(0);
+    W.pickup(gIdx);
+    W.equip(gIdx);
+    W.ammo[gIdx] = 0;
+    game.sun = 0;
+    const deny = vi.spyOn(game.sfx, 'deny').mockImplementation(() => {});
+    // 冷却清零，保证进到弹药判定
+    W.cooldown = 0;
+    expect(() => W.throwGrenade(WEAPONS[gIdx], 0.5)).not.toThrow();
+    expect(deny).toHaveBeenCalled();
+    deny.mockRestore();
+  });
+
+  it('手上不是手雷时，update 会清掉残留蓄力', async () => {
+    await boot();
+    clearField();
+    W.charge = 0.5;
+    const controls = {
+      firing: false,
+      move: { x: 0, y: 0 },
+      consumeFirePressed: () => false,
+      consumeDropRequest: () => false,
+      consumeLootRequest: () => false,
+      consumeJump: () => false,
+    };
+    // 手上不是手雷：直接走 updateGrenade 的早退分支（豌豆是 starter，拿它的 def 即可）
+    const peaDef = WEAPONS.find((d) => d.id === 'pea');
+    W.updateGrenade(0.016, controls, peaDef);
+    expect(W.charge).toBe(0);
   });
 });

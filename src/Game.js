@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { MAPS, DEFAULT_MAP, createMaps } from './world/maps.js';
+import { bossForWave, ZOMBIES } from './config.js';
 import { Player } from './entities/Player.js';
 import { ZombieManager } from './entities/ZombieManager.js';
 import { initZombieModel, zombieModel } from './entities/ZombieModel.js';
@@ -9,12 +10,12 @@ import { Particles } from './fx/Particles.js';
 import { SunOrbs } from './entities/SunOrbs.js';
 import { SkySun } from './entities/SkySun.js';
 import { WeaponPickups } from './entities/WeaponPickups.js';
-import { WallNuts } from './entities/WallNuts.js';
+import { WallNuts, RemoteShield } from './entities/WallNuts.js';
 import { RemotePlayer } from './entities/RemotePlayer.js';
 import { Sfx } from './audio/Sfx.js';
 import { HUD } from './ui/HUD.js';
 import { Controls } from './input/Controls.js';
-import { TUNING, WEAPONS } from './config.js';
+import { TUNING, WEAPONS, DUO, SUN_SKY, BOUNTY, AIRDROP } from './config.js';
 import { outdoorEnvironment } from './world/materials.js';
 import { clamp, lerp, segmentSphereT } from './utils.js';
 import { sweepWalls } from './weapons/HitWalls.js';
@@ -49,6 +50,18 @@ export class Game {
     this.wasADown = false;
     this.wasBDown = false;
     this.remoteDown = false;
+    this.netShieldHp = 0;
+    this.pendingResync = null;
+    this.airdropWave = -1;
+    this.airdropT = 0;
+    this.airdropBeam = false;
+    this.airdropDropped = false;
+    // 空投：每 3 波 1 次，落点提前 5 s 亮光柱
+    this.airdropWave = -1;
+    this.airdropT = 0;
+    this.airdropBeam = false;
+    this.airdropDropped = false;
+    this.airdropSpot = null;
     this.sun = TUNING.startSun;
     this.shakeAmp = 0;
     this.menuT = 0;
@@ -126,7 +139,7 @@ export class Game {
     ctx.onWaveClear = (n) => this.onWaveClear(n);
     ctx.onZombieAttack = (z) => this.onZombieAttack(z);
     ctx.onBossSpawn = (z) => this.onBossSpawn(z);
-    ctx.onBossDead = () => this.onBossDead();
+    ctx.onBossDead = (z) => this.onBossDead(z);
 
     // 坚果免伤盾是玩家身上的状态：必须在 Player 之后、WeaponSystem 之前建好
     this.wallNuts = new WallNuts(ctx);
@@ -166,6 +179,8 @@ export class Game {
     this.hud.onDuoShare = () => this.copyDuoLink();
     this.hud.onResume = () => this.resume();
     this.hud.onRestart = () => this.restart();
+    this.hud.onDuoRematch = () => this.requestDuoRematch();
+    this.hud.onDuoLeave = () => this.endDuo('LEFT');
     this.hud.onPause = () => this.pause();
     this.hud.onChangeMap = () => this.backToMenu();
     this.hud.onMapSelect = (id) => this.selectMap(id);
@@ -301,6 +316,9 @@ export class Game {
     this.mapId = map.id;
     this.ctx.map = map;
     this.ctx.env = outdoorEnvironment(this.renderer, map.id);
+    // 夜之森林整图关实时投影：省掉一遍 1024 PCFSoft shadow pass，
+    // 夜景本来就靠雾和自发光撑氛围。其它地图照旧开着。
+    this.renderer.shadowMap.enabled = !map.noShadows;
     map.activate(this.scene);
     this.hud.setMapSelection(map.id);
     this.hud.setStartLabel(map.startLabel);
@@ -387,9 +405,18 @@ export class Game {
     this.lastGuestInputAt = 0;
     if (this.zombies) {
       this.zombies.setRemote(false);
+      this.zombies.setDuo(false);
       this.zombies.onNetSpawn = null;
       this.zombies.onNetDead = null;
     }
+    if (this.pickups) {
+      this.pickups.setShared(false);
+      this.pickups.onChange = null;
+      this.pickups.onClaim = null;
+      this.pickups.onDrop = null;
+      this.pickups.onLocalPickup = null;
+    }
+    if (this.skySun) this.skySun.interval = SUN_SKY.interval;
   }
 
   isGuestWorld() {
@@ -399,6 +426,7 @@ export class Game {
   setupDuoWorld() {
     const host = this.seat === 0;
     this.zombies.setRemote(!host);
+    this.zombies.setDuo(host);
     this.zombies.onNetSpawn = host
       ? (z) => {
           if (this.duoSession) this.duoSession.sendZombieSpawn(z);
@@ -409,6 +437,27 @@ export class Game {
           if (this.duoSession) this.duoSession.sendZombieDead(z);
         }
       : null;
+    // 共享补给：host 权威刷/捡/丢并广播列表；guest 只镜像 + claim。
+    if (host) {
+      this.pickups.setShared(false);
+      this.pickups.onChange = (list) => {
+        if (this.duoSession) this.duoSession.sendPickups(list);
+      };
+      this.pickups.onLocalPickup = (item, index) => {
+        if (item.air) this.grantAirdrop(0);
+        if (this.duoSession) {
+          this.duoSession.sendEvent({ type: 'pickup', id: item.id, seat: 0, index, air: item.air ? 1 : 0 });
+        }
+      };
+    } else {
+      this.pickups.setShared(true);
+      this.pickups.onClaim = (id) => {
+        if (this.duoSession) this.duoSession.sendClaim('pickup', id);
+      };
+      this.pickups.onDrop = (index, x, z) => {
+        if (this.duoSession) this.duoSession.sendPickupDrop(index, x, z);
+      };
+    }
     if (host) this.zombies.startWave(1);
   }
 
@@ -493,6 +542,7 @@ export class Game {
     this.controls.setEnabled(true);
     this.controls.requestLock();
     this.clock.getDelta();
+    if (this.pendingResync) this.applyResync(this.pendingResync);
   }
 
   respawnRemote() {
@@ -515,7 +565,11 @@ export class Game {
     this.netGuest.reset({ x: s.x, z: s.z, yaw: s.yaw });
     this.netGuest.duoDown = true;
     this.netGuest.shieldMoveMul = 0.88;
-    this.netGuest.shield = { active: false, absorb: () => false };
+    // guest 的坚果盾：host 侧权威扣血（guest 本地不再挨打），盾血经 pstate 回传
+    const nutDef = WEAPONS.find((w) => w.id === 'wallnut');
+    this.netGuest.shield = new RemoteShield(nutDef ? nutDef.shieldHp : 400);
+    // 还没举盾：host 的血池从 0 起，等 guest 第一次 active 再灌满
+    this.netGuest.shield.hp = 0;
     this.netGuest.onDamage = null;
     this.netGuest.onDeath = null;
     this.netControls = {
@@ -574,7 +628,17 @@ export class Game {
     }
     if (d.jump) this.netControls.jumpQueued = true;
     this.netControls.firing = !!d.fire;
-    if (this.netGuest && this.netGuest.shield) this.netGuest.shield.active = !!d.shield;
+    if (this.netGuest && this.netGuest.shield) {
+      const sh = this.netGuest.shield;
+      const want = !!d.shield;
+      // 重新举盾（本地已经花掉一颗坚果）：host 的血池跟着重置
+      if (want && !sh.active && sh.hp <= 0) sh.hp = sh.maxHp;
+      sh.active = want;
+      // guest 自报的盾血只能用来“证明自己更少”，不许把 host 的血池抬高
+      const rep = Number(d.sh);
+      // 0 表示「本地还没举盾」或「已经碎了」，都不该把 host 刚灌满的血池压回 0
+      if (Number.isFinite(rep) && rep > 0) sh.hp = Math.min(sh.hp, rep);
+    }
     this.lastGuestSeq = Number(d.seq) || 0;
     this.lastGuestInputAt = Date.now();
   }
@@ -596,6 +660,7 @@ export class Game {
     }
     if (d.h) this.applyRemoteState(d.h);
     if (d.g) this.applyGuestAuth(d.g);
+    if (Array.isArray(d.o)) this.sunOrbs.applyNet(d.o);
     this.applyWorldState(d);
   }
 
@@ -620,6 +685,76 @@ export class Game {
     if (!d) return;
     if (d.type === 'zspawn' && d.z) this.zombies.netSpawn(d.z);
     else if (d.type === 'zdead' && d.id) this.zombies.netDespawn(d.id);
+    else if (d.type === 'pickups' && Array.isArray(d.list)) this.pickups.applyNetList(d.list);
+    else if (d.type === 'pickup' && d.id) this.applyPickupEvent(d);
+    else if (d.type === 'sun' && d.id) {
+      const orb = this.sunOrbs.collectById(d.id);
+      if (orb) this.sfx.pickup();
+    } else if (d.type === 'air') {
+      const x = Number(d.x);
+      const z = Number(d.z);
+      if (Number.isFinite(x) && Number.isFinite(z)) this.pickups.beamAt(x, z, AIRDROP.warn);
+    }
+  }
+
+  // 共享补给的领取事件：拿的人本地入槽，另一人只看到提示与物品消失。
+  applyPickupEvent(d) {
+    const index = Number(d.index);
+    const def = WEAPONS[index];
+    if (!def) return;
+    if (d.seat === this.seat) {
+      if (this.seat === 1) this.weapons.pickup(index);
+      if (d.air) this.hud.showBanner('你抢到了空投 +' + AIRDROP.score, 2);
+    } else {
+      this.hud.showBanner(d.air ? '队友抢到了空投' : '队友拿到了 ' + def.name, 1.6);
+    }
+    this.pickups.removeById(d.id);
+  }
+
+  // guest 的补给 claim：host 用 guest 代理位置校验距离，不信任客户端坐标。
+  applyGuestClaim(d) {
+    if (!d || !this.duo || this.seat !== 0 || !this.netGuest) return;
+    if ((d.kind || 'pickup') === 'sun') {
+      const orb = this.sunOrbs.orbs.find((o) => o.active && o.id === d.id);
+      if (!orb) return;
+      // host 用代理位置校验：不在磁吸范围内就不认
+      const dist = Math.hypot(this.netGuest.pos.x - orb.pos.x, this.netGuest.pos.z - orb.pos.z);
+      if (dist > 2.2) return;
+      this.sunOrbs.collectById(d.id);
+      this.addSun(TUNING.sunPerOrb);
+      if (this.duoSession) this.duoSession.sendEvent({ type: 'sun', id: d.id });
+      return;
+    }
+    if ((d.kind || 'pickup') !== 'pickup') return;
+    const item = this.pickups.byId(d.id);
+    if (!item || !item.active) return;
+    const dist = Math.hypot(
+      this.netGuest.pos.x - item.group.position.x,
+      this.netGuest.pos.z - item.group.position.z
+    );
+    if (dist > 2.4) return;
+    const index = item.index;
+    if (!WEAPONS[index]) return;
+    const air = !!item.air;
+    this.pickups.removeById(d.id);
+    if (air) this.grantAirdrop(1);
+    else this.hud.showBanner('队友拿到了 ' + WEAPONS[index].name, 1.6);
+    if (this.duoSession) {
+      this.duoSession.sendEvent({ type: 'pickup', id: d.id, seat: 1, index, air: air ? 1 : 0 });
+      this.duoSession.sendPickups(this.pickups.netList());
+    }
+  }
+
+  // guest 丢枪：host 在权威世界里落地一把，再广播列表。
+  applyGuestDrop(d) {
+    if (!d || !this.duo || this.seat !== 0 || !this.netGuest) return;
+    const index = Number(d.i);
+    if (!WEAPONS[index]) return;
+    const x = Number(d.x);
+    const z = Number(d.z);
+    if (!Number.isFinite(x) || !Number.isFinite(z)) return;
+    if (Math.hypot(this.netGuest.pos.x - x, this.netGuest.pos.z - z) > 3.5) return;
+    this.pickups.dropAt(index, x, z);
   }
 
   // guest 的命中请求：host 用 guest 代理的视线 + 武器重算，不信任 guest 的 dmg/head。
@@ -729,6 +864,19 @@ export class Game {
       if (!wasDown && p.downed) this.hud.showBanner('你倒下了，队友靠近 2.5 秒可救起', 3);
       else if (wasDown && !p.downed) this.hud.showBanner('队友把你救起来了', 2);
     }
+    // 盾血以 host 为准。host 的 0 既可能是「还没举盾」也可能是「刚碎」：
+    // 只有先收到过正数、再变 0 才判定为碎盾，避免刚举盾那 50 ms 被误判。
+    if (typeof g.sh === 'number' && this.wallNuts) {
+      const sh = Math.max(0, Math.min(this.wallNuts.maxHp, g.sh));
+      if (sh > 0) {
+        this.netShieldHp = sh;
+        this.wallNuts.hp = sh;
+      } else if (this.netShieldHp > 0) {
+        this.netShieldHp = 0;
+        this.wallNuts.hp = 0;
+        this.wallNuts.breakShield();
+      }
+    }
     const x = Number(g.x);
     const z = Number(g.z);
     const y = Number(g.y) || 0;
@@ -803,7 +951,63 @@ export class Game {
     if (this.state !== 'playing') return;
     const result = { scores: this.duoStats.slice(), kills: this.duoKills.slice() };
     if (this.duoSession) this.duoSession.sendWipe(result.scores, result.kills);
-    this.endDuo('WIPE', result);
+    this.finishDuoRound(result, 'WIPE');
+  }
+
+  // 对局结束但**不关会话**：双方都停在结算页，等「再来一局」或离开。
+  finishDuoRound(result, reason) {
+    if (this.state === 'over' || this.state === 'menu' || !this.duo) return;
+    this.state = 'over';
+    this.controls.setEnabled(false);
+    this.controls.exitLock();
+    this.hud.setBossVisible(false);
+    this.hud.showDuoResult({
+      scores: result && result.scores ? result.scores : this.duoStats.slice(),
+      kills: result && result.kills ? result.kills : this.duoKills.slice(),
+      seat: this.seat,
+      wave: this.stats.wave,
+      peerName: this.duo.peerName,
+      reason,
+    });
+    this.clock.getDelta();
+  }
+
+  onDuoWipe(d) {
+    if (!this.duo) return;
+    this.finishDuoRound(d, 'WIPE');
+  }
+
+  requestDuoRematch() {
+    if (!this.duoSession || this.state !== 'over') return;
+    if (this.duoSession.sendRematch()) this.hud.setDuoResultStatus('等待队友点「再来一局」…');
+  }
+
+  // 再来一局：同一场对局内换种子 + 换座位（服务器已交换 seat）。
+  startDuoRound({ mapId, seat, seed, t0, round }) {
+    if (!this.duoSession || !this.duo) return;
+    const peerName = this.duo.peerName;
+    this.duo = { seat, peerName, seed, t0, round };
+    this.seat = seat;
+    // setMap 只允许在 menu 状态调用；先借一下再回到 playing
+    this.state = 'menu';
+    this.setMap(mapId || this.mapId);
+    this.hud.hideScreens();
+    this.hud.showHud(true);
+    this.resetRun();
+    this.player.reset(duoSpawn(this.map, seat));
+    this.player.duoDown = true;
+    this.respawnRemote();
+    this.setupDuoWorld();
+    this.reviveA = 0;
+    this.reviveB = 0;
+    this.wasADown = false;
+    this.wasBDown = false;
+    this.remoteDown = false;
+    this.state = 'playing';
+    this.controls.setEnabled(true);
+    this.controls.requestLock();
+    this.clock.getDelta();
+    if (this.pendingResync) this.applyResync(this.pendingResync);
   }
 
   onPeerLeft(seconds) {
@@ -811,10 +1015,67 @@ export class Game {
   }
 
   onPeerJoined(name) {
-    if (this.duo) this.hud.showBanner(name + ' 已重连', 2);
+    if (!this.duo) return;
+    this.hud.showBanner(name + ' 已重连', 2);
+    // 客人刷新后本地世界是空的：host 把整局状态补发过去
+    if (this.seat === 0 && this.duoSession) this.duoSession.sendResync(this.buildResync());
+  }
+
+  buildResync() {
+    const boss = this.zombies ? this.zombies.boss : null;
+    return {
+      wave: this.zombies ? this.zombies.wave : 0,
+      sun: Math.round(this.sun || 0),
+      scores: this.duoStats ? this.duoStats.slice() : [0, 0],
+      kills: this.duoKills ? this.duoKills.slice() : [0, 0],
+      bossHp: boss ? Math.max(0, boss.hp / boss.maxHp) : 0,
+      z: this.zombies && this.zombies.zombies ? this.zombies.zombies.map((z) => z.serialize()) : [],
+      pickups: this.pickups ? this.pickups.netList() : [],
+      orbs: this.sunOrbs ? this.sunOrbs.serialize() : [],
+    };
+  }
+
+  // 客人刷新/重连后应用 host 的完整快照；还没进局就先缓存，等 startDuo 之后再吃。
+  applyResync(d) {
+    if (!d) return;
+    if (!this.duo || this.seat !== 1) {
+      this.pendingResync = d;
+      return;
+    }
+    this.pendingResync = null;
+    this.zombies.reset();
+    if (typeof d.wave === 'number') {
+      this.zombies.wave = d.wave;
+      this.stats.wave = d.wave;
+      this.hud.setWave(d.wave);
+    }
+    if (typeof d.sun === 'number') {
+      this.sun = d.sun;
+      this.hud.setSun(this.sun);
+    }
+    if (Array.isArray(d.scores)) {
+      this.duoStats = d.scores.slice();
+      this.stats.score = this.duoStats[this.seat] || 0;
+      this.hud.setScore(this.stats.score);
+    }
+    if (Array.isArray(d.kills)) {
+      this.duoKills = d.kills.slice();
+      this.stats.kills = this.duoKills[this.seat] || 0;
+      this.hud.setKills(this.stats.kills);
+    }
+    if (Array.isArray(d.z)) {
+      for (let i = 0; i < d.z.length; i++) this.zombies.netSpawn(d.z[i]);
+    }
+    if (Array.isArray(d.pickups)) this.pickups.applyNetList(d.pickups);
+    if (Array.isArray(d.orbs)) this.sunOrbs.applyNet(d.orbs);
+    if (typeof d.bossHp === 'number' && d.bossHp > 0) {
+      this.hud.setBossVisible(true);
+      this.hud.setBossHp(d.bossHp);
+    }
   }
 
   endDuo(reason, result) {
+    if (this.hud && this.hud.duoOverScreen) this.hud.duoOverScreen.classList.add('hidden');
     const seat = this.seat;
     const s = this.duoSession;
     this.duoSession = null;
@@ -835,7 +1096,9 @@ export class Game {
               ? '房主刷新，对局结束'
               : reason === 'WIPE'
                 ? '两人都倒下了，对局结束'
-                : '联机已断开，对局结束';
+                : reason === 'LEFT'
+                  ? '你离开了对局'
+                  : '联机已断开，对局结束';
       if (result && Array.isArray(result.scores)) {
         const local = seat === 1 ? 1 : 0;
         const other = 1 - local;
@@ -863,11 +1126,23 @@ export class Game {
     this.particles.clear();
     this.sunOrbs.clear();
     this.skySun.reset();
+    // 双人：guest 不本地刷补给，只镜像 host 的列表（见 §5.3 全队唯一、先到先得）
+    this.pickups.setShared(!!this.duo && this.seat === 1);
     this.pickups.reset();
     this.stats = { score: 0, kills: 0, wave: 0 };
     this.duoStats = [0, 0];
     this.duoKills = [0, 0];
-    this.sun = TUNING.startSun;
+    this.netShieldHp = 0;
+    this.airdropWave = -1;
+    this.airdropT = 0;
+    this.airdropBeam = false;
+    this.airdropDropped = false;
+    this.airdropSpot = null;
+    // 双人：共享阳光池更大（80 / 400），天降更频繁；单人保持原值。
+    this.maxSun = this.duo ? DUO.maxSun : TUNING.maxSun;
+    this.sun = this.duo ? DUO.startSun : TUNING.startSun;
+    this.skySun.interval = this.duo ? DUO.skySunInterval : SUN_SKY.interval;
+    if (this.duo) this.sunOrbs.ensureCapacity(DUO.sunOrbPool);
     this.shakeAmp = 0;
     this.hud.setSun(this.sun, true);
     this.hud.setHealth(this.player.hp, this.player.maxHp);
@@ -953,7 +1228,7 @@ export class Game {
   }
 
   addSun(n) {
-    this.sun = Math.min(TUNING.maxSun, this.sun + n);
+    this.sun = Math.min(this.maxSun, this.sun + n);
     this.hud.setSun(this.sun);
     this.sfx.pickup();
   }
@@ -982,6 +1257,11 @@ export class Game {
     if (this.duo) {
       const s = source === 1 ? 1 : 0;
       this.duoStats[s] += score;
+      // 悬赏尾刀：+300 只记在击杀者账上，按击杀判定的同一套 source
+      if (z && z.bounty) {
+        this.duoStats[s] += BOUNTY.bonus;
+        this.hud.showBanner('悬赏拿下 +' + BOUNTY.bonus, 1.8);
+      }
       this.duoKills[s] += 1;
       this.stats.score = this.duoStats[0];
       this.stats.kills = this.duoKills[0];
@@ -994,15 +1274,59 @@ export class Game {
       this.hud.setKills(this.stats.kills);
     }
     if (this.stats.kills === 1) this.hud.fadeTutorial();
-    if (z.type === 'boss') this.shake(0.9);
+    if (z.def && z.def.boss) this.shake(0.9);
+  }
+
+  updateAirdrop(dt) {
+    if (!this.duo || this.seat !== 0 || !this.zombies || this.state !== 'playing') return;
+    const wave = this.zombies.wave;
+    if (wave !== this.airdropWave) {
+      this.airdropWave = wave;
+      this.airdropT = 0;
+      this.airdropBeam = false;
+      this.airdropDropped = false;
+      this.airdropSpot = null;
+    }
+    if (!wave || wave % AIRDROP.everyWaves !== 0 || this.airdropDropped) return;
+    this.airdropT += dt;
+    if (!this.airdropBeam && this.airdropT >= AIRDROP.delay - AIRDROP.warn) {
+      const spot = this.pickups.pickAirSpot();
+      if (!spot) return;
+      this.airdropBeam = true;
+      this.airdropSpot = spot;
+      this.pickups.beamAt(spot[0], spot[1], AIRDROP.warn);
+      if (this.duoSession) this.duoSession.sendEvent({ type: 'air', x: spot[0], z: spot[1] });
+      this.hud.showBanner('空投即将落地', 2);
+    }
+    if (this.airdropT >= AIRDROP.delay && this.airdropSpot) {
+      const id = AIRDROP.weapons[Math.floor(Math.random() * AIRDROP.weapons.length)];
+      const index = WEAPONS.findIndex((w) => w.id === id);
+      if (index >= 0) {
+        this.pickups.spawnAir(index, this.airdropSpot[0], this.airdropSpot[1]);
+        this.airdropDropped = true;
+        this.hud.showBanner('空投已落地：' + WEAPONS[index].name, 2);
+        if (this.duoSession) this.duoSession.sendPickups(this.pickups.netList());
+      }
+    }
+  }
+
+  // 空投归属：拾取者 +200 个人分、全队 +40 阳光（先到先得）
+  grantAirdrop(seat) {
+    this.duoStats[seat] += AIRDROP.score;
+    this.addSun(AIRDROP.sun);
+    this.hud.showBanner((seat === this.seat ? '你' : '队友') + '抢到了空投 +' + AIRDROP.score, 2);
   }
 
   onWaveStart(n) {
     this.stats.wave = n;
     this.hud.setWave(n);
-    const boss = n % 5 === 0;
-    this.hud.showBanner(boss ? '第 ' + n + ' 波 · 巨人来袭' : '第 ' + n + ' 波', 2.4);
-    this.sfx.waveStart(boss);
+    const bossType = bossForWave(n);
+    const bossName = bossType ? ZOMBIES[bossType].title : '';
+    this.hud.showBanner(
+      bossType ? '第 ' + n + ' 波 · ' + bossName + '来袭' : '第 ' + n + ' 波',
+      2.4
+    );
+    this.sfx.waveStart(!!bossType);
   }
 
   onWaveClear(n) {
@@ -1018,19 +1342,20 @@ export class Game {
     const target = z.targetSeat === 1 ? this.netGuest : this.player;
     if (!target || target.dead || target.downed) return;
     target.damage(z.def.damage, { airborne: !!z.airborne });
-    if (z.type === 'boss') this.shake(0.35);
+    if (z.def && z.def.boss) this.shake(0.35);
   }
 
   onBossSpawn(z) {
     this.hud.setBossVisible(true);
     this.hud.setBossHp(1);
-    this.hud.showBanner('巨人僵尸出现了!', 2.4);
+    this.hud.showBanner((z && z.def && z.def.title ? z.def.title : 'BOSS') + '出现了!', 2.4);
     this.shake(0.7);
   }
 
-  onBossDead() {
+  onBossDead(z) {
     this.hud.setBossVisible(false);
-    this.hud.showBanner('巨人倒下了!', 2.0);
+    const title = z && z.def && z.def.title ? z.def.title : 'BOSS';
+    this.hud.showBanner(title + '倒下了!', 2.0);
     this.shake(0.8);
   }
 
@@ -1066,6 +1391,12 @@ export class Game {
       this.skySun.ctx.map = this.map;
       this.skySun.update(dt);
       this.sunOrbs.update(dt, this.player);
+      this.updateAirdrop(dt);
+    } else {
+      // guest：球由 host 模拟，本地只渲染 + 发 claim
+      this.sunOrbs.updateRemote(dt, this.player, (id) => {
+        if (this.duoSession) this.duoSession.sendClaim('sun', id);
+      });
     }
     // 常规补给目前是每个客户端各自的本地掉落（共享 claim 还没做），guest 也要跑，
     // 否则它整局只能拿豌豆。这是与“先到先得”的设计偏差，见设计稿 §13。

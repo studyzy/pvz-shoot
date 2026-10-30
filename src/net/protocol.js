@@ -3,7 +3,7 @@
 
 export const PROTOCOL_VERSION = 1;
 
-export const MAP_IDS = Object.freeze(['backyard', 'snow', 'dust']);
+export const MAP_IDS = Object.freeze(['backyard', 'snow', 'dust', 'forest']);
 export const DEFAULT_MAP = 'backyard';
 
 export const MAX_NAME = 16;

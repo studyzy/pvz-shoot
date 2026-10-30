@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { Zombie } from './Zombie.js';
 import { zombieModel } from './ZombieModel.js';
-import { ZOMBIES, wavePlan, waveMaxAlive, waveSpawnInterval, waveAirQuota, zombieHpMul, zombieSpeedMul, SKELETON_MAX_ALIVE, SKELETON_MAPS } from '../config.js';
+import { ZOMBIES, DUO, BOUNTY, wavePlan, duoWavePlan, waveMaxAlive, waveSpawnInterval, waveAirQuota, zombieHpMul, zombieSpeedMul, SKELETON_MAX_ALIVE, SKELETON_MAPS } from '../config.js';
 import { rand, clamp } from '../utils.js';
 
 export class ZombieManager {
@@ -19,12 +19,20 @@ export class ZombieManager {
     this.totalKills = 0;
     this.hpMul = 1;
     this.speedMul = 1;
+    // 双人：只由 host 打开。数量/血量/Boss 血量/刷怪间隔/清波休整按 DUO 缩放。
+    this.duo = false;
+    // 双人悬赏怪：每波 1 只非 Boss，击杀 +300 个人分
+    this.bountyPending = false;
     // 双人 M2：guest 侧只维护 host 快照的视图，不刷怪、不跑 AI、不结算。
     this.remote = false;
     this.nextNetId = 1;
     this.onNetSpawn = null;
     this.onNetDead = null;
     this.despawned = new Set();
+  }
+
+  setDuo(v) {
+    this.duo = !!v;
   }
 
   setRemote(v) {
@@ -50,26 +58,31 @@ export class ZombieManager {
     this.spawnTimer = 0;
     this.boss = null;
     this.totalKills = 0;
+    this.bountyPending = false;
   }
 
   startWave(n) {
     if (this.remote) return;
     this.wave = n;
-    this.queue = wavePlan(n);
+    const mapId = this.ctx.map && this.ctx.map.id;
+    let plan = wavePlan(n, mapId);
     // 骷髅只在指定地图出现（雪地墓园氛围）。
     // 注意：这里只按地图过滤，**不要**在这里看模型是否加载好——glb 是异步的，
     // 开局很快时骨架还没 ready，在这里滤掉会让整波都刷不出骷髅（踩过）。
     // 模型未就绪的处理放在 spawnOne 里：把骷髅留在队首，等下次再刷。
-    const mapId = this.ctx.map && this.ctx.map.id;
-    if (!SKELETON_MAPS.includes(mapId)) this.queue = this.queue.filter((t) => t !== 'skeleton');
-    this.hpMul = zombieHpMul(n);
+    if (!SKELETON_MAPS.includes(mapId)) plan = plan.filter((t) => t !== 'skeleton');
+    // 双人：非 Boss 数量 ×1.5（先按地图过滤再扩，否则骷髅会被扩到不该出现的图）
+    this.queue = this.duo ? duoWavePlan(plan) : plan;
+    this.hpMul = zombieHpMul(n) * (this.duo ? DUO.hpMul : 1);
     this.speedMul = zombieSpeedMul(n);
     this.spawnTimer = 0.35;
     this.state = 'spawning';
-    this.maxAlive = waveMaxAlive(n);
+    this.maxAlive = this.duo ? Math.min(DUO.maxAlive, waveMaxAlive(n)) : waveMaxAlive(n);
     // 空中单位（气球）的同屏配额：14 只时 2 只。超出的留在队列里等死亡再刷。
-    this.airQuota = waveAirQuota(n);
-    this.interval = waveSpawnInterval(n);
+    this.airQuota = waveAirQuota(n) + (this.duo ? DUO.airQuotaBonus : 0);
+    this.interval = waveSpawnInterval(n) * (this.duo ? DUO.spawnIntervalMul : 1);
+    // 第 2 波起，每波标记 1 只非 Boss 悬赏怪
+    this.bountyPending = this.duo && n >= BOUNTY.fromWave;
     this.ctx.onWaveStart(n);
   }
 
@@ -96,7 +109,7 @@ export class ZombieManager {
       }
       if (this.queue.length === 0 && this.zombies.length === 0) {
         this.state = 'intermission';
-        this.intermission = 6.5;
+        this.intermission = this.duo ? DUO.intermission : 6.5;
         this.ctx.onWaveClear(this.wave);
       }
     } else if (this.state === 'intermission') {
@@ -123,7 +136,7 @@ export class ZombieManager {
       this.groanTimer = rand(2.6, 6.5);
       if (this.zombies.length > 0) {
         const z = this.zombies[Math.floor(Math.random() * this.zombies.length)];
-        this.ctx.sfx.groan(z.type === 'boss' ? 0.9 : 0.55, (z.root.position.x - player.pos.x) / 24);
+        this.ctx.sfx.groan(z.def.boss ? 0.9 : 0.55, (z.root.position.x - player.pos.x) / 24);
       }
     }
   }
@@ -199,16 +212,16 @@ export class ZombieManager {
       }
       const blocked = alive >= SKELETON_MAX_ALIVE || !this.modelReady(type);
       if (blocked) {
-        const alt = this.queue.findIndex((t) => t !== 'skeleton' && t !== 'boss' && this.modelReady(t));
+        const alt = this.queue.findIndex((t) => t !== 'skeleton' && !(ZOMBIES[t] && ZOMBIES[t].boss) && this.modelReady(t));
         if (alt === -1) return null; // 全是骷髅又不能刷：这波先不刷，等下个 tick 或前面的清掉
         type = this.queue.splice(alt, 1)[0];
       } else {
         type = this.queue.shift();
       }
-    } else if (type === 'balloon' && this.airborneCount() >= (this.airQuota || 1)) {
+    } else if (ZOMBIES[type] && ZOMBIES[type].airborne && this.airborneCount() >= (this.airQuota || 1)) {
       // 气球同屏配额：满了就换别的先刷，气球留在队首下次再来。
       // 不是为了「保底」（爆炸类武器本身就能打气球），而是为了别让整波阳光全拿去对付天上。
-      const alt = this.queue.findIndex((t) => t !== 'balloon' && this.modelReady(t));
+      const alt = this.queue.findIndex((t) => !(ZOMBIES[t] && ZOMBIES[t].airborne) && this.modelReady(t));
       if (alt === -1) return null;
       type = this.queue.splice(alt, 1)[0];
     } else if (!this.modelReady(type)) {
@@ -263,13 +276,18 @@ export class ZombieManager {
       particles: this.ctx.particles,
       sfx: this.ctx.sfx,
       onAttack: (z2) => this.ctx.onZombieAttack(z2),
-    }, this.hpMul, this.speedMul);
+    }, this.hpMul * (this.duo && ZOMBIES[type] && ZOMBIES[type].boss ? DUO.bossHpMul : 1), this.speedMul);
 
     this.zombies.push(zombie);
     zombie.netId = this.nextNetId++;
+    if (this.bountyPending && !zombie.def.boss) {
+      this.bountyPending = false;
+      zombie.setBounty(true);
+      this.ctx.hud.showBanner('悬赏出现：' + zombie.def.title + ' +' + BOUNTY.bonus + ' 分', 2);
+    }
     if (this.onNetSpawn) this.onNetSpawn(zombie);
 
-    if (type === 'boss') {
+    if (zombie.def.boss) {
       this.boss = zombie;
       this.ctx.onBossSpawn(zombie);
     }
@@ -327,7 +345,7 @@ export class ZombieManager {
       z.remote = true;
       z.netId = s.id;
       this.zombies.push(z);
-      if (s.t === 'boss') this.boss = z;
+      if (z.def && z.def.boss) this.boss = z;
     }
     z.applyNetState(s);
     return z;
@@ -358,16 +376,25 @@ export class ZombieManager {
     this.ctx.onKill(z, score, headshot, z.lastHitBy || 0);
     if (this.boss === z) {
       this.boss = null;
-      this.ctx.onBossDead();
+      this.ctx.onBossDead(z);
     }
-    // 掉落数按耐打程度给：boss 7 颗 / 铁桶 3 / 骷髅 3（210 血，值得多掉）/ 路障 2 / 其它 1
-    const orbs = z.type === 'boss' ? 7
-      : z.type === 'bucket' ? 3
-      : z.type === 'skeleton' ? 3
-      : z.type === 'football' ? 3
-      : z.type === 'cone' ? 2
-      : z.type === 'balloon' ? 2
-      : 1;
+    // 掉落数：优先读 def.sun（奇幻单位各自配好），老类型保留原来的三元链口径。
+    const orbs =
+      typeof z.def.sun === 'number'
+        ? z.def.sun
+        : z.def.boss
+          ? 7
+          : z.type === 'bucket'
+            ? 3
+            : z.type === 'skeleton'
+              ? 3
+              : z.type === 'football'
+                ? 3
+                : z.type === 'cone'
+                  ? 2
+                  : z.type === 'balloon'
+                    ? 2
+                    : 1;
     this.ctx.sunOrbs.spawn(z.root.position.clone(), orbs);
   }
 

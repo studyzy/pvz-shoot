@@ -604,6 +604,8 @@ async function boot() {
 
   window.__stress = {
     ready: false,
+    // 类型清单（来自 GALLERY_TYPES）：E2E 用它核对 chips 数量，新增僵尸类型不用改测试
+    types: GALLERY_TYPES,
     renderer,
     scene,
     camera,

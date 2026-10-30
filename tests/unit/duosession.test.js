@@ -84,6 +84,7 @@ function makeGame() {
       peerLeft: null,
       peerJoined: null,
       ended: [],
+      wiped: [],
       closed: 0,
     },
     startDuo(o) {
@@ -124,6 +125,9 @@ function makeGame() {
     },
     endDuo(reason) {
       this.calls.ended.push(reason);
+    },
+    onDuoWipe(d) {
+      this.calls.wiped.push(d);
     },
     onDuoClosed(session) {
       this.calls.closed++;
@@ -415,8 +419,8 @@ describe('DuoSession', () => {
     session.host = true;
     session.sendWipe();
     expect(net.relays).toHaveLength(1);
-    session.onMessage({ t: MSG.RELAY, d: { payload: encode('wipe', { reason: 'WIPE' }) } });
-    expect(game.calls.ended).toEqual(['WIPE']);
+    session.onMessage({ t: MSG.RELAY, d: { payload: encode('wipe', { reason: 'WIPE', scores: [1, 2] }) } });
+    expect(game.calls.wiped).toEqual([{ reason: 'WIPE', scores: [1, 2] }]);
   });
 
   it('默认 createNet 走 NetClient，并覆盖默认回调', () => {
@@ -488,5 +492,239 @@ describe('邀请链接', () => {
     expect(shareUrlFor('abc', { origin: 'https://x', pathname: '/p/' })).toBe('https://x/p/?join=abc');
     expect(shareUrlFor('', { origin: 'https://x', pathname: '/' })).toBe('');
     expect(shareUrlFor('abc', null)).toBe('');
+  });
+});
+
+// ── guest → host / host → guest 的薄封装：守卫条件都要走到 ──
+describe('DuoSession · 消息发送守卫', () => {
+  const playingGuest = () => {
+    const { game, session } = makeSession();
+    session.start({});
+    session.onMessage(WELCOME());
+    session.onMessage({ t: MSG.START, d: { seat: 1, peerName: 'B', mapId: 'backyard', seed: 1, t0: 0 } });
+    session.seat = 1;
+    session.host = false;
+    game.state = 'playing';
+    return { game, session, net: FakeNet.last };
+  };
+  const playingHost = () => {
+    const { game, session } = makeSession();
+    session.start({});
+    session.onMessage(WELCOME());
+    session.onMessage({ t: MSG.START, d: { seat: 0, peerName: 'B', mapId: 'backyard', seed: 1, t0: 0 } });
+    // START 之后 host 身份由 seat 决定；这里显式钉死，避免依赖 welcome 的字段顺序
+    session.seat = 0;
+    session.host = true;
+    game.state = 'playing';
+    return { game, session, net: FakeNet.last };
+  };
+
+  it('guest 侧 sendAoe / sendClaim / sendPickupDrop / sendResync 都发得出去', () => {
+    const { session, net } = playingGuest();
+    session.sendAoe('pepper', { x: 1, y: 0, z: 2 });
+    session.sendClaim('sun', 7);
+    session.sendPickupDrop(2, 3.456, 4.567);
+    expect(net.relays.length).toBeGreaterThanOrEqual(3);
+    const kinds = net.relays.map((r) => decode(r).g ? r : r);
+    expect(net.relays.some((r) => String(r).includes('aoe'))).toBe(true);
+    expect(net.relays.some((r) => String(r).includes('claim'))).toBe(true);
+    expect(net.relays.some((r) => String(r).includes('drop'))).toBe(true);
+    void kinds;
+  });
+
+  it('guest 侧的 host-only 方法直接返回（不发包）', () => {
+    const { session, net } = playingGuest();
+    const before = net.relays.length;
+    session.sendPickups([{}]);
+    session.sendResync({ wave: 1 });
+    session.sendEvent({ type: 'x' });
+    expect(net.relays.length).toBe(before);
+  });
+
+  it('host 侧的 guest-only 方法直接返回（不发包）', () => {
+    const { session, net } = playingHost();
+    const before = net.relays.length;
+    session.sendAoe('pepper', { x: 0, y: 0, z: 0 });
+    session.sendClaim('sun', 1);
+    session.sendPickupDrop(0, 0, 0);
+    session.sendSunRequest(5);
+    session.sendWipe();
+    expect(net.relays.length).toBe(before);
+  });
+
+  it('host 侧 sendPickups / sendResync / sendEvent 发得出去', () => {
+    const { session, net } = playingHost();
+    session.sendPickups([{ i: 1 }]);
+    session.sendResync({ wave: 2 });
+    session.sendEvent({ type: 'pickups' });
+    expect(net.relays.length).toBe(3);
+  });
+
+  it('参数缺失时不发包（pos / id / index / payload）', () => {
+    const { session, net } = playingGuest();
+    const before = net.relays.length;
+    session.sendAoe('pepper', null);
+    session.sendClaim('sun', 0);
+    session.sendPickupDrop(-1, 0, 0);
+    session.sendSunRequest(0);
+    expect(net.relays.length).toBe(before);
+  });
+
+  it('僵尸 spawn / dead 只在有网且 playing 时发', () => {
+    const { session, net } = playingHost();
+    const z = { netId: 9, serialize: () => ({ id: 9, t: 'goblin' }) };
+    session.sendZombieSpawn(z);
+    session.sendZombieDead(z);
+    expect(net.relays.length).toBe(2);
+    // 没 serialize 的僵尸不发
+    const before = net.relays.length;
+    session.sendZombieSpawn({ netId: 1 });
+    session.sendZombieDead(null);
+    expect(net.relays.length).toBe(before);
+  });
+
+  it('sendRematch 在会话 playing 时返回 true，关闭后返回 false', () => {
+    const { session, net } = playingHost();
+    expect(session.sendRematch()).toBe(true);
+    expect(net.sent.some((s) => s.type === MSG.REMATCH)).toBe(true);
+    // 只认会话自己的 state（game.state 由 Game 管，不是这条的判断依据）
+    session.state = 'closed';
+    expect(session.sendRematch()).toBe(false);
+  });
+
+  it('sendMap 走 cleanMapId，未知 id 回退默认图', () => {
+    const { session, net } = playingHost();
+    session.sendMap('forest');
+    session.sendMap('不存在的图');
+    expect(net.maps[0]).toBe('forest');
+    expect(net.maps[1]).toBe('backyard');
+  });
+
+  it('close 关闭连接并复位状态', () => {
+    const { session, net } = playingHost();
+    session.close();
+    expect(net.closed).toBe(true);
+  });
+});
+
+// ── relay 消息分发：每种游戏内消息都要落到 Game 的对应方法 ──
+describe('DuoSession · relay 分发', () => {
+  it('每种 relay 类型都转发到 Game 的对应回调', async () => {
+    const { game, session } = makeSession();
+    const calls = [];
+    const spy = (name) => { game[name] = (d) => calls.push([name, d]); };
+    for (const n of [
+      'applyPeerState', 'applyWorldEvent', 'applyGuestHit', 'applyGuestAoe',
+      'applyGuestClaim', 'applyGuestDrop', 'applyResync', 'onDuoWipe',
+      'applyGuestInput', 'spendSun',
+    ]) spy(n);
+    session.start({});
+
+    const relays = [
+      { t: 'pstate', d: { k: 1 } },
+      { t: 'evt', d: { type: 'sun' } },
+      { t: 'hit', d: { zid: 1 } },
+      { t: 'aoe', d: { w: 'pepper' } },
+      { t: 'claim', d: { id: 2 } },
+      { t: 'drop', d: { i: 1 } },
+      { t: 'sun', d: { n: 5 } },
+      { t: 'resync', d: { wave: 3 } },
+      { t: 'wipe', d: { reason: 'WIPE' } },
+      { t: 'input', d: { m: { x: 0, y: 0 } } },
+    ];
+    for (const r of relays) session.onRelay(encode(r.t, r.d));
+
+    const names = calls.map((c) => c[0]);
+    for (const n of ['applyPeerState', 'applyWorldEvent', 'applyGuestHit', 'applyGuestAoe', 'applyGuestClaim', 'applyGuestDrop', 'applyResync', 'onDuoWipe', 'spendSun']) {
+      expect(names, n).toContain(n);
+    }
+  });
+
+  it('未知 relay 类型不崩', () => {
+    const { session } = makeSession();
+    session.start({});
+    expect(() => session.onRelay(encode('unknown-type', {}))).not.toThrow();
+  });
+
+  it('rematch 的 START 会交换座位并开新一局', () => {
+    const { game, session } = makeSession();
+    game.duo = { seat: 0 };
+    game.startDuoRound = vi.fn();
+    session.start({});
+    session.onMessage(WELCOME());
+    session.onMessage({ t: MSG.START, d: { seat: 1, rematch: true, mapId: 'forest', seed: 9, t0: 1, round: 2 } });
+    expect(game.startDuoRound).toHaveBeenCalled();
+    expect(session.seat).toBe(1);
+    expect(session.host).toBe(false);
+  });
+
+  it('重连时（game.duo 已存在）只提示不重开', () => {
+    const { game, session } = makeSession();
+    game.duo = { seat: 0 };
+    session.start({});
+    session.onMessage(WELCOME());
+    expect(() => session.onMessage({ t: MSG.START, d: { seat: 0, mapId: 'snow', t0: 0 } })).not.toThrow();
+  });
+});
+
+describe('DuoSession · onStatus 与守卫分支', () => {
+  it('四种状态各写一条 HUD 提示；已关闭或无 hud 时不动', () => {
+    const { game, session } = makeSession();
+    session.start({});
+    const seen = [];
+    game.hud.setDuoStatus = (t, tone) => seen.push([t, tone]);
+    session.onStatus('connecting');
+    session.onStatus('open');
+    session.onStatus('closed');
+    session.onStatus('error');
+    expect(seen).toHaveLength(4);
+    expect(seen[0][1]).toBe('wait');
+    expect(seen[1][1]).toBe('ok');
+    expect(seen[2][1]).toBe('warn');
+    expect(seen[3][1]).toBe('warn');
+    // 关掉之后不再写
+    session.state = 'closed';
+    session.onStatus('open');
+    expect(seen).toHaveLength(4);
+    // 没有 hud 也不崩
+    session.state = 'waiting';
+    game.hud = null;
+    expect(() => session.onStatus('open')).not.toThrow();
+  });
+
+  it('WELCOME 带非整数 seat / 无 peer / 无 joinToken 都走兜底', () => {
+    const { session } = makeSession();
+    session.start({});
+    expect(() => session.onMessage({ t: MSG.WELCOME, d: { seat: 'x', host: false, state: 'x' } })).not.toThrow();
+    expect(session.state).toBe('waiting');
+    expect(session.joinToken).toBe(null);
+  });
+
+  it('WELCOME 当 host 且有 joinToken 时生成分享链接', () => {
+    const { game, session } = makeSession();
+    session.start({});
+    const shares = [];
+    game.hud.setDuoShare = (u) => shares.push(u);
+    session.onMessage(WELCOME({ seat: 0, host: true, joinToken: 'tok123' }));
+    expect(session.joinToken).toBe('tok123');
+    expect(shares.length).toBeGreaterThan(0);
+  });
+
+  it('PEER / END / MAP 等消息都能安全处理', () => {
+    const { game, session } = makeSession();
+    session.start({});
+    session.onMessage(WELCOME());
+    expect(() => session.onMessage({ t: MSG.PEER, d: { name: 'B' } })).not.toThrow();
+    expect(() => session.onMessage({ t: MSG.MAP, d: { id: 'forest' } })).not.toThrow();
+    game.mapId = 'backyard';
+    expect(session.matchMapId).toBe('forest');
+    expect(() => session.onMessage({ t: MSG.END, d: { reason: 'DONE' } })).not.toThrow();
+  });
+
+  it('未知消息类型不崩', () => {
+    const { session } = makeSession();
+    session.start({});
+    expect(() => session.onMessage({ t: 'NOT_A_TYPE', d: {} })).not.toThrow();
+    expect(() => session.onMessage({})).not.toThrow();
   });
 });

@@ -244,3 +244,55 @@ describe('defaultNetUrl / makeToken', () => {
     vi.unstubAllGlobals();
   });
 });
+
+describe('makeToken · 兜底路径', () => {
+  it('没有 crypto.randomUUID 时退回随机十六进制串，长度 24', async () => {
+    const { makeToken } = await import('../../src/net/NetClient.js');
+    const saved = globalThis.crypto;
+    try {
+      Object.defineProperty(globalThis, 'crypto', { value: undefined, configurable: true });
+      const t = makeToken();
+      expect(typeof t).toBe('string');
+      expect(t).toHaveLength(24);
+      expect(/^[0-9a-f]{24}$/.test(t)).toBe(true);
+    } finally {
+      Object.defineProperty(globalThis, 'crypto', { value: saved, configurable: true });
+    }
+  });
+});
+
+describe('NetClient · connect 的异常与重复调用', () => {
+  it('wsFactory 抛错时进 error 状态并安排重连', () => {
+    vi.useFakeTimers();
+    const statuses = [];
+    const client = new NetClient({
+      url: 'ws://test/ws',
+      name: 'A',
+      token: 'tok12345',
+      wsFactory: () => { throw new Error('boom'); },
+      onStatus: (s, info) => statuses.push({ s, info }),
+    });
+    client.connect();
+    expect(statuses.some((x) => x.s === 'error')).toBe(true);
+    // 安排了一次重连计时器
+    expect(client.retryTimer).toBeTruthy();
+    client.close();
+    vi.useRealTimers();
+  });
+
+  it('已连接（OPEN/CONNECTING）时重复 connect 不会新建连接', () => {
+    const { client } = make();
+    client.connect();
+    const first = FakeWS.instances.length;
+    client.connect();
+    expect(FakeWS.instances.length).toBe(first);
+  });
+
+  it('close 后手动标记，不再自动重连', () => {
+    const { client } = make();
+    client.connect();
+    client.close();
+    expect(client.manualClose).toBe(true);
+    expect(client.ws).toBe(null);
+  });
+});

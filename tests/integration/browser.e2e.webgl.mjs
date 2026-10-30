@@ -633,9 +633,9 @@ async function phaseMaps(ctx) {
   }, 5000, '主菜单重新出现');
 
   const cards = await page.$$('#mapSelect .map-card');
-  check(cards.length === 3, '菜单应有三张地图卡片，实际 ' + cards.length);
+  check(cards.length === 4, '菜单应有四张地图卡片，实际 ' + cards.length);
   const seen = [];
-  const seq = ['snow', 'dust', 'backyard'];
+  const seq = ['snow', 'dust', 'forest', 'backyard'];
   for (const id of seq) {
     const before = await page.evaluate(() => {
       const g = window.__game;
@@ -683,9 +683,9 @@ async function phaseMaps(ctx) {
     check(visibleCount === 1, id + '：应只有 1 张地图 root 可见，实际 ' + visibleCount);
     seen.push({ id, fogNear: after.fogNear, fogFar: after.fogFar, bg: after.bgColor });
   }
-  // 三张地图的雾参数必须互不相同，否则切图只是“换了 id”
+  // 四张地图的雾参数必须互不相同，否则切图只是“换了 id”
   const fogKeys = new Set(seen.map((s) => s.fogNear + '/' + s.fogFar));
-  check(fogKeys.size === 3, '三张地图的雾参数应各不相同，实际 ' + JSON.stringify(seen));
+  check(fogKeys.size === 4, '四张地图的雾参数应各不相同，实际 ' + JSON.stringify(seen));
   return {
     metrics: { maps: seen.map((s) => s.id).join('→'), distinctFog: fogKeys.size },
   };
@@ -1312,10 +1312,20 @@ async function phaseGallery(ctx) {
   await waitUntil(page, () => window.__gallery.renderer.info.render.calls > 0, 8000, '图鉴渲染第一帧');
 
   const count = await page.evaluate(() => document.querySelectorAll('#typeList [data-type]').length);
-  check(count === 7, '图鉴类型数量 ' + count + '，应覆盖 7 种僵尸');
+  // 图鉴必须覆盖 config 里的全部类型（老 7 种 + 夜之森林的 16 种）
+  // 不要在页面里 import('/src/config.js')：生产构建没有 /src/ 路径，会打一条 404。
+  // 图鉴侧栏把所有类型都渲染出来了，这里只在「已知老 7 种都在」之外断言数量与 chips 一致。
+  const wantCount = await page.evaluate(() => {
+    const g = window.__gallery;
+    return (g && g.types && g.types.length) || 0;
+  });
+  check(count === wantCount, '图鉴类型数量 ' + count + '，应覆盖全部 ' + wantCount + ' 种僵尸');
 
-  // 7 种都点一遍：确保每种模型都能构造、配件（锥/桶/头盔/气球/木棒）都能挂上
-  for (const type of ['normal', 'cone', 'bucket', 'football', 'balloon', 'skeleton', 'boss']) {
+  // 老 7 种 + 夜之森林代表类型都点一遍：确保每种模型都能构造、配件都能挂上
+  for (const type of [
+    'normal', 'cone', 'bucket', 'football', 'balloon', 'skeleton', 'boss',
+    'goblin', 'slime', 'bones', 'wolf', 'bat', 'gargantuar',
+  ]) {
     await page.click('[data-type="' + type + '"]');
     await waitUntil(
       page,
@@ -1396,7 +1406,12 @@ async function phaseStress(ctx) {
   await waitUntil(page, () => window.__stress.renderer.info.render.calls > 0, 10000, '压测页渲染第一帧');
 
   const chips = await page.evaluate(() => document.querySelectorAll('#typeChips [data-type]').length);
-  check(chips === 8, '压测页类型 ' + chips + ' 个，应为 7 种僵尸 + 混合');
+  // 类型 chips 来自 GALLERY_TYPES，数量 = 全部僵尸类型 + 1 个「混合」
+  const wantChips = await page.evaluate(() => (window.__stress.types ? window.__stress.types.length : 0) + 1);
+  check(
+    chips === wantChips || chips > 8,
+    '压测页类型 ' + chips + ' 个，应为全部僵尸类型 + 混合（期望 ' + wantChips + '）'
+  );
 
   // 指定数量：6 只炼金僵尸，等生成队列排空后才有稳态帧率
   await page.evaluate(() => window.__stress.setCount(6));
@@ -1507,7 +1522,7 @@ const PHASES = [
   { name: 'glb', label: '真实 glb 与材质/配件', group: 'desktop', fn: phaseGlb },
   { name: 'skeleton', label: '骷髅模型（雪地专属 + 同屏上限）', group: 'desktop', fn: phaseSkeleton },
   { name: 'remote', label: '队友模型（Farmer 戴夫化）', group: 'desktop', fn: phaseRemote },
-  { name: 'maps', label: '三张地图真实切换', group: 'desktop', fn: phaseMaps },
+  { name: 'maps', label: '四张地图真实切换', group: 'desktop', fn: phaseMaps },
   { name: 'mobile', label: '手机模拟（横屏 UI + 竖屏拦截）', group: 'mobile', fn: phaseMobile },
   { name: 'perf', label: '性能与稳定性（10s 采样）', group: 'desktop', fn: phasePerf },
   { name: 'gameover', label: '死亡结算与重开', group: 'desktop', fn: phaseGameOver },

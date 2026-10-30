@@ -151,11 +151,13 @@ describe('ZombieManager · 波次调度', () => {
     expect(zm.speedMul).toBeCloseTo(config.zombieSpeedMul(4), 10);
   });
 
-  it('第 5 波是 Boss 波：恰好 1 个 boss；上限与间隔各自封顶', () => {
+  it('第 5 波是 Boss 波：恰好 1 只 BOSS（轮换表第一只）；上限与间隔各自封顶', () => {
     const zm = sharedGame.zombies;
     const calls = collectCtx();
     zm.startWave(5);
-    expect(zm.queue.filter((t) => t === 'boss').length).toBe(1);
+    const bossCount = zm.queue.filter((t) => config.ZOMBIES[t].boss).length;
+    expect(bossCount).toBe(1);
+    expect(zm.queue.includes('gargantuar')).toBe(true);
     // normal 4+7=11、cone floor(4×1.05)=4、bucket max(1, floor(3×0.8))=2、橄榄球 1、boss 1 → 19
     expect(zm.queue.length).toBe(19);
     zm.startWave(20);
@@ -1105,7 +1107,7 @@ describe('ZombieManager · 巨型骷髅 Boss', () => {
       for (const id of ['backyard', 'snow', 'dust']) {
         game.ctx.map = { ...prevMap, id };
         zm.startWave(5); // 第 5 波必有 boss
-        expect(zm.queue.filter((t) => t === 'boss').length, `map ${id}`).toBe(1);
+        expect(zm.queue.filter((t) => config.ZOMBIES[t].boss).length, `map ${id}`).toBe(1);
       }
       game.ctx.map = prevMap;
       zm.reset();

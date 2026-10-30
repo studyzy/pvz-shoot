@@ -26,9 +26,12 @@ export class SkySun {
 
     const b = map.bounds;
     const m = SUN_SKY.edgeMargin;
-    // bounds 是半边长 { x, z }，随机点限制在离边缘 edgeMargin 以内
-    const x = rand(-b.x + m, b.x - m);
-    const z = rand(-b.z + m, b.z - m);
+    // bounds 是半边长 { x, z }，随机点限制在离边缘 edgeMargin 以内。
+    // 极小的图（半边长 < margin）要把 margin 收回来，否则区间反转会刷到界外。
+    const mx = Math.min(m, Math.max(0, b.x * 0.5));
+    const mz = Math.min(m, Math.max(0, b.z * 0.5));
+    const x = rand(-b.x + mx, b.x - mx);
+    const z = rand(-b.z + mz, b.z - mz);
     this.ctx.sunOrbs.spawnSky(x, z);
   }
 }

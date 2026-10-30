@@ -454,3 +454,29 @@ describe('火豌豆 · 开火与弹丸参数', () => {
     P.clear();
   });
 });
+describe('WallNuts · dispose / reset', () => {
+  it('dispose 把罩壳从父节点摘掉，重复调用不崩', async () => {
+    await boot();
+    const w = game.wallNuts;
+    w.deploy();
+    expect(w.shell.parent).toBeTruthy();
+    w.dispose();
+    expect(w.shell.parent).toBe(null);
+    expect(() => w.dispose()).not.toThrow();
+  });
+
+});
+
+// reset() 属于 RemoteShield（队友的盾），不是 WallNuts —— 单独测它
+describe('RemoteShield · reset', () => {
+  it('reset 收起盾并把血填满', async () => {
+    const { RemoteShield } = await import('../../src/entities/WallNuts.js');
+    const ctx = { scene: await import('three').then((m) => new m.Scene()) };
+    const rs = new RemoteShield(ctx);
+    rs.raise && rs.raise();
+    rs.hp = 12;
+    rs.reset();
+    expect(rs.active).toBe(false);
+    expect(rs.hp).toBe(rs.maxHp);
+  });
+});

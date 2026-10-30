@@ -101,3 +101,82 @@ describe('僵尸图鉴数据', () => {
     expect(modelFile(null)).toBe('—');
   });
 });
+
+describe('图鉴 · 纯函数分支（覆盖率）', () => {
+  it('anglePosition：每个视角预设都归一化，未知 id 落回第一个', async () => {
+    const { anglePosition, ANGLE_PRESETS } = await import('../../src/gallery/presets.js');
+    for (const p of ANGLE_PRESETS) {
+      const pos = anglePosition(p.id, 5, 1.2);
+      const dist = Math.hypot(pos.x, pos.y - 1.2, pos.z);
+      expect(dist).toBeCloseTo(5, 5); // 单位向量 × distance
+    }
+    const unknown = anglePosition('nope', 5, 1.2);
+    const first = anglePosition(ANGLE_PRESETS[0].id, 5, 1.2);
+    expect(unknown).toEqual(first);
+  });
+
+  it('statLines：带甲 / 不带甲都给出六行，未知类型不崩', async () => {
+    const { statLines } = await import('../../src/gallery/presets.js');
+    const armored = statLines('bucket');
+    expect(armored.length).toBe(6);
+    expect(armored.find((l) => l.label === '护甲').value).toContain('金属');
+
+    const plain = statLines('normal');
+    expect(plain.find((l) => l.label === '护甲').value).toBe('无');
+
+    const unknown = statLines('does-not-exist');
+    expect(unknown.length).toBe(6);
+  });
+
+  it('typeInfo：targetHeight 模型也能算出高度与相机距离', async () => {
+    const { typeInfo } = await import('../../src/gallery/presets.js');
+    for (const id of ['goblin', 'slime', 'bat', 'gargantuar', 'dragon']) {
+      const info = typeInfo(id);
+      expect(info.height, id).toBeGreaterThan(0);
+      expect(Number.isFinite(info.distance), id).toBe(true);
+      expect(info.distance).toBeGreaterThan(0);
+    }
+  });
+
+  it('walkTimeScale：夹在 0.8–1.7，速度缺失也能兜底', async () => {
+    const { walkTimeScale } = await import('../../src/gallery/presets.js');
+    expect(walkTimeScale(0)).toBe(0.8);
+    expect(walkTimeScale(100)).toBe(1.7);
+    expect(walkTimeScale(undefined)).toBe(0.8);
+  });
+});
+
+describe('图鉴 · typeInfo 的兜底分支', () => {
+  it('未知 id / 无模型 / 无 scale 都走兜底，不崩', async () => {
+    const { typeInfo } = await import('../../src/gallery/presets.js');
+    const info = typeInfo('__nope__');
+    expect(info.id).toBe('__nope__');
+    expect(info.name).toBe('__nope__');
+    expect(info.height).toBeGreaterThan(0);
+    expect(Number.isFinite(info.distance)).toBe(true);
+  });
+
+  it('气球（airborne 无 airHeight）用 2.2 兜底，总高含悬空高度', async () => {
+    const { typeInfo } = await import('../../src/gallery/presets.js');
+    const balloon = typeInfo('balloon');
+    expect(balloon.air).toBeGreaterThan(0);
+    expect(balloon.total).toBeGreaterThan(balloon.height);
+    expect(balloon.focusY).toBeGreaterThan(0);
+  });
+
+  it('戴锥帽 / 铁桶的类型取景会额外抬高', async () => {
+    const { typeInfo } = await import('../../src/gallery/presets.js');
+    const cone = typeInfo('cone');
+    const bucket = typeInfo('bucket');
+    const plain = typeInfo('normal');
+    expect(cone.total).toBeGreaterThan(plain.total);
+    expect(bucket.total).toBeGreaterThan(plain.total);
+  });
+
+  it('modelFile / typeMeta 对未知输入有兜底', async () => {
+    const { modelFile, typeMeta } = await import('../../src/gallery/presets.js');
+    expect(modelFile(null)).toBe('—');
+    expect(modelFile({})).toBe('—');
+    expect(typeMeta('__nope__').name).toBe('__nope__');
+  });
+});

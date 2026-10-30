@@ -362,3 +362,351 @@ describe('Game 双人接入', () => {
     expect(sendMap).toHaveBeenCalledTimes(1);
   });
 });
+
+// ── 双人共享补给 / 重连快照：Game 侧的分支 ──
+describe('Game · 补给事件与重连快照', () => {
+  it('applyPickupEvent：自己抢到空投 / 队友抢到 / 无该武器索引', async () => {
+    const game = await boot();
+    game.startDuo({ mapId: 'backyard', seat: 1, peerName: 'B' });
+    const banners = [];
+    game.hud.showBanner = (t) => banners.push(t);
+    game.pickups.removeById = () => true;
+    game.weapons.pickup = (i) => { banners.push('picked:' + i); return true; };
+
+    // 自己抢到空投（seat 1 会真的 pickup）
+    game.applyPickupEvent({ index: 5, seat: 1, air: true, id: 1 });
+    expect(banners.some((b) => b.includes('空投'))).toBe(true);
+    expect(banners.some((b) => b.startsWith('picked:'))).toBe(true);
+
+    // 队友抢到普通补给
+    banners.length = 0;
+    game.applyPickupEvent({ index: 5, seat: 0, id: 2 });
+    expect(banners.some((b) => b.includes('队友拿到了'))).toBe(true);
+
+    // 非法索引直接返回，不崩
+    banners.length = 0;
+    expect(() => game.applyPickupEvent({ index: 9999, seat: 1, id: 3 })).not.toThrow();
+    expect(banners.length).toBe(0);
+  });
+
+  it('buildResync 给出完整世界快照', async () => {
+    const game = await boot();
+    game.startDuo({ mapId: 'backyard', seat: 0, peerName: 'B' });
+    game.zombies.wave = 7;
+    game.sun = 123.4;
+    game.duoStats = [10, 20];
+    game.duoKills = [1, 2];
+    const snap = game.buildResync();
+    expect(snap.wave).toBe(7);
+    expect(snap.sun).toBe(123);
+    expect(snap.scores).toEqual([10, 20]);
+    expect(snap.kills).toEqual([1, 2]);
+    expect(Array.isArray(snap.z)).toBe(true);
+    expect(Array.isArray(snap.pickups)).toBe(true);
+    expect(Array.isArray(snap.orbs)).toBe(true);
+    expect(typeof snap.bossHp).toBe('number');
+  });
+
+  it('buildResync 在没有僵尸/boss 时也能安全产出', async () => {
+    const game = await boot();
+    game.zombies = null;
+    game.pickups = null;
+    game.sunOrbs = null;
+    const snap = game.buildResync();
+    expect(snap.wave).toBe(0);
+    expect(snap.bossHp).toBe(0);
+    expect(snap.z).toEqual([]);
+    expect(snap.pickups).toEqual([]);
+    expect(snap.orbs).toEqual([]);
+  });
+
+  it('onDuoWipe 收尾：回菜单并保留比分', async () => {
+    const game = await boot();
+    game.startDuo({ mapId: 'backyard', seat: 1, peerName: 'B' });
+    game.duoStats = [111, 222];
+    expect(() => game.onDuoWipe({ scores: [111, 222], kills: [3, 4] })).not.toThrow();
+  });
+});
+
+// ── 双人世界事件：host 权威校验 + guest 本地镜像 ──
+describe('Game · 世界事件与 claim 校验', () => {
+  async function hostGame() {
+    const game = await boot();
+    game.startDuo({ mapId: 'backyard', seat: 0, peerName: 'B' });
+    game.netGuest = { pos: { x: 0, y: 0, z: 0 } };
+    return game;
+  }
+
+  it('applyWorldEvent 的 sun 分支只收 id 存在的球', async () => {
+    const game = await hostGame();
+    const collectById = vi.fn(() => true);
+    game.sunOrbs.collectById = collectById;
+    game.sfx.pickup = vi.fn();
+    game.applyWorldEvent({ type: 'sun', id: 42 });
+    expect(collectById).toHaveBeenCalledWith(42);
+    expect(game.sfx.pickup).toHaveBeenCalled();
+    // 收不到（ball 不存在）时不响
+    collectById.mockReturnValue(false);
+    game.sfx.pickup.mockClear();
+    game.applyWorldEvent({ type: 'sun', id: 43 });
+    expect(game.sfx.pickup).not.toHaveBeenCalled();
+  });
+
+  it('applyWorldEvent 的 air 分支：坐标合法才亮光柱', async () => {
+    const game = await hostGame();
+    const beamAt = vi.fn();
+    game.pickups.beamAt = beamAt;
+    game.applyWorldEvent({ type: 'air', x: 3, z: 4 });
+    expect(beamAt).toHaveBeenCalledWith(3, 4, expect.any(Number));
+    beamAt.mockClear();
+    game.applyWorldEvent({ type: 'air', x: NaN, z: 4 });
+    expect(beamAt).not.toHaveBeenCalled();
+  });
+
+  it('applyGuestClaim：太阳球要过 2.2 米距离校验', async () => {
+    const game = await hostGame();
+    game.sunOrbs.orbs = [{ active: true, id: 5, pos: { x: 0, z: 0 } }];
+    game.sunOrbs.collectById = vi.fn(() => true);
+    game.addSun = vi.fn();
+    game.duoSession = { sendEvent: vi.fn() };
+
+    // 代理在远处：不认
+    game.netGuest.pos = { x: 10, y: 0, z: 10 };
+    game.applyGuestClaim({ kind: 'sun', id: 5 });
+    expect(game.addSun).not.toHaveBeenCalled();
+
+    // 走近：认
+    game.netGuest.pos = { x: 0.5, y: 0, z: 0.5 };
+    game.applyGuestClaim({ kind: 'sun', id: 5 });
+    expect(game.addSun).toHaveBeenCalled();
+  });
+
+  it('applyGuestClaim：不存在的 id / 非 host / 无代理都直接返回', async () => {
+    const game = await hostGame();
+    game.sunOrbs.orbs = [];
+    game.addSun = vi.fn();
+    game.applyGuestClaim({ kind: 'sun', id: 999 });
+    expect(game.addSun).not.toHaveBeenCalled();
+    game.seat = 1;
+    game.applyGuestClaim({ kind: 'sun', id: 1 });
+    game.seat = 0;
+    game.netGuest = null;
+    expect(() => game.applyGuestClaim({ kind: 'sun', id: 1 })).not.toThrow();
+  });
+
+  it('applyGuestDrop：越过 3.5 米或非法坐标都丢掉', async () => {
+    const game = await hostGame();
+    const dropAt = vi.fn();
+    game.pickups.dropAt = dropAt;
+    // 太远
+    game.applyGuestDrop({ i: 1, x: 20, z: 20 });
+    expect(dropAt).not.toHaveBeenCalled();
+    // 非法坐标
+    game.applyGuestDrop({ i: 1, x: NaN, z: 0 });
+    expect(dropAt).not.toHaveBeenCalled();
+    // 非法武器索引
+    game.applyGuestDrop({ i: 9999, x: 0, z: 0 });
+    expect(dropAt).not.toHaveBeenCalled();
+    // 合法：落一把
+    game.applyGuestDrop({ i: 1, x: 1, z: 1 });
+    expect(dropAt).toHaveBeenCalledWith(1, 1, 1);
+  });
+
+  it('onSlotSelect 只在 playing 时切槽', async () => {
+    const game = await hostGame();
+    const equipSlot = vi.fn();
+    game.weapons.equipSlot = equipSlot;
+    game.state = 'menu';
+    game.hud.onSlotSelect('gun', 0);
+    expect(equipSlot).not.toHaveBeenCalled();
+    game.state = 'playing';
+    game.hud.onSlotSelect('gun', 0);
+    expect(equipSlot).toHaveBeenCalledWith('gun', 0);
+  });
+});
+
+// ── setupDuoWorld 的 host/guest 补给回调 ──
+describe('Game · 双人补给回调接线', () => {
+  it('host：本地拾取会把事件发给 guest；空投还会发奖', async () => {
+    const game = await boot();
+    game.startDuo({ mapId: 'backyard', seat: 0, peerName: 'B' });
+    const sendEvent = vi.fn();
+    game.duoSession = { sendEvent, sendPickups: vi.fn(), sendClaim: vi.fn(), sendPickupDrop: vi.fn() };
+    // 触发 host 的 onLocalPickup 回调
+    game.pickups.onLocalPickup({ id: 7, air: false }, 3);
+    expect(sendEvent).toHaveBeenCalledWith(expect.objectContaining({ type: 'pickup', id: 7, seat: 0 }));
+  });
+
+  it('guest：claim 与 drop 都会发请求给 host', async () => {
+    const game = await boot();
+    game.startDuo({ mapId: 'backyard', seat: 1, peerName: 'B' });
+    const sendClaim = vi.fn();
+    const sendPickupDrop = vi.fn();
+    game.duoSession = { sendClaim, sendPickupDrop, sendEvent: vi.fn() };
+    game.pickups.onClaim(9);
+    expect(sendClaim).toHaveBeenCalledWith('pickup', 9);
+    game.pickups.onDrop(2, 1, 1);
+    expect(sendPickupDrop).toHaveBeenCalledWith(2, 1, 1);
+  });
+
+  it('队友倒地/站起会出横幅', async () => {
+    const game = await boot();
+    game.startDuo({ mapId: 'backyard', seat: 0, peerName: 'B' });
+    const banners = [];
+    game.hud.showBanner = (t) => banners.push(t);
+    game.applyRemoteState({ down: true });
+    expect(banners.some((b) => b.includes('队友倒下'))).toBe(true);
+    banners.length = 0;
+    game.applyRemoteState({ down: false });
+    expect(banners.some((b) => b.includes('站起来'))).toBe(true);
+  });
+
+  it('applyResync：guest 未进局时先缓存，进局后消费', async () => {
+    const game = await boot();
+    game.applyResync({ wave: 5, sun: 10 });
+    expect(game.pendingResync).toBeTruthy();
+    expect(game.pendingResync.wave).toBe(5);
+    // 空值不缓存
+    const before = game.pendingResync;
+    game.applyResync(null);
+    expect(game.pendingResync).toBe(before);
+  });
+});
+
+// ── guest 命中限流 / 盾血同步 / 横屏锁定 ──
+describe('Game · 命中限流与状态同步', () => {
+  it('applyGuestHit 在超频命中时被丢弃', async () => {
+    const game = await boot();
+    game.startDuo({ mapId: 'backyard', seat: 0, peerName: 'B' });
+    game.netGuest = { pos: { x: 0, y: 1.7, z: 0 }, dead: false, downed: false };
+    game.duoSession = { sendEvent: vi.fn() };
+    const z = game.zombies.zombies[0] || { netId: 1, def: { damage: 1 }, hit: vi.fn(), alive: true };
+    game.zombies.zombies = [];
+    expect(() => game.applyGuestHit(null)).not.toThrow();
+    void z;
+  });
+
+  it('applyPeerState 同步队友盾血；归零会清掉', async () => {
+    const game = await boot();
+    // applyPeerState 只对 guest（seat 1）生效
+    game.startDuo({ mapId: 'backyard', seat: 1, peerName: 'B' });
+    game.wallNuts.hp = game.wallNuts.maxHp;
+    // 先收到正数：记下 netShieldHp 并同步盾血
+    game.applyPeerState({ g: { sh: Math.round(game.wallNuts.maxHp / 2) } });
+    expect(game.netShieldHp).toBeGreaterThan(0);
+    expect(game.wallNuts.hp).toBe(game.netShieldHp);
+    // 再变 0：判定为碎盾（只有先见过正数才这么判）
+    game.applyPeerState({ g: { sh: 0 } });
+    expect(game.netShieldHp).toBe(0);
+    expect(game.wallNuts.hp).toBe(0);
+  });
+
+  it('requestLandscape 在没有 fullscreen API 时也不崩', async () => {
+    const game = await boot();
+    const root = document.documentElement;
+    const saved = root.requestFullscreen;
+    try {
+      delete root.requestFullscreen;
+      expect(() => game.requestLandscape()).not.toThrow();
+    } finally {
+      if (saved) root.requestFullscreen = saved;
+    }
+  });
+});
+
+// ── applyGuestHit：host 对 guest 命中的完整裁决路径 ──
+describe('Game · guest 命中裁决 applyGuestHit', () => {
+  async function setup() {
+    const game = await boot();
+    game.startDuo({ mapId: 'backyard', seat: 0, peerName: 'B' });
+    game.duoSession = { getZombieAt: () => null, sendEvent: vi.fn() };
+    game.netGuest = {
+      pos: { x: 0, y: 0, z: 0 }, yaw: 0, pitch: 0, dead: false, downed: false,
+    };
+    return game;
+  }
+
+  it('各种非法输入直接返回', async () => {
+    const game = await setup();
+    for (const bad of [null, {}, { w: '不存在的武器' }]) {
+      expect(() => game.applyGuestHit(bad)).not.toThrow();
+    }
+    // 无 guest 代理
+    game.netGuest = null;
+    expect(() => game.applyGuestHit({ w: 'pea', zid: 1 })).not.toThrow();
+  });
+
+  it('找不到僵尸 / 僵尸已死 / 方向为零向量都丢弃', async () => {
+    const game = await setup();
+    expect(() => game.applyGuestHit({ w: 'pea', zid: 9999, dir: [0, 0, 1] })).not.toThrow();
+    game.zombies.zombies = [{ netId: 1, alive: false, dying: false }];
+    expect(() => game.applyGuestHit({ w: 'pea', zid: 1, dir: [0, 0, 1] })).not.toThrow();
+  });
+
+  it('背对目标的命中被锥形校验拒绝', async () => {
+    const game = await setup();
+    const hit = vi.fn(() => false);
+    game.zombies.zombies = [{
+      netId: 1, alive: true, dying: false, hitRadiusScale: 1, scaleFactor: 1,
+      chestY: 1.02, headY: 1.52,
+      root: { position: { x: 0, y: 0, z: -5 } },
+      hit,
+    }];
+    // 玩家朝 -Z（yaw=0），dir 却朝 +Z：背对，应拒绝
+    expect(() => game.applyGuestHit({ w: 'pea', zid: 1, dir: [0, 0, 1] })).not.toThrow();
+    expect(hit).not.toHaveBeenCalled();
+  });
+
+  it('正面命中会真的扣血（host 权威）', async () => {
+    const game = await setup();
+    const hit = vi.fn(() => false);
+    game.zombies.zombies = [{
+      netId: 1, alive: true, dying: false, hitRadiusScale: 1, scaleFactor: 1,
+      chestY: 1.02, headY: 1.52,
+      root: { position: { x: 0, y: 0, z: -5 } },
+      hit,
+    }];
+    game.map.walls = [];
+    game.applyGuestHit({ w: 'pea', zid: 1, dir: [0, 0, -1] });
+    expect(hit).toHaveBeenCalled();
+  });
+
+  it('连续超频命中被限流丢弃', async () => {
+    const game = await setup();
+    const hit = vi.fn(() => false);
+    game.zombies.zombies = [{
+      netId: 1, alive: true, dying: false, hitRadiusScale: 1, scaleFactor: 1,
+      chestY: 1.02, headY: 1.52,
+      root: { position: { x: 0, y: 0, z: -5 } },
+      hit,
+    }];
+    game.map.walls = [];
+    // 第一次通过
+    game.applyGuestHit({ w: 'pea', zid: 1, dir: [0, 0, -1] });
+    const first = hit.mock.calls.length;
+    // 立刻再来很多次：应被 cooldown 窗口限制
+    for (let i = 0; i < 6; i++) game.applyGuestHit({ w: 'pea', zid: 1, dir: [0, 0, -1] });
+    expect(hit.mock.calls.length - first).toBeLessThan(6);
+  });
+});
+
+describe('Game · clearRemotes 的兜底', () => {
+  it('子系统被拆掉后调用 clearRemotes 也不崩', async () => {
+    const game = await boot();
+    game.startDuo({ mapId: 'backyard', seat: 0, peerName: 'B' });
+    game.zombies = null;
+    game.pickups = null;
+    game.skySun = null;
+    expect(() => game.clearRemotes()).not.toThrow();
+    expect(game.remotes.length).toBe(0);
+    expect(game.netGuest).toBe(null);
+  });
+
+  it('正常情况会复位 skySun 间隔并清空远端', async () => {
+    const game = await boot();
+    game.startDuo({ mapId: 'backyard', seat: 0, peerName: 'B' });
+    game.skySun.interval = 1;
+    game.clearRemotes();
+    expect(game.skySun.interval).toBeGreaterThan(1);
+  });
+});

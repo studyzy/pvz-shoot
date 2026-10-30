@@ -1,0 +1,29 @@
+# 夜之森林 · aigc 怪物模型许可清单
+
+本目录下下列 glb 来自仓库内 `aigc/monsters/`，均为 **CC0 1.0**（公有领域，可商用、可修改、无需署名）。
+源站 [Poly Pizza](https://poly.pizza)，原始作者以 Quaternius 为主。
+下载于 2026-10-30；这批是 Poly Pizza 上 QAL v1.0 生效**之前**发布的 CC0 版本，因此可以随公开仓库分发。
+
+| 本目录文件 | aigc 原始路径 | 模型 | 三角面 | 作者 | 许可 | 来源 |
+| --- | --- | --- | --- | --- | --- | --- |
+| `goblin.glb` | `monsters/humanoid/goblin.glb` | Goblin | 2912 | Quaternius | CC0 1.0 | https://poly.pizza/m/OdCOFSmEhl |
+| `demon-3.glb` | `monsters/humanoid/demon-3.glb` | Demon | 3292 | Quaternius | CC0 1.0 | https://poly.pizza/m/IkB63XOPvr |
+| `slime.glb` | `monsters/slime/slime.glb` | Slime | 1440 | Quaternius | CC0 1.0 | https://poly.pizza/m/LyjSUKHKnh |
+| `pink-slime.glb` | `monsters/slime/pink-slime.glb` | Pink Slime | 982 | Quaternius | CC0 1.0 | https://poly.pizza/m/AyP8sQmDLh |
+| `green-blob.glb` | `monsters/slime/green-blob.glb` | Green Blob | 1496 | Quaternius | CC0 1.0 | https://poly.pizza/m/y4kJh8EeYS |
+| `bones.glb` | `monsters/undead/skeleton.glb` | Skeleton | 4278 | Quaternius | CC0 1.0 | https://poly.pizza/m/DM4QScSmbS |
+| `ghost.glb` | `monsters/undead/ghost.glb` | Ghost | 2056 | Quaternius | CC0 1.0 | https://poly.pizza/m/Iip30bDHmu |
+| `ghost-skull.glb` | `monsters/undead/ghost-skull.glb` | Ghost Skull | 2024 | Quaternius | CC0 1.0 | https://poly.pizza/m/TX8r9WBXpe |
+| `wolf.glb` | `monsters/beasts/wolf.glb` | Wolf | 2740 | Quaternius | CC0 1.0 | https://poly.pizza/m/XU7oNeKShV |
+| `spider.glb` | `monsters/beasts/spider.glb` | Spider | 2712 | Quaternius | CC0 1.0 | https://poly.pizza/m/yRYJiAJyiM |
+| `rat.glb` | `monsters/beasts/rat.glb` | Rat | 4004 | Quaternius | CC0 1.0 | https://poly.pizza/m/iltq5bVNaV |
+| `bat.glb` | `monsters/beasts/bat.glb` | Bat | 772 | Quaternius | CC0 1.0 | https://poly.pizza/m/hNO9XvjlKa |
+| `giant.glb` | `monsters/humanoid/giant.glb` | Giant | 3812 | Quaternius | CC0 1.0 | https://poly.pizza/m/BldaiPtyJa |
+| `mushroom-king.glb` | `monsters/humanoid/mushroom-king.glb` | Mushroom King | 5116 | Quaternius | CC0 1.0 | https://poly.pizza/m/grnFTziU8u |
+| `dragon-evolved.glb` | `monsters/beasts/dragon-evolved.glb` | Dragon Evolved | 6702 | Quaternius | CC0 1.0 | https://poly.pizza/m/LlwD0QNUPj |
+
+## 其余模型
+
+`zombie.glb` / `skeleton.glb` 的许可见同目录 `LICENSE-zombie.txt`、`LICENSE-skeleton.txt`；
+`alchemist.glb` / `football.glb` 是仓库所有者提供的资产（见 docs/ZOMBIE-MODELS.md）；
+`farmer.glb` 见 `LICENSE-farmer.txt`。
