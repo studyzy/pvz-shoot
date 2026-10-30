@@ -164,6 +164,27 @@ describe('ZombieManager · 波次调度', () => {
     expect(calls.onWaveStart).toEqual([5, 20]);
   });
 
+  it('普通僵尸用的是 alchemist.glb：模型未就绪时改刷别的、自己留在队首', () => {
+    const zm = sharedGame.zombies;
+    zombieModel.alchemist.ready = false;
+    zm.queue = ['normal', 'cone'];
+    const before = zm.zombies.length;
+    zm.spawnOne(sharedGame.player);
+    expect(zm.zombies.length).toBe(before + 1);
+    expect(zm.zombies[zm.zombies.length - 1].type).toBe('cone');
+    expect(zm.zombies[zm.zombies.length - 1].modelId).toBe('zombie');
+    expect(zm.queue[0]).toBe('normal');
+    zm.queue = ['normal'];
+    expect(zm.spawnOne(sharedGame.player)).toBe(null);
+    zombieModel.alchemist.ready = true;
+    zm.queue = ['normal'];
+    zm.spawnOne(sharedGame.player);
+    const last = zm.zombies[zm.zombies.length - 1];
+    expect(last.type).toBe('normal');
+    expect(last.modelId).toBe('alchemist');
+    zm.queue = [];
+  });
+
   it('倍率公式：第 1 波 1 倍，速度倍率 1.45 封顶', () => {
     const zm = sharedGame.zombies;
     zm.startWave(1);
@@ -234,14 +255,17 @@ describe('ZombieManager · 生成节流', () => {
     const zm = sharedGame.zombies;
     zm.startWave(1);
     expect(zombieModel.ready).toBe(true);
+    // 第 1 波全是普通僵尸 —— 它们用的是 alchemist.glb，两个都要卡住才一个都刷不出来
     try {
       zombieModel.ready = false;
+      zombieModel.alchemist.ready = false;
       zm.spawnTimer = 0;
       for (let i = 0; i < 60; i++) zm.update(DT, sharedGame.player, sharedGame.map.colliders);
       expect(zm.zombies.length).toBe(0);
       expect(zm.spawnTimer).toBeLessThan(0); // 计时不会卡在正数上
     } finally {
       zombieModel.ready = true;
+      zombieModel.alchemist.ready = true;
     }
     zm.update(DT, sharedGame.player, sharedGame.map.colliders);
     expect(zm.zombies.length).toBe(1);

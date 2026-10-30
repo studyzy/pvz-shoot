@@ -33,6 +33,7 @@ vi.mock('../../src/entities/ZombieModel.js', async (importOriginal) => {
       scene,
       clips,
       skeleton: { ready: true, failed: false, scene: new THREE.Group(), clips: [] },
+      alchemist: { ready: true, failed: false, scene: new THREE.Group(), clips: [] },
     },
   };
 });

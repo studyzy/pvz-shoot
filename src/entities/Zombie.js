@@ -10,6 +10,15 @@ const WHITE = new THREE.Color(0xffffff);
 const tmpV = new THREE.Vector3();
 const hatQuat = new THREE.Quaternion();
 
+// 各模型的命中球（世界米：模型已按 MODELS[x].scale 拉过，再乘类型的 scaleFactor）。
+// chest/head 是球心高度，radius 是半径倍率：骷髅骨架细取 0.8；普通僵尸用的炼金模型 Q 版身宽，取 0.85。
+// 头部球半径必须仍小于身体球，否则爆头会退化成“打哪儿都爆头”。
+const HIT = {
+  zombie: { chest: 1.02, head: 1.52, radius: 1 },
+  skeleton: { chest: 0.9, head: 1.68, radius: 0.8 },
+  alchemist: { chest: 0.83, head: 1.44, radius: 0.85 },
+};
+
 let shadowMatShared = null;
 function shadowMaterial() {
   if (!shadowMatShared) {
@@ -33,14 +42,11 @@ export class Zombie {
     this.wave = wave;
     this.scaleFactor = this.def.scale;
     // 命中球高度：两套模型体块比例不同，按各自的模型单位给（调用方再乘 scaleFactor）。
-    // 僵尸模型高 1.194（眼球 0.86–0.98、髋 0.37）；骷髅模型高 2.166（躯干 0.38–1.43、头 1.19–2.17）。
-    // 头部球半径必须仍小于身体球，否则爆头会退化成“打哪儿都爆头”。
-    // hitRadiusScale：命中球半径的额外倍率。骷髅骨架比僵尸细，模型高 2.166 vs 1.194，
-    // 半径按同一比例放大才和身体贴合；脖子/躯干本来也细，取 0.8 折中。
-    const isSk = this.def.model === 'skeleton';
-    this.chestY = isSk ? 0.90 : 1.02;
-    this.headY = isSk ? 1.68 : 1.52;
-    this.hitRadiusScale = isSk ? 0.8 : 1;
+    // 命中球按模型查表（见 HIT）：僵尸 1.194、骷髅 2.166、炼金僵尸 1.077 高，口径各不相同。
+    const hit = HIT[this.def.model] || HIT.zombie;
+    this.chestY = hit.chest;
+    this.headY = hit.head;
+    this.hitRadiusScale = hit.radius;
     this.maxHp = Math.round(this.def.hp * hpMul);
     this.hp = this.maxHp;
     this.speed = this.def.speed * speedMul;
@@ -106,12 +112,19 @@ export class Zombie {
     ctx.scene.add(this.root);
   }
 
+  // 当前类型用哪份模型资源：普通僵尸直接用 zombieModel 本体，其它压在自己的槽里
+  modelSource() {
+    if (this.modelId === 'skeleton') return zombieModel.skeleton;
+    if (this.modelId === 'alchemist') return zombieModel.alchemist;
+    return zombieModel;
+  }
+
   buildRig() {
-    // 按 def.model 选模型：不写就是普通僵尸 glb，写 'skeleton' 就是 KayKit 骷髅
-    const isSkeleton = this.def.model === 'skeleton';
-    const src = isSkeleton ? zombieModel.skeleton : zombieModel;
-    const def = MODELS[isSkeleton ? 'skeleton' : 'zombie'];
-    this.isSkeleton = isSkeleton;
+    // 按 def.model 选模型：不写就是普通僵尸 glb，'skeleton' 是 KayKit 骷髅，'alchemist' 是炼金僵尸
+    this.modelId = MODELS[this.def.model] ? this.def.model : 'zombie';
+    const src = this.modelSource();
+    const def = MODELS[this.modelId];
+    this.isSkeleton = this.modelId === 'skeleton';
 
     // 骨骼模型每个僵尸克隆一份：骨骼必须独立，材质也要独立（白闪/冰冻）
     // 骨骼模型必须用 SkeletonUtils.clone，否则所有僵尸共享同一套骨骼会一起动
@@ -145,7 +158,7 @@ export class Zombie {
   // 骨骼动画：idle / walk / attack / die / hit 各一条，同一时刻只播一条。
   // 两套模型的动作名不同，按模型用不同候选名。
   buildAnimations() {
-    const src = this.isSkeleton ? zombieModel.skeleton : zombieModel;
+    const src = this.modelSource();
     const clips = (src && src.clips) || [];
     this.mixer = clips.length ? new THREE.AnimationMixer(this.body) : null;
     this.actions = {};
@@ -224,7 +237,7 @@ export class Zombie {
     // （scaleFactor）；骨骼链里**多出来**的部分（僵尸 glb 的 CharacterArmature 100 倍）才要抵掉。
     // 曾经直接除以骨骼世界缩放，把模型缩放也除掉了 —— 交通锥/铁桶的世界尺寸只剩身体的
     // 1/1.55，大半截陷进脑袋里，看起来像「没戴帽子」；Boss 木棒同理缩水一半。
-    const hatWorldScale = MODELS[this.isSkeleton ? 'skeleton' : 'zombie'].scale * this.scaleFactor;
+    const hatWorldScale = MODELS[this.modelId].scale * this.scaleFactor;
     let hatScale = 1;
     if (headBone) {
       this.body.updateWorldMatrix(true, false);

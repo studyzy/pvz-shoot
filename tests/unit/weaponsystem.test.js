@@ -796,7 +796,7 @@ describe('开火：弹道分支', () => {
     W.current = 0;
     lookForward();
     const p = game.player.pos;
-    const zombie = spawn('normal', p.x, p.z - 12);
+    const zombie = spawn('cone', p.x, p.z - 12);
     const head = new THREE.Vector3();
     zombie.getHead(head);
     const probe = probeProjectiles();
@@ -1132,7 +1132,7 @@ describe('resolveAssist：准星正对头部才抬到头部', () => {
     clearField();
     arm();
     const p = game.player.pos;
-    const zombie = spawn('normal', p.x, p.z - 12);
+    const zombie = spawn('cone', p.x, p.z - 12);
     const head = new THREE.Vector3();
     zombie.getHead(head);
     await H.aimAt(game, head.x, head.y, head.z);
@@ -1150,7 +1150,7 @@ describe('resolveAssist：准星正对头部才抬到头部', () => {
     clearField();
     arm();
     const p = game.player.pos;
-    const zombie = spawn('normal', p.x, p.z - 12);
+    const zombie = spawn('cone', p.x, p.z - 12);
     const chest = new THREE.Vector3();
     zombie.getChest(chest);
     await H.aimAt(game, chest.x, chest.y, chest.z);
@@ -1166,7 +1166,7 @@ describe('resolveAssist：准星正对头部才抬到头部', () => {
     clearField();
     arm();
     const p = game.player.pos;
-    const zombie = spawn('normal', p.x, p.z - 12);
+    const zombie = spawn('cone', p.x, p.z - 12);
     const head = new THREE.Vector3();
     zombie.getHead(head);
     const dist = game.camera.position.distanceTo(head);
@@ -1209,7 +1209,7 @@ describe('resolveAssist：准星正对头部才抬到头部', () => {
     clearField();
     arm();
     const p = game.player.pos;
-    const zombie = spawn('normal', p.x, p.z - 12);
+    const zombie = spawn('cone', p.x, p.z - 12);
     const head = new THREE.Vector3();
     zombie.getHead(head);
     await H.aimAt(game, head.x, head.y, head.z);

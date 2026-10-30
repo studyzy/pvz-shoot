@@ -12,10 +12,15 @@ export const ZOMBIE_HEIGHT = 1.85;
 // 原始高 2.166，按 SKELETON_SCALE 拉到约 1.95 米（比普通僵尸略高，当作亡灵精英）。
 export const SKELETON_SCALE = 0.9;
 
+// 炼金僵尸（项目内 AIGC 资产，见 docs/ZOMBIE-MODELS.md）：22 骨骼、5 段动画。
+// 原始高 1.077（Q 版大头身），按 ALCHEMIST_SCALE 拉到 1.85 米，和普通僵尸同高。
+export const ALCHEMIST_SCALE = 1.72;
+
 // 模型定义：id -> { url, scale, height }。Zombie.buildRig 按 def.model 取。
 export const MODELS = {
   zombie: { url: 'models/zombie.glb', scale: ZOMBIE_SCALE, height: ZOMBIE_HEIGHT },
   skeleton: { url: 'models/skeleton.glb', scale: SKELETON_SCALE, height: 1.95 },
+  alchemist: { url: 'models/alchemist.glb', scale: ALCHEMIST_SCALE, height: 1.85 },
 };
 
 export const zombieModel = {
@@ -26,6 +31,8 @@ export const zombieModel = {
   clips: [],
   // 骷髅单独一份：只有雪地/Boss 波才会用到，加载完置 ready
   skeleton: { ready: false, failed: false, scene: null, clips: [] },
+  // 炼金模型：普通僵尸在用，加载失败不影响主流程（只是这个类型刷不出来）
+  alchemist: { ready: false, failed: false, scene: null, clips: [] },
 };
 
 // 按名字取动画：glb 里可能带 CharacterArmature| 前缀，统一去掉再比
@@ -77,6 +84,19 @@ export function initZombieModel() {
     (err) => {
       zombieModel.skeleton.failed = true;
       console.warn('skeleton glb failed', err);
+    }
+  );
+  loader.load(
+    BASE + MODELS.alchemist.url,
+    (gltf) => {
+      zombieModel.alchemist.scene = prepare(gltf.scene);
+      zombieModel.alchemist.clips = gltf.animations || [];
+      zombieModel.alchemist.ready = true;
+    },
+    undefined,
+    (err) => {
+      zombieModel.alchemist.failed = true;
+      console.warn('alchemist glb failed', err);
     }
   );
 }

@@ -17,6 +17,7 @@ import {
   AIR_QUOTA_RATIO,
   waveAirQuota,
 } from '../../src/config.js';
+import { MODELS } from '../../src/entities/ZombieModel.js';
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -220,6 +221,16 @@ describe('config / ZOMBIES', () => {
     ]);
   });
 
+  it('模型归属：普通僵尸用 alchemist.glb，路障/铁桶仍用原来的 zombie.glb', () => {
+    expect(ZOMBIES.normal.model).toBe('alchemist');
+    expect(ZOMBIES.cone.model).toBeUndefined();
+    expect(ZOMBIES.bucket.model).toBeUndefined();
+    // 模型 1.077 高 × 1.72 ≈ 1.85 米，和原本的普通僵尸齐平
+    expect(MODELS.alchemist.scale * 1.0767).toBeCloseTo(1.85, 1);
+    expect(MODELS.alchemist.url).toBe('models/alchemist.glb');
+    expect(MODELS.zombie.url).toBe('models/zombie.glb');
+  });
+
   it('橄榄球僵尸：厚甲（buffalo 材质）+ 血厚 + 速度快', () => {
     const f = ZOMBIES.football;
     expect(f.armor.material).toBe('buffalo');
@@ -253,7 +264,7 @@ describe('config / ZOMBIES', () => {
     expect(ARMOR_MATERIALS.plastic.burnImmune).toBe(true);
   });
 
-  it('骷髅和 Boss 都走骷髅模型，其余三类用僵尸 glb', () => {
+  it('骷髅和 Boss 都走骷髅模型，路障/铁桶用僵尸 glb、普通用炼金模型', () => {
     expect(ZOMBIES.skeleton.model).toBe('skeleton');
     expect(ZOMBIES.skeleton.acc).toBeNull();
     // Boss 是巨型骷髅：同样的 glb，靠 scale 拉大到 4.5 米左右
@@ -262,8 +273,9 @@ describe('config / ZOMBIES', () => {
     expect(ZOMBIES.boss.scale).toBe(2.3);
     // 2.166（模型原始高）× 0.9（SKELETON_SCALE）× 2.3 ≈ 4.48 米
     expect(2.166 * 0.9 * ZOMBIES.boss.scale).toBeGreaterThan(4.2);
-    // 其余三类不写 model，默认用僵尸 glb
-    for (const k of ['normal', 'cone', 'bucket']) expect(ZOMBIES[k].model).toBeUndefined();
+    // 普通僵尸换成 alchemist.glb；路障/铁桶不写 model，继续用原来的僵尸 glb（锥帽/铁桶按它头顶做的）
+    expect(ZOMBIES.normal.model).toBe('alchemist');
+    for (const k of ['cone', 'bucket']) expect(ZOMBIES[k].model).toBeUndefined();
   });
 
   it('骷髅同屏上限与地图白名单', () => {

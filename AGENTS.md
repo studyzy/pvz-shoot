@@ -43,11 +43,11 @@ npm run preview   # 预览构建产物
 | `src/world/materials.js` | Toon 材质、程序化草地/雪地/冰面/沙地/天空/沙漠天空/云/光晕/污渍贴图、PMREM 户外环境贴图（`outdoorEnvironment`，支持 backyard/snow/dust） |
 | `src/entities/Player.js` | 第一人称移动、跳跃、平台落脚/踏步、碰撞、生命/回血、镜头位置与后坐力 |
 | `src/entities/Zombie.js` | 单个僵尸：绑定模型骨架、AI、行走/攻击/死亡动画、受击/减速/掉落回调 |
-| `src/entities/ZombieModel.js` | 加载两个外部模型：`zombie.glb`（Quaternius 僵尸，50 骨骼 + 16 段动画）与 `skeleton.glb`（KayKit 骷髅，41 骨骼 + 13 段动画）；导出 `zombieModel` 就绪标志、`MODELS` 缩放表与 `findClip()` |
+| `src/entities/ZombieModel.js` | 加载三个外部模型：`zombie.glb`（Quaternius 僵尸，路障/铁桶/橄榄球/气球用）、`skeleton.glb`（KayKit 骷髅）、`alchemist.glb`（炼金模型，**普通僵尸**用）；导出 `zombieModel` 就绪标志、`MODELS` 缩放表与 `findClip()` |
 | `src/entities/ZombieManager.js` | 波次生成、分离、范围伤害、击杀结算、Boss 跟踪、阳光掉落数量 |
 | `src/entities/WallNuts.js` | **坚果免伤盾**：玩家身上的一个状态（不是场景实体）。`absorb()` 拦伤害、盾血/破盾动画、罩壳跟随 |
 | `src/entities/SunOrbs.js` | 阳光球池、弹跳、磁吸、拾取 |
-| `src/entities/WeaponPickups.js` | 地面植物拾取物池：按地图点位刷新、发光/名称牌、靠近自动拾取、重生 |
+| `src/entities/WeaponPickups.js` | 地面植物拾取物池：开局在随机点位刷 1 个、发光/名称牌、靠近自动拾取；一关内每个点位只出一次，不无限刷新 |
 | `src/weapons/WeaponSystem.js` | 手持植物视图模型、瞄准辅助、开火、切枪、**角色槽（peaGun/gun/demo/grenade/shield）**、手雷蓄力、后坐/摇摆、命中判定入口 |
 | `src/weapons/ProjectileSystem.js` | 豌豆池、樱桃抛物线、爆炸、爆头判定 |
 | `src/fx/Particles.js` | InstancedMesh 粒子池、爆炸球壳/冲击环、临时点光源 |
@@ -57,7 +57,7 @@ npm run preview   # 预览构建产物
 | `src/input/Controls.js` | 键鼠 + 触屏输入、平台识别、虚拟摇杆、指针锁定 |
 | `src/ui/HUD.js` | DOM HUD、**5 个角色槽底栏**、蓄力条、横幅、命中标记、开始/暂停/结算界面 |
 | `src/style.css` | 全部界面样式与响应式/安全区适配 |
-| `public/models/` | `zombie.glb`（660 KB：7.8k 三角面、50 骨骼、16 段动画）+ `skeleton.glb`（1.4 MB：5.3k 三角面、41 骨骼、13 段动画）+ 两份 `LICENSE-*.txt`，构建时原样拷贝到 `dist/models/` |
+| `public/models/` | `zombie.glb`（660 KB：7.8k 三角面、50 骨骼、16 段动画）+ `skeleton.glb`（1.4 MB：5.3k 三角面、41 骨骼、13 段动画）+ `alchemist.glb`（1.3 MB：1 万三角面、22 骨骼、5 段动画）+ 两份 `LICENSE-*.txt`，构建时原样拷贝到 `dist/models/`。**普通僵尸用 alchemist，其余地面僵尸用 zombie** |
 | `docs/GAMEPLAY.md` | 玩家向完整数值文档；**改数值后同步更新** |
 
 ---
@@ -74,7 +74,7 @@ npm run preview   # 预览构建产物
 6. `zombies.update()` — 僵尸 AI、动画、攻击玩家
 7. `projectiles.update()` — 用更新后的僵尸位置做扫掠命中
 8. `sunOrbs.update()` — 磁吸与拾取
-9. `pickups.update()` — 地面武器浮起、旋转、靠近自动拾取与重生
+9. `pickups.update()` — 地面武器浮起、旋转、靠近自动拾取，以及开局后的随机补刷
 10. `particles.update()`
 11. HUD 同步（带缓存，避免每帧写 DOM）
 
@@ -175,6 +175,18 @@ npm run preview   # 预览构建产物
 - `gltf-transform join` 对蒙皮网格无效（合并会被骨骼节点绑定挡住），别指望靠它降 draw call。
 - 来源、裁剪记录与许可见 [public/models/LICENSE-skeleton.txt](public/models/LICENSE-skeleton.txt) 和 [docs/ZOMBIE-MODELS.md](docs/ZOMBIE-MODELS.md)。
 
+### 5.3.2 炼金模型（第三个模型 → 普通僵尸在用）
+
+- `public/models/alchemist.glb`：仓库所有者提供的 AIGC 资产，由 38 MB / 50 万面的 FBX 转制（处理管线见 [docs/ZOMBIE-MODELS.md](docs/ZOMBIE-MODELS.md)）。**授权由仓库所有者确认**，别当成 CC0 随便搬。
+- **归属**：`ZOMBIES.normal.model = 'alchemist'`（场上最多的类型）；路障 / 铁桶 / 橄榄球 / 气球仍用 `zombie.glb`（不写 `model`），因为锥帽、铁桶、头盔、护肩是按那个模型的头顶尺寸挂的。
+- 规格：**9,999 三角面、1 个蒙皮网格（1 draw call）、22 骨骼、5 段动画、1.3 MB**，原始高 1.077（Q 版大头身），`ALCHEMIST_SCALE = 1.72` → 1.85 米。
+- **三角面预算**：它是主力怪，同屏 14 只就是 14 万面（E2E 实测 15.1 万含场景）。想再抽面必须先看**药瓶**：Decimate 到 8.5k 瓶子就开始烂，10k 是这条线。要压性能只能从别处省。
+- 骨骼名是 `bone_0`…`bone_21`，只有头部重命名成了 `Head`（权重实测在这根上），没有 Hand 挂点；这个类型 `acc: null`。要加配件就挂 `this.body`。
+- 动画名**故意对齐 Quaternius**（`Idle/Walk/Idle_Attack/Death/HitReact`），所以 `buildAnimations` 的非骷髅分支直接命中，不要给它单独加分支。
+- 命中球单独一套：`HIT.alchemist = { chest: 0.83, head: 1.44, radius: 0.85 }`（**世界米**，不是模型本地单位 —— 模型已按 1.72 拉过）。Q 版头大，**别照抄原僵尸的 1.02/1.52**，那样头球会飘到头顶外面。
+- 模型未就绪时 `spawnOne` 会改刷别的类型、它留在队首（`modelReady(type)` 按 `ZOMBIES[type].model` 查槽，所以普通僵尸等的是 alchemist 的 glb，不是 zombie 的）。
+- **抽面只能用 Blender 的 Decimate**（保留顶点组 / UV）；`gltf-transform simplify` 会破坏 `JOINTS_0/WEIGHTS_0`。
+
 ### 5.4 输入与平台
 
 - 平台识别在 `Controls` 构造函数：`(pointer: coarse) || (hover: none)` 且 `maxTouchPoints > 0`；首次触摸会调用 `onModeChange` 动态切换。
@@ -229,7 +241,8 @@ npm run preview   # 预览构建产物
 - 地图元数据（`name/tag/desc/startLabel`）写在 `src/world/maps.js` 的 `MAPS`，HUD 的选图卡片由它驱动。
 - 薄墙用圆形碰撞体近似时，圆心间距必须小于 `2 × (r + 僵尸半径 × 0.8)`，否则僵尸会从圆与圆之间穿过去（雪地矮墙用 0.85 米间距 / r = 0.6）。
 - 拾取点位写在各自地图的 `pickupSpots`；`WeaponPickups` 池上限 `MAX_SPOTS = 10`，点位超过 10 要同时改。
-- 地面刷新池是**除豌豆与坚果外的所有武器**（`lootIndices`）；拾取距离、重生时间在 `WeaponPickups.js` 顶部常量。
+- 地面刷新池是**除豌豆与坚果外的所有武器**（`lootIndices`）；拾取距离、补刷间隔在 `WeaponPickups.js` 顶部常量。
+- **道具刷新受关卡边界约束**：`reset()`/`setMap()` 走 `beginLevel()`，只在开局随机刷 1 个；之后每 `SPAWN_MIN~SPAWN_MAX` 秒在**尚未出过道具**的随机空点位补刷一个（`item.used` 标记，一关每点位只出一次），被捡走/顶掉的道具不会重新出现在地图上；点位用尽后 `finished = true`，本关不再出新道具。不要加回原地重生。
 - 拾取植物在 `WeaponSystem` 里按 `def.slot` 进对应**角色槽**（见 5.1）；同角色已满就直接顶掉，旧枪掉在脚边。打空不丢枪，`tryReload()` 自动续弹，钱不够则 `locked`。
 - **地面刷新池排除豌豆和坚果**（`WeaponPickups.lootIndices`）：豌豆常驻枪槽，坚果靠阳光充能，都不该出现在地上。
 - 新增拾取植物必须给 `model`（视图模型分支）、`ammo`、`color`，并在 `WeaponSystem.buildViewModels` 的 `builders` 里有对应构建函数。
@@ -319,12 +332,13 @@ __game.renderer.info.render     // draw call / 三角面
 - 竖屏（390×844）：显示「请横屏游玩」拦截层，不进入游戏；横过来后拦截层消失、可正常开始。
 - 地图：菜单能切换后院/雪地，背景、雾、相机随之切换；雪地能看到田字四柱、两侧矮墙、两端基地、四角砖台、围墙与雪山。
 - 高低差：走上四角砖台会自动踏步；两侧 0.85 米矮墙可以跳上去站稳；田字四柱 3.6 米不能跳上；走出边缘会下落；僵尸从北端基地沿通道接近，不会卡死。
-- 拾取：踩到发光植物自动进对应角色槽并出现图标与弹药数；2 号槽再捡就顶掉上一把、旧枪掉在脚边；打空后枪不丢，阳光够自动续弹、不够则变暗显示「缺阳光」；9-14 秒后原点位刷新。
+- 拾取：踩到发光植物自动进对应角色槽并出现图标与弹药数；2 号槽再捡就顶掉上一把、旧枪掉在脚边；打空后枪不丢，阳光够自动续弹、不够则变暗显示「缺阳光」；捡走后本关不再原地刷新，只有其它没用过的点位会随机补刷出下一件。
 - 武器：豌豆命中/爆头、寒冰减速变蓝、樱桃落地爆炸、玉米炮即时爆炸；双发/三线散射、机枪射速、仙人掌穿透、西瓜爆炸、辣椒范围灼烧。
 - 坚果墙：捡到坚果后按 5 切到护盾槽、左键套盾 → 僵尸贴脸打、玩家血条纹丝不动；罩壳变色并在 25% 以下闪烁；盾碎时碎裂音 + 白闪；气球从头顶咬能穿透护盾；罩内移速变慢；**手持坚果时开不了枪；切到 1/2/3/4 盾收起（人开始掉血、盾血保留），切回来自动重新举起**。
 - 火豌豆：捡到火豌豆后按 2 切到它 → 弹丸拖火星、命中后僵尸身上冒火苗；打橄榄球僵尸明显快于豌豆。
 - 护甲：打铁桶/橄榄球时头盔先掉（碎裂音），铁桶对豌豆减伤、橄榄球被火豌豆烧穿；仙人掌穿透打不动铁桶。
 - 气球：豌豆打它穿过去（地面打出点点、无伤害）；换玉米炮/樱桃一发带走；跳到它高度以下能躲开撕咬；站上雪地矮墙 + 水平 3 米内用豌豆也能打到。
+- 普通僵尸（新模型）：任意地图第 1 波就有；走路摆臂、攻击抬右手砸下、受击后仰、死亡后仰倒地；正面点头能爆头、打胸口算身体；路障/铁桶仍是原来的僵尸模型 + 锥帽/铁桶。
 - 流程：击杀掉阳光并拾取（18 秒内没捡会消失）、天降阳光每 30 秒落 1 颗、清波加分、暂停/恢复、死亡结算、再来一局。
 - 性能：1–4 只僵尸时 draw call 约 90–130；14 只时不超过约 250。
 
@@ -367,7 +381,7 @@ CI（`.github/workflows/ci.yml`）在每次 push 到 main 和每个 PR 上跑三
 - **五个槽是独占的，但「收起」不等于「破盾」**：`equip()` 一开始调 `syncShieldWithHand()` —— 切走坚果走 `wallNuts.stow()`（`active=false`，罩壳隐藏，**`hp` 原样保留**，玩家开始正常承伤）；切回坚果走 `deploy()` 免费重新举起。只有 `hp` 掉到 0 才是 `breakShield()`。`clear()` 才是真正抹掉盾血，只给重开一局用。
 - 原来的 `shieldShotCost`（开火扣盾血）和 `WallNuts.spendShot()` 已删除——独占到"手持坚果就不能开枪"之后它们成了死代码，别再按"开盾时还能开枪"的前提加回来。
 - **气球是纯高度层级**：不吃地面碰撞体（在飞）、不被墙挡住；站上 ≥1.5 米高台用任何武器都能打到，这是刻意的零成本解法，别当漏洞修。
-- 同屏僵尸硬上限 14（移动端性能）。
+- 同屏僵尸硬上限 14（移动端性能）。普通僵尸用的是 1 万面模型，14 只全普通时约 15 万三角面 —— 这已经是预算上限，再加内容要先想清楚从哪省。
 - 测试跑在 jsdom 里，WebGL 是替身：渲染效果、真机手感、真实 glb 贴图要靠 `npm run test:e2e` 或人工验收，不要用 jsdom 测试冒充"渲染正常"。
 
 ---

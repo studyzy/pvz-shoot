@@ -328,15 +328,20 @@ export const GRENADE = {
 };
 
 export const ZOMBIES = {
+  // 普通僵尸：用第三套模型（炼金僵尸 alchemist.glb，1.077 × 1.72 ≈ 1.85 米）。
+  // 它是场上最多的类型，模型 1 万面，同屏 14 只时仍是最大的一笔三角面开销。
   normal: {
     hp: 62,
     speed: 2.05,
     damage: 9,
     score: 100,
     scale: 1,
+    model: 'alchemist',
     acc: null,
     radius: 0.46,
   },
+  // 路障 / 铁桶继续用原来的 Quaternius 僵尸模型（不写 model = zombie.glb），
+  // 它们的锥帽/铁桶是按那个模型的头顶尺寸挂上去的。
   cone: {
     hp: 130,
     speed: 1.95,

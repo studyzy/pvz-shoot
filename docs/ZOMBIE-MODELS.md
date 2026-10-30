@@ -233,3 +233,46 @@ Retrieved: 2026-10-29
 
 - `npm test`：791 用例全绿，含骷髅专项（模型切换、动作名映射、同屏上限、地图白名单、模型未就绪时不刷）
 - `npm run test:e2e`：7/7 场景通过，其中 `skeleton` 场景在真浏览器验证——雪地图刷出骷髅、9 个蒙皮网格、材质 2 种、`Walking_A` 正确匹配、骨骼每只独立、同屏不超 3 只。实测 draw call 165 / 11.6 万三角面（14 只混编）。
+
+---
+
+## 附：炼金僵尸（`public/models/alchemist.glb`，项目内 AIGC 资产）
+
+第三套模型，由仓库所有者提供的 AIGC 模型 `aigc/3_moved.fbx`（Kaydara FBX 7400，38.4 MB）转制。**来源与再分发授权由仓库所有者确认**：如果这份 FBX 来自第三方生成平台，需要按该平台条款确认能否随公开仓库分发。
+
+### 原始规格（实测）
+
+| 项 | 值 |
+| --- | --- |
+| 三角面 | **499,804**（249,824 顶点，单个蒙皮网格、单材质） |
+| 骨骼 | 22 根（`bone_0`…`bone_21`，**没有语义名**） |
+| 动画 | **0 段**（FBX 里没有 AnimStack / AnimCurve，只有绑定姿态） |
+| 贴图 | 4 × 2048²（baseColor / metallic-roughness / roughness / normal） |
+| 原始高 | 1.077 m（Q 版大头身，脚底 y≈0，Blender 里面朝 -Y） |
+
+### 处理管线（可复现）
+
+Blender 4.2 headless（`pip install bpy==4.2.23`；缺 `libSM/libICE` 时用 `dnf download` 解包到本地再 `LD_LIBRARY_PATH`）：
+
+1. **抽面**：`Decimate(COLLAPSE, ratio = 10000/499804, use_collapse_triangulate)` → **9,999 面**。
+   ⚠️ **蒙皮网格不能用 `gltf-transform simplify`**（会破坏 `JOINTS_0/WEIGHTS_0`），Blender 的 Decimate 会保留顶点组与 UV。
+2. **贴图**：baseColor → 1024 JPEG q88（237 KB）；normal → 512 PNG（248 KB）；metallic-roughness **整张丢掉**，改常数 `metalness 0 / roughness 0.72`。
+3. **动画**：骨骼没名字，按 rest 位置推断角色 —— `bone_0` 骨盆、`1-3` 脊柱、`4-5` 颈头、`6-9` / `10-13` 左右臂、`14-17` / `18-21` 左右腿；再用"把世界轴旋转换算到骨骼局部空间"的方式程序化 K 帧，生成 5 段动作。
+4. **导出**：`export_animation_mode='ACTIONS'`、`export_yup=True`、GLB 内嵌贴图。
+
+结果：**9,999 面 / 22 骨骼 / 5 段动画 / 1.3 MB**（对比：僵尸 7,822 面 660 KB，骷髅 5,288 面 1.4 MB）。
+
+### 动画命名（关键）
+
+导出的 clip 名**故意对齐 Quaternius**：`Idle` / `Walk` / `Idle_Attack` / `Death` / `HitReact`。这样 `Zombie.buildAnimations()` 里非骷髅的分支**一行都不用改**，`findClip()` 去掉前缀后直接命中。
+
+动作内容：Idle 48 帧呼吸+摇头、Walk 24 帧迈步+摆臂+身体起伏、Idle_Attack 30 帧抬手砸下、HitReact 10 帧后仰、Death 36 帧后仰倒地。攻击节奏仍由代码的 `attackTimer`（1.28 s）控制，动画只是表现层。
+
+### 接入约定
+
+- **归属**：`ZOMBIES.normal.model = 'alchemist'` —— 它是**普通僵尸**的模型（场上最多）；路障/铁桶/橄榄球/气球继续用 `zombie.glb`，锥帽/铁桶/头盔按那个模型头顶尺寸挂，不要互换。
+- `MODELS.alchemist = { url: 'models/alchemist.glb', scale: 1.72, height: 1.85 }`：1.077 × 1.72 ≈ 1.85 m，和原普通僵尸同高（Q 版头大，肩线会低一截，这是模型本身的风格）。
+- **命中球单独一套口径**：`HIT.alchemist = { chest: 0.83, head: 1.44, radius: 0.85 }`（**世界米**：1.077 × 1.72 换算过，不是模型本地单位）。Q 版头大，头心只有 1.44 而不是普通僵尸的 1.52。
+- 一个 `SkinnedMesh` = **1 个 draw call**，比骷髅省；但它 1 万面，是原僵尸的 1.28 倍，而它现在是**主力怪**：同屏 14 只全普通时约 15 万三角面（E2E 实测 15.1 万），已经贴着项目预算上限。
+- **抽面已到极限**：Decimate 到 8,500 面时手里的药瓶开始烂，6,500 面瓶子直接消失；10,000 面是保住轮廓的下限。
+- 模型未就绪时 `spawnOne` 改刷别的类型、它留在队首等下次（`modelReady(type)` 按 `ZOMBIES[type].model` 查对应槽位）。

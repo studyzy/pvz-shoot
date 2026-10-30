@@ -70,6 +70,7 @@ vi.mock('../../src/entities/ZombieModel.js', async (importOriginal) => {
       scene,
       clips,
       skeleton: { ready: true, failed: false, scene: skScene, clips: skClips },
+      alchemist: { ready: true, failed: false, scene, clips },
     },
   };
 });
@@ -159,6 +160,21 @@ describe('Zombie · 属性与模型骨架', () => {
     game = await boot();
   });
 
+  it('普通僵尸换用 alchemist.glb，命中球按 Q 版口径；路障仍走原模型', () => {
+    const z = makeZombie('normal');
+    expect(z.modelId).toBe('alchemist');
+    expect(z.chestY).toBe(0.83);
+    expect(z.headY).toBe(1.44);
+    expect(z.hitRadiusScale).toBe(0.85);
+    // 头球半径必须仍小于胸球半径，否则“打哪儿都爆头”
+    expect(0.36 * z.hitRadiusScale).toBeLessThan(0.46 * z.hitRadiusScale);
+    const cone = makeZombie('cone');
+    expect(cone.modelId).toBe('zombie');
+    expect(cone.chestY).toBe(1.02);
+    expect(cone.headY).toBe(1.52);
+    expect(z.headY).toBeLessThan(cone.headY);
+  });
+
   it('属性按 config 与倍率计算，root 在脚底、scale = scaleFactor', () => {
     const z = makeZombie('normal', 3, 4);
     expect(z.type).toBe('normal');
@@ -208,16 +224,18 @@ describe('Zombie · 属性与模型骨架', () => {
   it('命中球：胸口 1.02×scale、头部 1.52×scale，头部球半径必须小于胸口球', () => {
     // 口径必须与 ProjectileSystem / WeaponSystem 的判定一致；头部球半径 0.36×scale < 胸口 0.46×scale，
     // 否则扫掠时头部球永远先被碰到，爆头会退化成"打哪儿都爆头"（AGENTS.md 3 节）。
-    // 两套模型的命中球高度口径不同（模型体块比例差很多）：
-    //   僵尸（高 1.194）：胸口 1.02、头部 1.52
+    // 三套模型的命中球高度口径不同（模型体块比例差很多）：
+    //   僵尸（高 1.194，路障/铁桶/橄榄球/气球在用）：胸口 1.02、头部 1.52
     //   骷髅（高 2.166，含 Boss 巨型骷髅）：胸口 0.90、头部 1.68
-    const zn = makeZombie('normal', 2, -3);
+    //   炼金（高 1.077，普通僵尸在用）：胸口 0.83、头部 1.44
+    const zn = makeZombie('cone', 2, -3);
     const cN = zn.getChest(vec());
     const hN = zn.getHead(vec());
     expect(cN.x).toBeCloseTo(2, 10);
     expect(cN.z).toBeCloseTo(-3, 10);
     expect(cN.y).toBeCloseTo(1.02 * zn.scaleFactor, 10);
     expect(hN.y).toBeCloseTo(1.52 * zn.scaleFactor, 10);
+    expect(zn.modelId).toBe('zombie');
     expect(zn.getAimPoint(vec()).toArray()).toEqual(cN.toArray());
     // 僵尸模型替身总高 1.194 × ZOMBIE_SCALE 1.55 × scale，头顶高于头部球
     expect(1.194 * 1.55 * zn.scaleFactor).toBeGreaterThan(hN.y);

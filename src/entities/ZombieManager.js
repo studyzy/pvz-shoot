@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { Zombie } from './Zombie.js';
 import { zombieModel } from './ZombieModel.js';
-import { wavePlan, waveMaxAlive, waveSpawnInterval, waveAirQuota, zombieHpMul, zombieSpeedMul, SKELETON_MAX_ALIVE, SKELETON_MAPS } from '../config.js';
+import { ZOMBIES, wavePlan, waveMaxAlive, waveSpawnInterval, waveAirQuota, zombieHpMul, zombieSpeedMul, SKELETON_MAX_ALIVE, SKELETON_MAPS } from '../config.js';
 import { rand, clamp } from '../utils.js';
 
 export class ZombieManager {
@@ -56,7 +56,7 @@ export class ZombieManager {
   update(dt, player, colliders) {
     if (this.state === 'spawning') {
       this.spawnTimer -= dt;
-      if (this.queue.length > 0 && this.zombies.length < this.maxAlive && this.spawnTimer <= 0 && zombieModel.ready) {
+      if (this.queue.length > 0 && this.zombies.length < this.maxAlive && this.spawnTimer <= 0 && this.modelReady(this.queue[0])) {
         const spawned = this.spawnOne(player);
         // spawnOne 可能返回 null（骷髅超上限且队列里只剩骷髅），这时不重置计时，下个 tick 再试
         if (spawned) this.spawnTimer = this.interval * rand(0.75, 1.25);
@@ -142,35 +142,45 @@ export class ZombieManager {
     return { x, z };
   }
 
+  // 某种僵尸用的 glb 是否已就绪。模型按 ZOMBIES[type].model 分槽（不写就是 zombie.glb）：
+  // 普通僵尸现在用 alchemist 模型，所以不能再只看 zombieModel.ready。
+  modelReady(type) {
+    const def = ZOMBIES[type];
+    const id = (def && def.model) || 'zombie';
+    if (id === 'zombie') return !!zombieModel.ready;
+    const slot = zombieModel[id];
+    return !!(slot && slot.ready);
+  }
+
   spawnOne(player) {
     // 骷髅有两个额外条件，不满足时改刷别的类型、骷髅留在队列里下次再来：
     //   1) 同屏不超过 SKELETON_MAX_ALIVE（单只 9 个 skinned mesh，太贵）
     //   2) 骷髅 glb 已就绪（异步加载，开局很快时可能还没好，硬刷会白模）
     // Boss 也是骷髅模型，但它每波只有 1 只、不吃同屏上限，只等模型就绪。
     let type = this.queue[0];
-    const skReady = () => !!(zombieModel.skeleton && zombieModel.skeleton.ready);
     if (type === 'skeleton') {
       let alive = 0;
       for (let i = 0; i < this.zombies.length; i++) {
         if (this.zombies[i].type === 'skeleton' && this.zombies[i].alive && !this.zombies[i].dead) alive++;
       }
-      const blocked = alive >= SKELETON_MAX_ALIVE || !skReady();
+      const blocked = alive >= SKELETON_MAX_ALIVE || !this.modelReady(type);
       if (blocked) {
-        const alt = this.queue.findIndex((t) => t !== 'skeleton' && t !== 'boss');
+        const alt = this.queue.findIndex((t) => t !== 'skeleton' && t !== 'boss' && this.modelReady(t));
         if (alt === -1) return null; // 全是骷髅又不能刷：这波先不刷，等下个 tick 或前面的清掉
         type = this.queue.splice(alt, 1)[0];
       } else {
         type = this.queue.shift();
       }
-    } else if (type === 'boss' && !skReady()) {
-      // Boss 是巨型骷髅：模型没好就换别的先刷，Boss 留在队首。整波清完前有足够时间等 glb。
-      const alt = this.queue.findIndex((t) => t !== 'boss');
-      if (alt === -1) return null;
-      type = this.queue.splice(alt, 1)[0];
     } else if (type === 'balloon' && this.airborneCount() >= (this.airQuota || 1)) {
       // 气球同屏配额：满了就换别的先刷，气球留在队首下次再来。
       // 不是为了「保底」（爆炸类武器本身就能打气球），而是为了别让整波阳光全拿去对付天上。
-      const alt = this.queue.findIndex((t) => t !== 'balloon');
+      const alt = this.queue.findIndex((t) => t !== 'balloon' && this.modelReady(t));
+      if (alt === -1) return null;
+      type = this.queue.splice(alt, 1)[0];
+    } else if (!this.modelReady(type)) {
+      // 任意类型（含 Boss）的 glb 还没就绪：换一个能刷的先上，它留在队首等下次。
+      // 普通僵尸走的就是这条 —— 它用的是 alchemist.glb，比 zombie.glb 大，可能后到。
+      const alt = this.queue.findIndex((t) => this.modelReady(t));
       if (alt === -1) return null;
       type = this.queue.splice(alt, 1)[0];
     } else {
