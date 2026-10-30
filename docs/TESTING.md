@@ -1,6 +1,6 @@
 # 测试指南（UT + 集成测试）
 
-项目从"没有测试"升级为一套 **Vitest 3 + jsdom** 的单元/集成测试体系，外加**真实浏览器 WebGL 冒烟测试**和一套**浏览器级 E2E**（见第 5 节）。
+项目从"没有测试"升级为一套 **Vitest 4 + jsdom** 的单元/集成测试体系，外加**真实浏览器 WebGL 冒烟测试**和一套**浏览器级 E2E**（见第 5 节）。
 
 ```bash
 npm test              # 跑全部 UT + 集成测试（jsdom，约 10 秒）
@@ -97,7 +97,7 @@ vi.mock('three', async (importOriginal) => {
 | **生产构建** | `npm ci --include=dev` → `npm run build` | 构建失败 |
 
 - Node 版本固定 **22**（`jsdom@29` 要求 `^20.19 || ^22.13 || >=24`）。
-- 覆盖率门槛写在 `vitest.config.js` 的 `coverage.thresholds`（当前：语句/行 98%、分支 94%、函数 97%），**不要在 CI 里再写死一份**；本地 `npm run test:coverage` 用的是同一套阈值，低于阈值同样 exit 1。
+- 覆盖率门槛写在 `vitest.config.js` 的 `coverage.thresholds`（当前：语句/行 98%、分支 89%、函数 97%；Vitest 4 的 v8 分支口径比 3 严，分支门槛按新口径校准过），**不要在 CI 里再写死一份**；本地 `npm run test:coverage` 用的是同一套阈值，低于阈值同样 exit 1。
 - `playwright-core` 必须用 `npx playwright-core install`（不能用 `npx playwright install`）：E2E 脚本按 `chromium-<rev>` 目录名找可执行文件，浏览器版本必须和 `package-lock.json` 锁定的 `playwright-core` 对齐。
 - artifact：`coverage/`（HTML + lcov，14 天）、失败时的 `tests/integration/.artifacts/` 截图。
 - `deploy.yml` 仍然只在 push 到 `main` 时跑，与 CI 独立；想"测试通过才部署"，把 Pages 部署的触发改成 `workflow_run` 依赖 CI 成功即可（当前是并行策略，部署不阻塞）。

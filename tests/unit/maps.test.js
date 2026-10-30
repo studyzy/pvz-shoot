@@ -581,7 +581,8 @@ describe('沙城 DustYard 专项', () => {
     // 这里覆盖“棋子抖动 ±1.6 米后探进碰撞圆”的场景，保证不会被箱子卡住。
     const { game } = await createGame();
     const { zombieModel } = await import('../../src/entities/ZombieModel.js');
-    for (let i = 0; i < 100 && !zombieModel.ready; i++) await new Promise((r) => setTimeout(r, 10));
+    const modelsReady = () => zombieModel.ready && zombieModel.skeleton.ready;
+    for (let i = 0; i < 100 && !modelsReady(); i++) await new Promise((r) => setTimeout(r, 10));
     expect(zombieModel.ready).toBe(true);
     const mapId = 'dust'; // 这条用例在「沙城专项」里，锁死沙城
     game.setMap(mapId);

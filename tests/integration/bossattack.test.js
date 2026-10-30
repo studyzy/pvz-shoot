@@ -27,7 +27,8 @@ beforeAll(async () => {
   game = (await H.createGame()).game;
   game.start();
   const { zombieModel } = await import('../../src/entities/ZombieModel.js');
-  for (let i = 0; i < 100 && !zombieModel.ready; i++) await new Promise((r) => setTimeout(r, 10));
+  const modelsReady = () => zombieModel.ready && zombieModel.skeleton.ready;
+  for (let i = 0; i < 100 && !modelsReady(); i++) await new Promise((r) => setTimeout(r, 10));
 }, 60000);
 
 describe('巨人僵尸能咬到玩家', () => {

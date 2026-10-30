@@ -66,6 +66,8 @@ window.PointerEvent = window.PointerEvent || window.MouseEvent;
 
 afterEach(() => {
   cleanup();
+  // Vitest 4：vi.spyOn 复用已存在的 spy 并保留调用历史，不还原会让下一个用例看到上一个用例的调用。
+  vi.restoreAllMocks();
   vi.useRealTimers();
   document.body.innerHTML = '';
   document.body.className = '';

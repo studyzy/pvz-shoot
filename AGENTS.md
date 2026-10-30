@@ -9,7 +9,7 @@
 
 - 纯 Web 的 3D 第一人称射击：玩家是戴夫，手持植物打僵尸；iPhone / iPad / 桌面浏览器均可玩。
 - 进入游戏先选地图：**后院**（经典草地）与 **雪地**（致敬 CS 的 fy_iceworld）；雪地上散落着可拾取的植物武器。
-- 技术栈：Vite 5 + Three.js 0.169，原生 ES Module，**没有 TypeScript、没有后端、没有外部 CDN**。
+- 技术栈：Vite 8.3 + Three.js 0.169，原生 ES Module，**没有 TypeScript、没有后端、没有外部 CDN**。
 - 入口：`index.html` → `src/main.js` → `src/Game.js`。所有系统在 `Game` 构造函数里组装。
 - 运行：
 
@@ -23,7 +23,7 @@ npm run preview   # 预览构建产物
 - **不能用 `file://` 直接打开 `dist/index.html`**：ES Module 与音频权限会被浏览器拦截，必须走 HTTP。
 - 构建产物由 `vite.config.js` 的 `base: './'` 支持子路径部署。
 - 部署：推送到 `main` 后由 `.github/workflows/deploy.yml` 自动构建 `dist/` 并发布到 GitHub Pages（https://studyzy.github.io/pvz-shoot/）；Pages Source 使用 GitHub Actions，不要提交 `dist/`。
-- 测试：`npm test`（Vitest 3 + jsdom，UT + 集成测试，约 15 秒）、`npm run test:coverage`、`npm run test:e2e`（真实 Chromium + WebGL）。写法与约定见 [docs/TESTING.md](docs/TESTING.md)。
+- 测试：`npm test`（Vitest 4 + jsdom，UT + 集成测试，约 15 秒）、`npm run test:coverage`、`npm run test:e2e`（真实 Chromium + WebGL）。写法与约定见 [docs/TESTING.md](docs/TESTING.md)。
 - **改代码前先跑 `npm test`，改完再跑一次**；动到数值/结构/地图/UI 时按 TESTING.md 第 3 节补测试。
 
 ---
@@ -341,7 +341,7 @@ CI（`.github/workflows/ci.yml`）在每次 push 到 main 和每个 PR 上跑三
 
 | job | 内容 | 失败条件 |
 | --- | --- | --- |
-| **UT + 集成测试** | `vitest run --coverage`（927 用例） | 任何用例失败；覆盖率低于 `vitest.config.js` 的 `thresholds`（语句/行 98%、分支 94%、函数 97%） |
+| **UT + 集成测试** | `vitest run --coverage`（937 用例） | 任何用例失败；覆盖率低于 `vitest.config.js` 的 `thresholds`（语句/行 98%、分支 89%、函数 97%） |
 | **浏览器级 E2E** | `playwright-core install --with-deps chromium` + `npm run test:e2e`（7 场景） | 任一场景 FAIL 或页面出现 console.error / pageerror |
 | **生产构建** | `npm run build` | 构建失败 |
 

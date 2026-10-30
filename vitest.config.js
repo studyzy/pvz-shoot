@@ -101,12 +101,13 @@ export default defineConfig({
       clean: true,
       reportsDirectory: 'coverage',
       reporter: ['text', 'html', 'lcov'],
-      // CI 门槛：当前 99.5% 行 / 96.2% 分支，留 1 个点余量卡住回退。
-      // 注意 branches 是全局比值，新增大量分支逻辑时记得同步补测试而不是降阈值。
+      // CI 门槛：当前 98.5% 语句 / 99.3% 行 / 90.2% 分支 / 97.9% 函数。
+      // branches 在 Vitest 4 的 v8 口径下比 Vitest 3 低约 4 个点（同一份代码 94.1% → 90.2%），
+      // 门槛按新口径重新校准；它仍是全局比值，新增大量分支逻辑时记得同步补测试而不是降阈值。
       thresholds: {
         statements: 98,
         lines: 98,
-        branches: 94,
+        branches: 89,
         functions: 97,
       },
     },
