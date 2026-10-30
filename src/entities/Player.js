@@ -19,6 +19,8 @@ export class Player {
     this.bob = 0;
     this.moveAmt = 0;
     this.lastLook = { x: 0, y: 0 };
+    // 最近一帧的输入快照：双人 guest 用它组 30Hz input 包（look 是逐帧增量，必须每帧收集）。
+    this.lastInput = { move: { x: 0, y: 0 }, look: { x: 0, y: 0 }, jump: false };
     this.hp = TUNING.maxHealth;
     this.maxHp = TUNING.maxHealth;
     this.invuln = 0;
@@ -45,6 +47,8 @@ export class Player {
     this.invuln = 0;
     this.sinceDamage = 99;
     this.dead = false;
+    this.downed = false;
+    this.downTimer = 0;
     this.stepTimer = 0;
     this.eye.set(this.pos.x, TUNING.playerHeight, this.pos.z);
   }
@@ -54,7 +58,7 @@ export class Player {
   }
 
   damage(amount, opts) {
-    if (this.dead || this.invuln > 0) return false;
+    if (this.dead || this.downed || this.invuln > 0) return false;
     // 坚果墙免伤盾：伤害先落到盾上，玩家一点血不掉。
     // 必须在 invuln 判定**之后**（否则有盾时无敌帧逻辑就失效了），且**不重置 sinceDamage**
     // （否则「有盾」和「没盾」在回血计时上无法区分，站在盾里的玩家会永远回不了血）。
@@ -65,6 +69,11 @@ export class Player {
     if (this.onDamage) this.onDamage(amount);
     if (this.hp <= 0) {
       this.hp = 0;
+      if (this.duoDown && !this.downed) {
+        this.downed = true;
+        this.downTimer = 30;
+        return true;
+      }
       this.dead = true;
       if (this.onDeath) this.onDeath();
     }
@@ -80,8 +89,31 @@ export class Player {
     return this.shield && this.shield.active ? this.shieldMoveMul || 1 : 1;
   }
 
+  revive(frac = 0.5) {
+    this.downed = false;
+    this.downTimer = 0;
+    this.dead = false;
+    this.hp = Math.max(1, Math.round(this.maxHp * frac));
+    this.invuln = 3;
+    this.sinceDamage = 0;
+    this.eye.set(this.pos.x, this.pos.y + TUNING.playerHeight, this.pos.z);
+  }
+
   update(dt, controls, terrain, zombies) {
     if (this.dead) return;
+    if (this.downed) {
+      const look = controls.consumeLook();
+      this.lastLook.x = look.x;
+      this.lastLook.y = look.y;
+      this.yaw -= look.x;
+      this.pitch = clamp(this.pitch - look.y, -1.42, 1.42);
+      controls.consumeJump();
+      this.lastInput = { move: { x: 0, y: 0 }, look: { x: look.x, y: look.y }, jump: false };
+      this.eye.set(this.pos.x, this.pos.y + 0.55, this.pos.z);
+      if (this.mixer) this.mixer.update(dt);
+      return;
+    }
+    let jumped = false;
 
     const look = controls.consumeLook();
     this.lastLook.x = look.x;
@@ -155,6 +187,7 @@ export class Player {
       if (controls.consumeJump() && this.grounded) {
         this.vy = TUNING.jumpSpeed;
         this.grounded = false;
+        jumped = true;
       }
       const support = this.supportHeight(platforms, this.pos.x, this.pos.z, this.pos.y);
       this.vy -= TUNING.gravity * dt;
@@ -171,6 +204,7 @@ export class Player {
       if (controls.consumeJump() && this.grounded) {
         this.vy = TUNING.jumpSpeed;
         this.grounded = false;
+        jumped = true;
       }
       this.vy -= TUNING.gravity * dt;
       this.pos.y += this.vy * dt;
@@ -216,6 +250,12 @@ export class Player {
 
     const bobY = this.grounded ? Math.abs(Math.sin(this.bob)) * 0.045 * this.moveAmt : 0;
     this.eye.set(this.pos.x, this.pos.y + TUNING.playerHeight + bobY, this.pos.z);
+
+    this.lastInput = {
+      move: { x: ix, y: iz },
+      look: { x: look.x, y: look.y },
+      jump: jumped,
+    };
   }
 
   supportHeight(platforms, x, z, feetY) {

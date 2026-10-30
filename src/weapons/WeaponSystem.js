@@ -1207,7 +1207,7 @@ export class WeaponSystem {
     tmpOrigin.copy(this.camera.position);
     const hit = this.raycastZombies();
     const impact = hit ? hit.pos : this.groundRange(tmpAim).point;
-    this.ctx.projectiles.explodeAt(impact, def.radius, def.damage, true, hit && hit.zombie, !!hit && hit.head);
+    this.ctx.projectiles.explodeAt(impact, def.radius, def.damage, true, hit && hit.zombie, !!hit && hit.head, def.id);
     this.ctx.sfx.cannon();
     this.ctx.shake(0.55);
   }

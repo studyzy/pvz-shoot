@@ -41,6 +41,18 @@ npm run preview   # 本地预览构建产物
 
 > 注意：不能直接双击 `dist/index.html` 用 `file://` 打开，浏览器的模块 / 音频限制会拦截，必须用 HTTP 服务。
 
+## 双人联机（实验）
+
+当前是 **M0/M1 + M2 input / 僵尸 / 命中 / 救援**：自动配对、邀请链接、多场并发、断线重连；僵尸由房主模拟并同步，客人的命中由房主裁决，共享阳光值、个人分与倒地救援已接。共享补给 / 阳光球同步 / 结算页 / 断线 resync 还在开发中。
+
+```bash
+npm install
+npm run build
+npm run server    # 默认 8080，同时托管 dist/ 和 /ws
+```
+
+打开 `http://<服务器>:8080/`，点「双人联机」；等待时点「复制邀请链接」发给朋友，朋友打开即加入。开发时用 `npm run dev`（5173）+ `npm run server`（8080）。部署、环境变量、systemd/Caddy 见 [server/README.md](server/README.md)。
+
 ## 操作方式（自动识别设备）
 
 进入游戏时自动判断：粗指针 / 无 hover 设备（iPhone、iPad）用虚拟触屏控制；

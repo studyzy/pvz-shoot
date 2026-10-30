@@ -1,0 +1,20 @@
+Farmer — Quaternius
+Source:    https://poly.pizza/m/7pn3R6hPvE
+Download:  https://static.poly.pizza/81f2f0cf-6f53-4b57-92ea-dba0928620f2.glb
+Published: 2022-02-22
+Downloaded: 2026-10-30
+License:   CC0 1.0 (public domain)
+           https://creativecommons.org/publicdomain/zero/1.0/
+
+Used as the remote player avatar ("Dave") in src/entities/RemotePlayer.js.
+
+The Poly Pizza copy predates the Quaternius Asset License v1.0 (2026-08-28),
+so it can be redistributed with this project under CC0 1.0. Do not replace it
+with a fresh download from quaternius.com.
+
+Verified with three.js 0.169:
+- 1.3 MB, 3,716 triangles, 24 animation clips
+- 1.823 m tall, feet at y≈0, Y-up, faces +Z
+- 12 skinned meshes / 8 materials / no textures
+- Walk and Run are in-place (no root motion)
+- Bones: Head, Wrist.L / Wrist.R (GLTFLoader exposes WristR)

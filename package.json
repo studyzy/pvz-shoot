@@ -8,6 +8,8 @@
     "dev": "vite --host",
     "build": "vite build",
     "preview": "vite preview --host",
+    "server": "node server/index.js",
+    "duo": "npm run build && node server/index.js",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
@@ -15,7 +17,8 @@
     "test:e2e": "node tests/integration/browser.e2e.webgl.mjs"
   },
   "dependencies": {
-    "three": "^0.169.0"
+    "three": "^0.169.0",
+    "ws": "^8.22.0"
   },
   "devDependencies": {
     "@napi-rs/canvas": "^0.1.80",

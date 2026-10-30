@@ -1452,12 +1452,61 @@ async function phaseStress(ctx) {
   };
 }
 
+// 场景：队友模型（Quaternius Farmer 戴夫化 + 锅盖帽/胡子/枪 + 动画）
+async function phaseRemote(ctx) {
+  const { page } = ctx;
+  await ensurePlaying(page);
+  await page.evaluate(() => {
+    const g = window.__game;
+    g.zombies.reset();
+    g.player.hp = 1e9;
+    g.player.maxHp = 1e9;
+    g.player.yaw = 0;
+    g.player.pitch = -0.04;
+    g.spawnRemotePlayer({ x: g.player.pos.x, z: g.player.pos.z - 3.2, name: '队友' });
+  });
+  await waitUntil(
+    page,
+    () => window.__game.remotes[0] && window.__game.remotes[0].ready === true,
+    20000,
+    '队友模型加载'
+  );
+  await page.waitForTimeout(700);
+
+  const info = await page.evaluate(() => {
+    const g = window.__game;
+    const r = g.remotes[0];
+    return {
+      ready: r.ready,
+      current: r.current,
+      actions: Object.keys(r.actions),
+      pot: !!r.pot,
+      beard: !!r.beard,
+      gun: !!r.gun,
+      plate: !!r.plate,
+      calls: g.renderer.info.render.calls,
+      tris: g.renderer.info.render.triangles,
+    };
+  });
+  check(info.ready, '队友模型未就绪');
+  check(info.current === 'idle', '队友待机动画 ' + info.current);
+  check(info.actions.includes('idle') && info.actions.includes('run'), '队友动画缺失：' + info.actions.join(','));
+  check(info.pot && info.beard && info.gun, '锅盖帽/胡子/枪没有挂上');
+  check(info.plate, '头顶名牌没有生成');
+  check(info.calls > 0, '队友场景没有 draw call');
+  check(info.tris > 5000, '三角面 ' + info.tris + '，队友模型可能没加载');
+
+  const file = await shot(page, 'phase-remote');
+  return { metrics: { ...info, shot: file } };
+}
+
 // ---------------------------------------------------------------- 主流程
 
 const PHASES = [
   { name: 'startup', label: '桌面真实开局（指针锁/键鼠/击杀）', group: 'desktop', fn: phaseStartup },
   { name: 'glb', label: '真实 glb 与材质/配件', group: 'desktop', fn: phaseGlb },
   { name: 'skeleton', label: '骷髅模型（雪地专属 + 同屏上限）', group: 'desktop', fn: phaseSkeleton },
+  { name: 'remote', label: '队友模型（Farmer 戴夫化）', group: 'desktop', fn: phaseRemote },
   { name: 'maps', label: '三张地图真实切换', group: 'desktop', fn: phaseMaps },
   { name: 'mobile', label: '手机模拟（横屏 UI + 竖屏拦截）', group: 'mobile', fn: phaseMobile },
   { name: 'perf', label: '性能与稳定性（10s 采样）', group: 'desktop', fn: phasePerf },

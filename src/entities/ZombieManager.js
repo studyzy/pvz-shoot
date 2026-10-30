@@ -19,12 +19,31 @@ export class ZombieManager {
     this.totalKills = 0;
     this.hpMul = 1;
     this.speedMul = 1;
+    // 双人 M2：guest 侧只维护 host 快照的视图，不刷怪、不跑 AI、不结算。
+    this.remote = false;
+    this.nextNetId = 1;
+    this.onNetSpawn = null;
+    this.onNetDead = null;
+    this.despawned = new Set();
+  }
+
+  setRemote(v) {
+    this.remote = !!v;
+    this.despawned.clear();
+    if (this.remote) {
+      this.state = 'idle';
+      this.queue.length = 0;
+    }
   }
 
   reset() {
-    for (let i = 0; i < this.zombies.length; i++) this.zombies[i].dispose();
+    for (let i = 0; i < this.zombies.length; i++) {
+      if (this.onNetDead) this.onNetDead(this.zombies[i]);
+      this.zombies[i].dispose();
+    }
     this.zombies.length = 0;
     this.queue.length = 0;
+    this.despawned.clear();
     this.wave = 0;
     this.state = 'idle';
     this.intermission = 0;
@@ -34,6 +53,7 @@ export class ZombieManager {
   }
 
   startWave(n) {
+    if (this.remote) return;
     this.wave = n;
     this.queue = wavePlan(n);
     // 骷髅只在指定地图出现（雪地墓园氛围）。
@@ -53,7 +73,20 @@ export class ZombieManager {
     this.ctx.onWaveStart(n);
   }
 
-  update(dt, player, colliders) {
+  update(dt, player, colliders, targets) {
+    if (this.remote) {
+      for (let i = this.zombies.length - 1; i >= 0; i--) {
+        const z = this.zombies[i];
+        z.update(dt, player, colliders);
+        if (z.dead) {
+          this.despawned.add(z.netId);
+          if (this.boss === z) this.boss = null;
+          z.dispose();
+          this.zombies.splice(i, 1);
+        }
+      }
+      return;
+    }
     if (this.state === 'spawning') {
       this.spawnTimer -= dt;
       if (this.queue.length > 0 && this.zombies.length < this.maxAlive && this.spawnTimer <= 0 && this.modelReady(this.queue[0])) {
@@ -72,13 +105,14 @@ export class ZombieManager {
     }
 
     for (let i = 0; i < this.zombies.length; i++) {
-      this.zombies[i].update(dt, player, colliders);
+      this.zombies[i].update(dt, targets || player, colliders);
     }
 
     this.applySeparation();
 
     for (let i = this.zombies.length - 1; i >= 0; i--) {
       if (this.zombies[i].dead) {
+        if (this.onNetDead) this.onNetDead(this.zombies[i]);
         this.zombies[i].dispose();
         this.zombies.splice(i, 1);
       }
@@ -232,6 +266,8 @@ export class ZombieManager {
     }, this.hpMul, this.speedMul);
 
     this.zombies.push(zombie);
+    zombie.netId = this.nextNetId++;
+    if (this.onNetSpawn) this.onNetSpawn(zombie);
 
     if (type === 'boss') {
       this.boss = zombie;
@@ -255,7 +291,7 @@ export class ZombieManager {
   // headTarget + headMul：准星命中的那只吃爆头加成（Zombie.hit 自己会记爆头击杀）。
   // 距离用 3D 球距离：爆炸是球形的，气球浮在 2.2 米高空照样吃满伤（离地爆心只有约 1.3 米）；
   // 地面僵尸 y≈0，与爆心高度差约 0.9 米，仍在衰减区起点内，行为和原来的水平距离基本一致。
-  damageArea(center, radius, damage, headTarget, headMul) {
+  damageArea(center, radius, damage, headTarget, headMul, source = 0) {
     let hits = 0;
     const cy = center.y === undefined ? 0.9 : center.y;
     for (let i = 0; i < this.zombies.length; i++) {
@@ -266,7 +302,7 @@ export class ZombieManager {
       if (d < radius + z.radius) {
         const falloff = 1 - Math.min(1, Math.max(0, (d - radius * 0.35) / radius)) * 0.55;
         const head = z === headTarget;
-        const dead = z.hit(damage * falloff * (head ? headMul || 1 : 1), false, head, { type: 'explosion' });
+        const dead = z.hit(damage * falloff * (head ? headMul || 1 : 1), false, head, { type: 'explosion', source });
         z.stagger = 0.18;
         hits++;
         if (dead) this.handleKill(z, head);
@@ -275,13 +311,51 @@ export class ZombieManager {
     return hits;
   }
 
+  // guest 侧：host 发来的 spawn / snapshot / dead。
+  netSpawn(s) {
+    if (!this.remote || !s || this.despawned.has(s.id)) return null;
+    let z = this.zombies.find((x) => x.netId === s.id);
+    if (!z) {
+      z = new Zombie(s.t, this.wave || 1, s.x, s.z, {
+        scene: this.scene,
+        map: this.ctx.map,
+        env: this.ctx.env,
+        particles: this.ctx.particles,
+        sfx: this.ctx.sfx,
+        onAttack: () => {},
+      }, 1, 1);
+      z.remote = true;
+      z.netId = s.id;
+      this.zombies.push(z);
+      if (s.t === 'boss') this.boss = z;
+    }
+    z.applyNetState(s);
+    return z;
+  }
+
+  netSnapshot(list) {
+    if (!this.remote || !Array.isArray(list)) return;
+    for (let i = 0; i < list.length; i++) this.netSpawn(list[i]);
+  }
+
+  netDespawn(id) {
+    if (!this.remote) return;
+    this.despawned.add(id);
+    for (let i = this.zombies.length - 1; i >= 0; i--) {
+      if (this.zombies[i].netId !== id) continue;
+      if (this.boss === this.zombies[i]) this.boss = null;
+      this.zombies[i].dispose();
+      this.zombies.splice(i, 1);
+    }
+  }
+
   handleKill(z, headshot) {
     if (z.counted) return;
     z.counted = true;
     this.totalKills++;
     const mult = headshot ? 1.5 : 1;
     const score = Math.round(z.scoreValue * mult);
-    this.ctx.onKill(z, score, headshot);
+    this.ctx.onKill(z, score, headshot, z.lastHitBy || 0);
     if (this.boss === z) {
       this.boss = null;
       this.ctx.onBossDead();

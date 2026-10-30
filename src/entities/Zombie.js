@@ -57,6 +57,11 @@ export class Zombie {
     this.alive = true;
     this.dying = false;
     this.dead = false;
+    // 双人 M2：guest 侧的僵尸只是 host 快照的视图，不跑 AI、不结算伤害。
+    this.remote = false;
+    this.netId = 0;
+    this.lastHitBy = 0;
+    this.burnSource = 0;
     this.deathT = 0;
     this.spawnT = 0;
     this.phase = rand(0, TAU);
@@ -76,6 +81,7 @@ export class Zombie {
     this.flowActive = false;
     this.rotY = rand(0, TAU);
     this.animSpeed = 0;
+    this.targetSeat = 0;
 
     // 材质护甲层：护甲有自己的血，打空就掉下来（acc 网格隐藏）。
     // material 决定吸收比例、怕不怕火、挡不挡穿透 —— 一条字段解释所有武器的克制关系。
@@ -447,8 +453,17 @@ export class Zombie {
   //   burn  : { dps, time } 命中挂燃烧（最多一层，重复命中只刷新时间）
   //   aerialDamage : 对空中目标的伤害倍率（火豌豆 0.25）；null 表示该来源根本打不到空中目标
   hit(dmg, slow, head, opts) {
+    // guest 的本地命中只做白闪；血量和死亡由 host 快照决定。
+    if (this.remote) {
+      this.flash = Math.max(this.flash, 0.85);
+      this.applyFlash(0.55);
+      return false;
+    }
     if (!this.alive || this.dying || this.spawnT < 0.5) return false;
     const o = opts || null;
+    const source = o && o.source === 1 ? 1 : 0;
+    this.lastHitBy = source;
+    if (o && o.burn) this.burnSource = source;
     const type = (o && o.type) || 'pea';
     let amount = dmg;
 
@@ -529,8 +544,80 @@ export class Zombie {
     });
   }
 
+  // host 快照里的单只僵尸：id/type/位置/朝向/血量/动画状态/减速。
+  serialize() {
+    let st = 0;
+    if (this.dying) st = 3;
+    else if (this.attackAnim > 0) st = 2;
+    else if (this.animSpeed > 0.2) st = 1;
+    return {
+      id: this.netId,
+      t: this.type,
+      x: +this.root.position.x.toFixed(2),
+      y: +this.root.position.y.toFixed(2),
+      z: +this.root.position.z.toFixed(2),
+      yaw: +this.root.rotation.y.toFixed(2),
+      hp: Math.round(this.hp),
+      st,
+      sl: this.slowTimer > 0 ? 1 : 0,
+    };
+  }
+
+  // guest 侧应用快照：只改位置/朝向/血量/动画，不参与任何 AI 或伤害。
+  applyNetState(s) {
+    this.spawnT = 1;
+    this.model.position.y = 0;
+    this.root.position.set(s.x, s.y, s.z);
+    this.rotY = s.yaw;
+    this.root.rotation.y = s.yaw;
+    this.hp = s.hp;
+    this.slowTimer = s.sl ? 0.2 : 0;
+    if (s.st === 3) {
+      if (!this.dying) {
+        this.dying = true;
+        this.deathT = 0;
+        this.play('die', 0.12);
+      }
+      return;
+    }
+    if (this.dying) return;
+    if (s.st === 2) {
+      this.attackAnim = 0.4;
+      this.play('attack', 0.1);
+    } else if (s.st === 1) {
+      this.attackAnim = 0;
+      this.play('walk', 0.18);
+    } else {
+      this.attackAnim = 0;
+      this.play('idle', 0.18);
+    }
+    if (s.sl) this.applyTint(0.55);
+    else this.applyTint(0);
+  }
+
   update(dt, player, colliders) {
     if (this.dead) return;
+
+    if (this.remote) {
+      if (this.dying) {
+        this.deathT += dt;
+        this.play('die', 0.12);
+        if (this.mixer) this.mixer.update(dt);
+        this.flash = Math.max(0, this.flash - dt * 3);
+        this.applyFlash(this.flash * 0.45);
+        if (this.deathT > 1.55) this.dead = true;
+        return;
+      }
+      this.flash = Math.max(0, this.flash - dt * 12);
+      if (this.flash > 0) this.applyFlash(this.flash * 0.45);
+      if (this.slowTimer > 0) {
+        this.slowTimer -= dt;
+        this.applyTint(0.55);
+        if (this.slowTimer <= 0) this.applyTint(0);
+      }
+      if (this.mixer) this.mixer.update(dt);
+      return;
+    }
 
     if (this.dying) {
       this.deathT += dt;
@@ -581,7 +668,7 @@ export class Zombie {
       if (this.burnTickT <= 0.25) {
         if (this.burnTickT <= 0) {
           this.burnTickT += 0.25;
-          const died = this.hit(this.burnDps * 0.25, false, false, { type: 'burn' });
+          const died = this.hit(this.burnDps * 0.25, false, false, { type: 'burn', source: this.burnSource || 0 });
           if (died) {
             this.ctx.zombies.handleKill(this, false);
             return;
@@ -604,13 +691,32 @@ export class Zombie {
       }
     }
 
-    const dx = player.pos.x - this.root.position.x;
-    const dz = player.pos.z - this.root.position.z;
+    const targets = Array.isArray(player) ? player : [player];
+    let target = null;
+    let bestDist = Infinity;
+    for (let i = 0; i < targets.length; i++) {
+      const p = targets[i];
+      if (!p || p.dead || p.downed) continue;
+      const d = Math.hypot(p.pos.x - this.root.position.x, p.pos.z - this.root.position.z);
+      if (d < bestDist) {
+        bestDist = d;
+        target = p;
+      }
+    }
+    if (!target) {
+      this.attackAnim = 0;
+      this.play('idle', 0.18);
+      if (this.mixer) this.mixer.update(dt);
+      return;
+    }
+    this.targetSeat = targets.indexOf(target);
+    const dx = target.pos.x - this.root.position.x;
+    const dz = target.pos.z - this.root.position.z;
     const dist = Math.hypot(dx, dz);
     const attackRange = 1.15 + this.scaleFactor * 0.55;
     // 空中单位（气球）从头顶俯冲：玩家在脚下（垂直差 ≥ 1.6 米）才咬得到。
     // 跳起来（+1.04 米）或站上高台会把垂直差压到 1.6 米以内，这一口就落空 —— 这是气球唯一的弱点窗口。
-    const dy = Math.abs(player.pos.y - this.root.position.y);
+    const dy = Math.abs(target.pos.y - this.root.position.y);
     const inReach = !this.airborne || dy >= 1.6;
 
     const targetRot = Math.atan2(dx, dz);
@@ -631,7 +737,7 @@ export class Zombie {
       let sx = dx * inv;
       let sz = dz * inv;
       this.flowActive = false;
-      if (this.map && this.map.flowAt && dist > attackRange + 1.2) {
+      if (this.targetSeat === 0 && this.map && this.map.flowAt && dist > attackRange + 1.2) {
         if (this.map.flowAt(this.root.position.x, this.root.position.z, this.flow)) {
           sx = this.flow.x;
           sz = this.flow.z;

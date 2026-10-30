@@ -41,6 +41,10 @@ export class HUD {
     this.joyKnob = document.getElementById('joyKnob');
     this.mapSelect = document.getElementById('mapSelect');
     this.startBtn = document.getElementById('startBtn');
+    this.duoBtn = document.getElementById('duoBtn');
+    this.duoShare = document.getElementById('duoShare');
+    this.duoStatusEl = document.getElementById('duoStatus');
+    this.duoShareUrl = '';
     this.ammoChip = document.getElementById('ammoChip');
     this.ammoNow = document.getElementById('ammoNow');
     this.ammoMax = document.getElementById('ammoMax');
@@ -118,6 +122,8 @@ export class HUD {
     const pause = document.getElementById('pauseBtn');
 
     if (start) start.addEventListener('click', () => { if (this.onStart) this.onStart(); });
+    if (this.duoBtn) this.duoBtn.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); if (this.onDuo) this.onDuo(); });
+    if (this.duoShare) this.duoShare.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); if (this.onDuoShare) this.onDuoShare(); });
     if (resume) resume.addEventListener('click', () => { if (this.onResume) this.onResume(); });
     if (restart) restart.addEventListener('click', () => { if (this.onRestart) this.onRestart(); });
     if (again) again.addEventListener('click', () => { if (this.onStart) this.onStart(); });
@@ -176,6 +182,26 @@ export class HUD {
 
   setStartLabel(text) {
     if (this.startBtn) this.startBtn.textContent = text;
+  }
+
+  setDuoStatus(text, tone = 'idle') {
+    if (!this.duoStatusEl) return;
+    this.duoStatusEl.textContent = text || '';
+    this.duoStatusEl.classList.toggle('hidden', !text);
+    this.duoStatusEl.dataset.tone = tone;
+  }
+
+  setDuoMode(active) {
+    if (!this.duoBtn) return;
+    this.duoBtn.textContent = active ? '取消双人联机' : '双人联机';
+    this.duoBtn.classList.toggle('active', !!active);
+    if (!active) this.setDuoShare('');
+  }
+
+  setDuoShare(url) {
+    this.duoShareUrl = url || '';
+    if (!this.duoShare) return;
+    this.duoShare.classList.toggle('hidden', !url);
   }
 
   showStartScreen() {

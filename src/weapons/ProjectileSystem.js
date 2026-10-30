@@ -179,10 +179,12 @@ export class ProjectileSystem {
   }
 
   // headTarget / headshot：准星直接命中僵尸时传进来，该只吃爆头加成，其余范围伤害不变。
-  explodeAt(pos, radius, damage, big, headTarget, headshot) {
+  explodeAt(pos, radius, damage, big, headTarget, headshot, weaponId) {
     this.particles.explosion(pos, radius);
     this.sfx.explosion(!!big);
     if (this.ctx.onExplosion) this.ctx.onExplosion(pos, radius);
+    // guest 的爆炸只闪本地快照，真正的范围伤害由 host 按武器重算。
+    if (weaponId && this.ctx.onGuestAoe) this.ctx.onGuestAoe(weaponId, pos);
     const mul = headshot ? TUNING.headshotMul : 1;
     const hits = this.zombies.damageArea(pos, radius, damage, headTarget, mul);
     if (headshot) this.sfx.headshot();
@@ -257,6 +259,8 @@ export class ProjectileSystem {
       }
 
       if (bestZ) {
+        // guest 的远端僵尸只做本地白闪；命中请求交给 host 按武器/射线重算。
+        if (bestZ.remote && this.ctx.onGuestHit) this.ctx.onGuestHit(bestZ, p.type, p.vel);
         // 空中目标：按武器的 aerial 倍率打折（火豌豆 0.25），高位射击给了钥匙但没给满伤
         const aerialMul = bestZ.airborne && !(p.aerial > 0) ? 1 : bestZ.airborne && p.aerial > 0 ? p.aerial : 1;
         const damage = p.damage * (headshot ? TUNING.headshotMul : 1) * aerialMul;
@@ -293,7 +297,7 @@ export class ProjectileSystem {
       if (boom) {
         tmpB.copy(c.pos);
         if (tmpB.y < 0.4) tmpB.y = 0.4;
-        this.explodeAt(tmpB, c.radius, c.damage, true);
+        this.explodeAt(tmpB, c.radius, c.damage, true, null, false, c.weapon);
         c.active = false;
         c.group.visible = false;
       }

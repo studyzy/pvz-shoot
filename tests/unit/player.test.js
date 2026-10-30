@@ -879,3 +879,41 @@ describe('Player 脚步音效节流', () => {
     expect(p.eye.z).toBeCloseTo(p.pos.z, 12);
   });
 });
+describe('lastInput（双人 input 协议）', () => {
+  it('记录每帧 move/look/jump，jump 只在真正起跳时为 true', () => {
+    const p = makePlayer();
+    const c = makeControls();
+    c.move.x = 1;
+    c.look.x = 0.1;
+    c.look.y = -0.2;
+    p.update(1 / 60, c, flatTerrain(), []);
+    expect(p.lastInput.move.x).toBe(1);
+    expect(p.lastInput.move.y).toBe(0);
+    expect(p.lastInput.look).toEqual({ x: 0.1, y: -0.2 });
+    expect(p.lastInput.jump).toBe(false);
+
+    c.jump = true;
+    p.update(1 / 60, c, flatTerrain(), []);
+    expect(p.lastInput.jump).toBe(true);
+  });
+});
+
+describe('duoDown 倒地', () => {
+  it('HP 归零倒地、镜头压低、revive 半血', () => {
+    const p = makePlayer();
+    p.duoDown = true;
+    p.hp = 5;
+    p.damage(10);
+    expect(p.downed).toBe(true);
+    expect(p.dead).toBe(false);
+    expect(p.downTimer).toBe(30);
+    const c = makeControls();
+    c.look.x = 0.1;
+    p.update(1 / 60, c, flatTerrain(), []);
+    expect(p.eye.y).toBeCloseTo(p.pos.y + 0.55);
+    p.revive();
+    expect(p.downed).toBe(false);
+    expect(p.hp).toBe(50);
+    expect(p.invuln).toBe(3);
+  });
+});

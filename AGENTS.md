@@ -9,7 +9,7 @@
 
 - 纯 Web 的 3D 第一人称射击：玩家是戴夫，手持植物打僵尸；iPhone / iPad / 桌面浏览器均可玩。
 - 进入游戏先选地图：**后院**（经典草地）与 **雪地**（致敬 CS 的 fy_iceworld）；雪地上散落着可拾取的植物武器。
-- 技术栈：Vite 8.3 + Three.js 0.169，原生 ES Module，**没有 TypeScript、没有后端、没有外部 CDN**。
+- 技术栈：Vite 8.3 + Three.js 0.169，原生 ES Module，**没有 TypeScript、没有外部 CDN**。单人模式是纯静态站；双人模式额外跑一个 Node WebSocket 服务器（`server/`，只做配对/中继/重连）。
 - 入口：`index.html` → `src/main.js` → `src/Game.js`。所有系统在 `Game` 构造函数里组装。
 - 运行：
 
@@ -18,11 +18,13 @@ npm install
 npm run dev       # 会打印局域网地址，手机/iPad 同 Wi-Fi 直接访问
 npm run build     # 输出 dist/，纯静态，可放任意静态托管
 npm run preview   # 预览构建产物
+npm run server    # 双人服务器（默认 8080，同时托管 dist/ 与 /ws）
+npm run duo       # build 后直接起双人服务器
 ```
 
 - **不能用 `file://` 直接打开 `dist/index.html`**：ES Module 与音频权限会被浏览器拦截，必须走 HTTP。
 - 构建产物由 `vite.config.js` 的 `base: './'` 支持子路径部署。
-- 部署：推送到 `main` 后由 `.github/workflows/deploy.yml` 自动构建 `dist/` 并发布到 GitHub Pages（https://studyzy.github.io/pvz-shoot/）；Pages Source 使用 GitHub Actions，不要提交 `dist/`。
+- 部署：推送到 `main` 后由 `.github/workflows/deploy.yml` 自动构建 `dist/` 并发布到 GitHub Pages（https://studyzy.github.io/pvz-shoot/）；Pages Source 使用 GitHub Actions，不要提交 `dist/`。**Pages 只跑单人**；双人需要 VPS（`npm run duo`）或在 Pages workflow 注入 `VITE_NET_URL`。
 - 测试：`npm test`（Vitest 4 + jsdom，UT + 集成测试，约 15 秒）、`npm run test:coverage`、`npm run test:e2e`（真实 Chromium + WebGL）。写法与约定见 [docs/TESTING.md](docs/TESTING.md)。
 - **改代码前先跑 `npm test`，改完再跑一次**；动到数值/结构/地图/UI 时按 TESTING.md 第 3 节补测试。
 
@@ -65,7 +67,14 @@ npm run preview   # 预览构建产物
 | `src/input/Controls.js` | 键鼠 + 触屏输入、平台识别、虚拟摇杆、指针锁定 |
 | `src/ui/HUD.js` | DOM HUD、**5 个角色槽底栏**、蓄力条、横幅、命中标记、开始/暂停/结算界面 |
 | `src/style.css` | 全部界面样式与响应式/安全区适配 |
-| `public/models/` | `zombie.glb`（660 KB：7.8k 三角面、50 骨骼、16 段动画）+ `skeleton.glb`（1.4 MB：5.3k 三角面、41 骨骼、13 段动画）+ `alchemist.glb`（1.3 MB：1 万三角面、22 骨骼、5 段动画）+ `football.glb`（1.4 MB：1 万三角面、22 骨骼、5 段动画）+ 两份 `LICENSE-*.txt`，构建时原样拷贝到 `dist/models/`。**普通僵尸用 alchemist，橄榄球用 football，其余地面僵尸用 zombie** |
+| `public/models/` | `zombie.glb`（660 KB：7.8k 三角面、50 骨骼、16 段动画）+ `skeleton.glb`（1.4 MB：5.3k 三角面、41 骨骼、13 段动画）+ `alchemist.glb`（1.3 MB：1 万三角面、22 骨骼、5 段动画）+ `football.glb`（1.4 MB：1 万三角面、22 骨骼、5 段动画）+ `farmer.glb`（1.3 MB：3.7k 三角面、24 段动画，队友用）+ `LICENSE-*.txt`，构建时原样拷贝到 `dist/models/`。**普通僵尸用 alchemist，橄榄球用 football，其余地面僵尸用 zombie；队友用 farmer** |
+| `src/net/protocol.js` | 双人消息类型、版本、名字/token/地图/relay 清洗（客户端与服务器共用） |
+| `src/net/NetClient.js` | 浏览器 WebSocket：hello、token（`sessionStorage`，同一浏览器两个标签页不串号）、心跳/RTT、断线重连 |
+| `src/net/DuoSession.js` | 双人会话状态机：自动配对消息 → `Game.startDuo` / `applyRemoteState` / `pause` / `endDuo` |
+| `server/matchmaker.js` | waiting FIFO、多场并发、座位、重连窗口、中继、结束清理 |
+| `server/index.js` / `static.js` | HTTP 静态托管 + `/ws` 升级 + 心跳 + `/api/health` |
+| `server/README.md` | 服务器启动、环境变量、systemd/Caddy 部署 |
+| `docs/design/DESIGN-duo-online.md` | 双人玩法设计稿（M0/M1 已实现，M2 僵尸同步未开始） |
 | `docs/GAMEPLAY.md` | 玩家向完整数值文档；**改数值后同步更新** |
 
 ---
@@ -83,8 +92,9 @@ npm run preview   # 预览构建产物
 7. `projectiles.update()` — 用更新后的僵尸位置做扫掠命中
 8. `sunOrbs.update()` — 磁吸与拾取
 9. `pickups.update()` — 地面武器浮起、旋转、靠近自动拾取，以及开局后的随机补刷
-10. `particles.update()`
-11. HUD 同步（带缓存，避免每帧写 DOM）
+10. 远端玩家 `update()` + `duoSession.update()` — 队友动画/影子；双人时按 20 Hz 上报本地位置与开火
+11. `particles.update()`
+12. HUD 同步（带缓存，避免每帧写 DOM）
 
 > 改顺序前想清楚：武器在相机之后、僵尸之前；弹道在僵尸之后。把武器放到 `player.applyCamera` 前面会导致瞄准偏一帧。
 
@@ -207,6 +217,16 @@ npm run preview   # 预览构建产物
 - **头盔仍然是程序化的**：新模型没有头盔、但自带白色护肩和红球衣；`buildHat` 的 helmet 分支挂在 `Head` 骨骼、本地 Y 1.76，**不要再补护肩**（会和模型自带的白色护肩打架）。
 - 模型未就绪时 `spawnOne` 改刷别的类型、它留在队首（`modelReady` 查 `zombieModel.football` 槽）。
 
+### 5.3.4 队友模型（RemotePlayer）
+
+- `public/models/farmer.glb`：**Quaternius Farmer（CC0 1.0）**，Poly Pizza 2022-02-22 发布（早于 QAL v1.0），1.3 MB / 3,716 面 / 24 段动画 / 1.823 米。**只在创建 RemotePlayer 时懒加载**，单人模式不下载。
+- 骨骼：`Head`、`WristR`（glTF 里是 `Wrist.R`，GLTFLoader 会把点去掉）。帽子/胡子/枪用程序化补件，通过 `Object3D.attach()` 挂到骨骼；**不要手算 CharacterArmature 的 100 倍缩放**。
+- 戴夫化（`daveifyModel`）：按材质名隐藏草帽（`Farmer_Head_2` Beige、`_4` Red），衬衫改米白、背带裤/裤子改棕色、鞋改深棕；再加锅盖帽 + 大胡子 + 鼻头 + 右手豌豆枪。每件 mesh 克隆材质，避免多个 RemotePlayer 串色。
+- 动画：`Idle_Gun` 待机、`Run` 移动、`Gun_Shoot` 开火、`Death` 倒地、`HitRecieve` 受击、`Wave` 打招呼；`findClip` 自动剥 `CharacterArmature|` 前缀。
+- 成本：**12 个蒙皮 mesh / 8 个材质**，约 12 draw call（帽子/胡子/枪/名牌另算）；Walk/Run 无根位移，不需要钉根骨。同屏只有 1 个队友，不影响 14 只僵尸的预算。
+- 调试：`__game.spawnRemotePlayer({name:'队友'})` 在出生点右侧生成；联网层接上后由网络位置驱动 `setTransform` / `setMoving` / `setFiring`。
+- 来源与许可：[public/models/LICENSE-farmer.txt](public/models/LICENSE-farmer.txt)。**不要换成从 quaternius.com 现下的 Farmer**（QAL v1.0 限制再分发）。
+
 ### 5.4 输入与平台
 
 - 平台识别在 `Controls` 构造函数：`(pointer: coarse) || (hover: none)` 且 `maxTouchPoints > 0`；首次触摸会调用 `onModeChange` 动态切换。
@@ -294,6 +314,24 @@ npm run preview   # 预览构建产物
 - **实测口径**（每只僵尸的主通道 draw call，含 blob 影子）：普通 2、路障 6、气球 5、橄榄球 9（其中 6 个来自程序化头盔）、骷髅 10、Boss 12；普通僵尸 1 万三角面，其余 5k–1.1 万。
 
 
+### 5.12 双人联机（M0 / M1 + M2 input/僵尸/命中/救援）
+
+- **范围**：自动配对（有人等待就加入，没人等待就新建一场并等待）、多场并发（默认 `MAX_MATCHES=8`）、断线重连（45 s）、同场玩家 input 同步；**僵尸由 host 模拟、20 Hz 快照 + spawn/dead 事件同步**；guest 的命中/爆炸发请求，host 用视线 + seq 快照 + 墙体/冷却重算；共享阳光值、个人分、倒地救援已接。**共享补给 claim、阳光球同步、结算页、resync、双人缩放还没做**；常规补给目前是每客户端本地掉落，常规球的 host-only。
+- **跑起来**：`npm run build && npm run server`（或开发时 `npm run dev` + `npm run server`）。客户端在 DEV 下连 `ws://<当前主机名>:8080/ws`，生产同源连 `/ws`。详见 [server/README.md](server/README.md)。
+- **协议**：`src/net/protocol.js`；顶层消息 `hello/welcome/queue/peer/start/map/relay/ping/pong/error/end/bye`。`relay` 里再包一层游戏内消息（`input` / `pstate` / `evt` / `pause` / `resume`），不要绕过 `cleanRelay` 的 32 KB 上限。
+- **配对**：服务器只维护 `waiting` FIFO 和 `matches`；seat 0 是房主，seat 1 是客人。`start` 后服务器只转发，不模拟。
+- **邀请链接**：等待中的房主 `welcome.joinToken`（12 位）→ 客户端把地址栏改成 `?join=`，并显示「复制邀请链接」；朋友打开即加入。`hello.join` 优先于 FIFO，失效返回 `JOIN_EXPIRED`（客户端清掉参数，可重新匹配）。
+- **刷新 vs 断网**：`hello.page` 是页面实例 id（同一页重连不变、刷新变）。房主刷新 = 本局结束（客人收 `HOST_RESET`）；客人刷新 = 回座但 M1 世界重置，M2 才发 `resync`。
+- **远端平滑**：`applyRemoteState` 调 `setTarget`，`RemotePlayer.update` 用 100 ms 平滑；>3 m 直接吸附（重连/换图）。
+- **公网加固**：`MAX_CONN_PER_IP=6`；Caddy 后设 `TRUST_PROXY=1` 读 `X-Forwarded-For`。
+- **M2 input/命中**：guest 每帧 `captureInput` 累积 `look/jump`，30 Hz 发 `input {m,look,jump,fire,shield}`；host 跑 `sfx=null`、`onDamage/onDeath=null` 的 guest 代理 `Player`（`Game.netGuest`），20 Hz 回 `pstate`（`h/g/z/sun/scores/kills`）；guest 本地预测，按 0.2 m 软校正，300 ms 没输入就把代理 move/fire 归零。guest 的 `ProjectileSystem` 命中远端僵尸发 `hit {zid,seq,w,dir}`，host 用 `seq` 快照位置 + 代理视线 + 头身球 + 墙体 + 冷却重算；爆炸走 `aoe`。guest 本地只 `flashOnly`。
+- **guest 僵尸世界**：`Game.isGuestWorld()` 跳过 `map.updateNav`/`skySun`/`sunOrbs`；`zombies.setRemote(true)` 后只跑 `Zombie.update` 远端分支。host 的 `ZombieManager.onNetSpawn/onNetDead` 发 `evt`，`pstate.z` 每 50 ms 同步 `id/type/x/y/z/yaw/hp/st/sl`。guest 的 `Zombie.hit()` 只白闪，不扣血、不 `handleKill`、不掉阳光。**常规补给例外**：`pickups.update` 在 guest 也跑本地掉落（共享 claim 未做）。
+- **倒地/救援**：`Player.duoDown` 时 HP 归零进入 `downed`（30 s、镜头 0.55 m、不能开枪）；host 的 `Game.updateDuoRescue` 在两人相距 3 m 内累计 2.5 s 自动救起（半血 + 3 s 无敌）。超时 `duoWipe` → `sendWipe` + 回菜单，菜单状态栏显示双方比分。
+- **客户端**：`NetClient` 存 `sessionStorage` 的 token；`DuoSession` 收到 `START` 调 `Game.startDuo`，收到 `RELAY input` 调 `applyGuestInput`（host），收到 `pstate` 调 `applyPeerState`（guest），收到 `evt` 调 `applyWorldEvent`。guest 30 Hz 发 input，host 20 Hz 发 pstate。
+- **Game 接入**：`duoSession`/`duo`/`seat`/`remote`/`netGuest`；`startDuo` 用 `duoSpawn(map, seat)` 在出生点左右各让 1.8 m，`setupDuoWorld()` 设置远程标志/网络回调并由 host `startWave(1)`；`backToMenu`/`endDuo`/`restart` 都会清理会话、远端和僵尸回调。双人下 Esc/失锁**不自动暂停**，避免通过中继把队友锁住。
+- **不要**把 `DuoSession` 静态 import 进 `Game.js`：`toggleDuo()` 里动态 `import()`，单人模式不加载网络 chunk（构建里应看到独立的 `DuoSession-*.js`）。
+- **测试**：`tests/unit/matchmaker.test.js`（配对/重连/超时）、`tests/unit/netclient.test.js`、`tests/unit/duosession.test.js`、`tests/unit/duo-authority.test.js`（input/guest 世界/僵尸快照）、`tests/unit/duo-hit.test.js`（guest 命中请求与 host 裁决）、`tests/unit/duo-down.test.js`（倒地/救援/团灭）、`tests/integration/duo-server.test.js`（真实 ws 服务器）。双浏览器手动验收：两个独立上下文点「双人联机」，guest 能看到 host 刷出的僵尸（同 id/hp），guest 本地命中只白闪、host 的血量由裁决改变。
+
 ## 6. 常见改动路径
 
 ### 新增一株植物 / 武器
@@ -364,6 +402,12 @@ __game.zombies.zombies          // 当前僵尸数组
 __game.zombies.startWave(5)     // 跳到第 5 波
 __game.weapons.pickup(4)        // 直接拾取指定植物（4 = 双发射手）
 __game.pickups.items            // 地面拾取物池
+__game.spawnRemotePlayer()      // 在出生点右侧生成一个队友戴夫（预览）
+__game.remotes                  // 当前远端玩家数组
+__game.duo                      // 双人对局信息（seat/peerName/seed），单人/菜单为 null
+__game.remote                   // 双人队友的 RemotePlayer（网络位置驱动）
+__game.duoSession               // 双人会话（含 net/rtt/state）
+__game.seat                     // 双人座位：0 房主 / 1 客人 / -1 单人或菜单
 __game.spendSun(999)            // 改阳光
 __game.renderer.info.render     // draw call / 三角面
 ```
@@ -394,7 +438,7 @@ __game.renderer.info.render     // draw call / 三角面
 ```bash
 npm test              # UT + 集成测试（Vitest + jsdom），PR 必须全绿
 npm run test:coverage # 覆盖率报告（coverage/index.html）
-npm run test:e2e      # 真实 Chromium 跑 9 个浏览器场景（构建→preview→点按钮→断言），约 2 分钟
+npm run test:e2e      # 真实 Chromium 跑 10 个浏览器场景（构建→preview→点按钮→断言），约 2 分钟
 npm run build         # 生产构建
 ```
 
@@ -402,8 +446,8 @@ CI（`.github/workflows/ci.yml`）在每次 push 到 main 和每个 PR 上跑三
 
 | job | 内容 | 失败条件 |
 | --- | --- | --- |
-| **UT + 集成测试** | `vitest run --coverage`（974 用例） | 任何用例失败；覆盖率低于 `vitest.config.js` 的 `thresholds`（语句/行 98%、分支 89%、函数 97%） |
-| **浏览器级 E2E** | `playwright-core install --with-deps chromium` + `npm run test:e2e`（9 场景） | 任一场景 FAIL 或页面出现 console.error / pageerror |
+| **UT + 集成测试** | `vitest run --coverage`（1075 用例） | 任何用例失败；覆盖率低于 `vitest.config.js` 的 `thresholds`（语句/行 98%、分支 89%、函数 97%） |
+| **浏览器级 E2E** | `playwright-core install --with-deps chromium` + `npm run test:e2e`（10 场景） | 任一场景 FAIL 或页面出现 console.error / pageerror |
 | **生产构建** | `npm run build` | 构建失败 |
 
 覆盖率 HTML 报告与 E2E 失败截图分别作为 artifact 保留 14 天。三个 job 互不依赖，可并行跑；改覆盖率门槛请改 `vitest.config.js` 而不是在 CI 里写死。
@@ -428,6 +472,8 @@ CI（`.github/workflows/ci.yml`）在每次 push 到 main 和每个 PR 上跑三
 - **五个槽是独占的，但「收起」不等于「破盾」**：`equip()` 一开始调 `syncShieldWithHand()` —— 切走坚果走 `wallNuts.stow()`（`active=false`，罩壳隐藏，**`hp` 原样保留**，玩家开始正常承伤）；切回坚果走 `deploy()` 免费重新举起。只有 `hp` 掉到 0 才是 `breakShield()`。`clear()` 才是真正抹掉盾血，只给重开一局用。
 - 原来的 `shieldShotCost`（开火扣盾血）和 `WallNuts.spendShot()` 已删除——独占到"手持坚果就不能开枪"之后它们成了死代码，别再按"开盾时还能开枪"的前提加回来。
 - **气球是纯高度层级**：不吃地面碰撞体（在飞）、不被墙挡住；落地并站上 ≥0.9 米高台（雪地矮墙 0.92、沙城 1.5 箱子）用任何武器都能打到，这是刻意的零成本解法，别当漏洞修。跳跃不算（`grounded === false`）。
+- 队友模型是 Quaternius Farmer 的戴夫化版本，不是 EA 的 Crazy Dave；锅盖帽 / 胡子 / 枪是程序化补件。单只约 12 个蒙皮 draw call，但同屏只有 1 个，不占 14 只僵尸的预算。
+- **双人当前同步玩家 input + 僵尸 + 命中 + 共享阳光值 + 个人分 + 倒地救援**：host 模拟僵尸，guest 看 20 Hz 快照；共享补给 claim、阳光球同步、结算页、resync、双人缩放未做。常规补给是每客户端本地掉落（与“先到先得”设计偏差），阳光球仍是 host-only；救援是靠近 2.5 s 自动，不是按住 E。
 - 同屏僵尸硬上限 14（移动端性能）。普通僵尸用的是 1 万面模型，14 只全普通时约 15 万三角面 —— 这已经是预算上限，再加内容要先想清楚从哪省。
 - 测试跑在 jsdom 里，WebGL 是替身：渲染效果、真机手感、真实 glb 贴图要靠 `npm run test:e2e` 或人工验收，不要用 jsdom 测试冒充"渲染正常"。
 
