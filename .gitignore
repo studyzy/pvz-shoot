@@ -4,7 +4,9 @@ dist/
 *.log
 .idea/
 generated-images/
-aigc/
+aigc/*
+# 只有野怪素材库进仓库，其余（自备 FBX 等）留在本地
+!aigc/monsters/
 .codebuddy/
 coverage/
 
