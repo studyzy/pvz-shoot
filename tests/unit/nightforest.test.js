@@ -36,6 +36,20 @@ describe('夜之森林 · 基本契约', () => {
     }
   });
 
+  // 回归：这张图没有 platforms，树/灯杆的圆形 collider 是玩家碰撞的唯一来源；
+  // 一旦声明 `playerColliders = []`，Player 的 `playerColliders || colliders` 会取到空表，
+  // 表现为整片树林直接穿过去。雪地/沙城才该用空表（它们靠 platforms 挡人）。
+  it('不声明 playerColliders：玩家必须回落到 colliders，树才挡得住人', () => {
+    expect(map.playerColliders, '森林不能声明 playerColliders=[]').toBeUndefined();
+    expect(map.colliders.length).toBeGreaterThan(50);
+    const trees = map.treeSpots.filter((s) => !s[2]);
+    expect(trees.length).toBeGreaterThan(50);
+    for (const [x, z] of trees) {
+      const hit = map.colliders.some((c) => Math.abs(c.x - x) < 1e-6 && Math.abs(c.z - z) < 1e-6);
+      expect(hit, `树 (${x.toFixed(1)}, ${z.toFixed(1)}) 没有碰撞体`).toBe(true);
+    }
+  });
+
   it('刷怪点全在边界内，且离出生点足够远（玩家有反应时间）', () => {
     expect(map.zombieSpawnPoints.length).toBeGreaterThanOrEqual(8);
     for (const [x, z] of map.zombieSpawnPoints) {

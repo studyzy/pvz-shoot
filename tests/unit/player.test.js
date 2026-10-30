@@ -411,6 +411,46 @@ describe('Player 圆形 collider 推出', () => {
     expect(p.pos.x).toBeCloseTo(0.1, 9);
     expect(near.pos.x).toBeGreaterThan(0.5);
   });
+
+  // 回归：森林曾经声明 `playerColliders = []`。Player 里是 `playerColliders || colliders`，
+  // 而 `[]` 是真值，于是玩家拿到空碰撞表 —— 整片树林都能直接穿过去（树是这张图唯一的遮挡）。
+  // 森林没有 platforms，必须让 Player 回落到 colliders。
+  it('没声明 playerColliders 时回落到 colliders（森林的树靠这一条才挡得住人）', async () => {
+    const { NightForest } = await import('../../src/world/NightForest.js');
+    const forest = new NightForest(new THREE.Scene());
+    expect(forest.playerColliders, '森林不能再声明 playerColliders=[]').toBeUndefined();
+    expect(forest.colliders.length).toBeGreaterThan(50);
+
+    // 挑一棵真的树，从 3 米外直线走过去：必须被挡在 r + playerRadius 之外
+    const tree = forest.colliders.find((c) =>
+      forest.treeSpots.some(([x, z, o]) => !o && Math.hypot(x - c.x, z - c.z) < 0.01)
+    );
+    expect(tree, '找不到树干碰撞体').toBeTruthy();
+    const p = makePlayer({ x: tree.x, z: tree.z + 3 });
+    const c = makeControls();
+    let minDist = Infinity;
+    for (let i = 0; i < 200; i++) {
+      c.move.y = 1; // 一直朝 -Z（树的中心）走
+      p.update(1 / 60, c, forest, []);
+      minDist = Math.min(minDist, Math.hypot(p.pos.x - tree.x, p.pos.z - tree.z));
+    }
+    expect(minDist).toBeGreaterThanOrEqual(tree.r + TUNING.playerRadius - 1e-6);
+  });
+
+  // 雪地/沙城反过来依赖"空表"：玩家碰撞交给 platforms，圆形 collider 只给僵尸用。
+  // 这条锁住语义，防止有人把 `playerColliders || colliders` 改成"空表也回落"而让这两张图多出隐形墙。
+  it('显式空 playerColliders 表示"玩家不吃圆形 collider"，不回落到 colliders', async () => {
+    const { IceWorld } = await import('../../src/world/IceWorld.js');
+    const { DustYard } = await import('../../src/world/DustYard.js');
+    for (const M of [IceWorld, DustYard]) {
+      const map = new M(new THREE.Scene());
+      expect(map.playerColliders, M.name + ' 需要显式空表').toEqual([]);
+      expect(map.colliders.length).toBeGreaterThan(50);
+      const p = makePlayer({ x: map.spawn.x, z: map.spawn.z });
+      const c = makeControls();
+      expect(() => p.update(1 / 60, c, map, [])).not.toThrow();
+    }
+  });
 });
 
 describe('Player 平台与踏步', () => {

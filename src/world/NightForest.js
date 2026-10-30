@@ -47,7 +47,9 @@ export class NightForest {
     // 出生点在南侧营地，面向 -Z（北），正对着中央月光空地
     this.spawn = { x: 0, z: 40, yaw: 0 };
     this.colliders = [];
-    this.playerColliders = [];
+    // 不声明 playerColliders：这张图没有 platforms，树干/灯杆的圆形 collider 就是玩家碰撞的唯一来源。
+    // （Player 里 `playerColliders || colliders` 的 `[]` 是真值，写了空表等于关掉整张图的玩家碰撞，
+    // 表现是整片树林直接穿过去。雪地/沙城才需要空表——它们把玩家碰撞交给 platforms、碰撞圆只给僵尸用。）
     this.platforms = [];
     // 投掷物挡板：OBB 盒 {x,y,z,hx,hy,hz,c,s} 与立地圆柱 {x,z,r,h}
     this.walls = [];
