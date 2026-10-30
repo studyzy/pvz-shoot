@@ -2,12 +2,12 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { WEAPONS, PEA_ID } from '../config.js';
 import { toon, glowTexture } from '../world/materials.js';
-import { rand, shuffle, TAU } from '../utils.js';
+import { rand, TAU } from '../utils.js';
 
 const MAX_SPOTS = 10;
 const PICK_RADIUS = 1.45;
-const RESPAWN_MIN = 9;
-const RESPAWN_MAX = 14;
+const SPAWN_MIN = 4;
+const SPAWN_MAX = 8;
 
 const labelCache = new Map();
 const miniCache = new Map();
@@ -170,10 +170,11 @@ export class WeaponPickups {
     this.scene = ctx.scene;
     this.map = null;
     this.time = 0;
-    this.bag = [];
     this.items = [];
+    this.spawnTimer = 0;
+    this.finished = true;
     this.ringGeo = new THREE.TorusGeometry(0.62, 0.05, 6, 24);
-    // 地面会刷出的武器：不含坚果（护盾靠阳光充能，不是捡的）与初始豌豆（免费且无限）。
+    // 地面会刷出的武器：不含坚果（开局常驻 5 号槽）与初始豌豆（常驻 1 号槽）。
     // 樱桃/玉米炮/火豌豆虽然也在植物栏，但它们同样是战利品池里的正常成员。
     this.lootIndices = [];
     for (let i = 0; i < WEAPONS.length; i++) {
@@ -216,10 +217,11 @@ export class WeaponPickups {
       label,
       index: -1,
       active: false,
-      respawn: 0,
+      // used：本关这个点位已经出过道具，不再刷新
+      used: false,
       phase: rand(0, TAU),
       spot: null,
-      // dropped：玩家丢下的（没有点位、不进重生队列，捡走就永久消失）
+      // dropped：玩家丢下的（没有点位，捡走就永久消失）
       dropped: false,
     };
   }
@@ -238,7 +240,6 @@ export class WeaponPickups {
     item.dropped = true;
     item.index = index;
     item.active = true;
-    item.respawn = 0;
     const mats = weaponMaterials(index);
     item.ring.material = mats.ring;
     item.glow.material = mats.glow;
@@ -253,11 +254,29 @@ export class WeaponPickups {
     return true;
   }
 
-  nextWeapon() {
-    if (this.bag.length === 0) {
-      this.bag = shuffle(this.lootIndices.slice());
+  // 随机挑一个空点位出场。一关内每个点位只出一次（used 标记），被捡走后不再补刷；
+  // 点位用尽就整关不再出新道具。返回是否真的出成功。
+  spawnRandom() {
+    const open = [];
+    for (let i = 0; i < this.items.length; i++) {
+      const item = this.items[i];
+      if (item.spot && !item.active && !item.used) open.push(item);
     }
-    return this.bag.pop();
+    if (!open.length || this.lootIndices.length === 0) return false;
+    const item = open[rand(0, open.length - 1) | 0];
+    item.used = true;
+    item.index = this.lootIndices[rand(0, this.lootIndices.length - 1) | 0];
+    item.active = true;
+    const mats = weaponMaterials(item.index);
+    item.ring.material = mats.ring;
+    item.glow.material = mats.glow;
+    item.label.material = mats.label;
+    item.holder.clear();
+    item.holder.add(makeMini(WEAPONS[item.index]).clone(true));
+    item.group.position.set(item.spot[0], 0, item.spot[1]);
+    item.phase = rand(0, TAU);
+    item.group.visible = true;
+    return true;
   }
 
   setMap(map) {
@@ -265,60 +284,38 @@ export class WeaponPickups {
     const spots = (map && map.pickupSpots) || [];
     for (let i = 0; i < this.items.length; i++) {
       const item = this.items[i];
-      if (i >= spots.length) {
-        item.active = false;
-        item.spot = null;
-        item.group.visible = false;
-        continue;
-      }
-      item.spot = spots[i];
-      item.group.position.set(spots[i][0], 0, spots[i][1]);
-      item.phase = rand(0, TAU);
-      this.spawn(item);
+      item.spot = i < spots.length ? spots[i] : null;
+      item.active = false;
+      item.used = false;
+      item.dropped = false;
+      item.group.visible = false;
     }
+    this.beginLevel();
   }
 
-  spawn(item) {
-    const index = this.nextWeapon();
-    item.index = index;
-    item.active = true;
-    item.respawn = 0;
-    const mats = weaponMaterials(index);
-    item.ring.material = mats.ring;
-    item.glow.material = mats.glow;
-    item.label.material = mats.label;
-    item.holder.clear();
-    item.holder.add(makeMini(WEAPONS[index]).clone(true));
-    item.group.visible = true;
+  // 一关开始：重置所有点位与刷新节拍。整关只在开局由它刷道具，过程中不再重置。
+  beginLevel() {
+    this.spawnTimer = rand(SPAWN_MIN, SPAWN_MAX);
+    this.finished = false;
+    this.spawnRandom();
   }
 
   reset() {
     if (!this.map) return;
-    this.bag.length = 0;
     for (let i = 0; i < this.items.length; i++) {
-      const item = this.items[i];
-      item.dropped = false;
-      if (!item.spot) {
-        item.active = false;
-        item.group.visible = false;
-        continue;
-      }
-      item.group.position.set(item.spot[0], 0, item.spot[1]);
-      item.phase = rand(0, TAU);
-      this.spawn(item);
+      this.items[i].active = false;
+      this.items[i].used = false;
+      this.items[i].dropped = false;
+      this.items[i].group.visible = false;
     }
+    this.beginLevel();
   }
 
   update(dt, player) {
     this.time += dt;
     for (let i = 0; i < this.items.length; i++) {
       const item = this.items[i];
-      if (!item.active) {
-        if (!item.spot || item.dropped) continue;
-        item.respawn -= dt;
-        if (item.respawn <= 0) this.spawn(item);
-        continue;
-      }
+      if (!item.active) continue;
 
       item.phase += dt * 1.8;
       const bob = Math.sin(item.phase) * 0.08;
@@ -351,11 +348,18 @@ export class WeaponPickups {
             });
             item.active = false;
             item.group.visible = false;
-            // 玩家丢下的枪没有点位：捡走后不再重生
-            item.respawn = item.dropped ? 0 : rand(RESPAWN_MIN, RESPAWN_MAX);
+            // 点位上出的道具捡走即消失，本关不再补刷；丢下的枪捡走也永久消失
             item.dropped = false;
           }
         }
+      }
+    }
+    // 开局刷出的道具被捡走后，按节拍补刷到其它还没用过的空点位；点位用尽后整关不再出新道具
+    if (!this.finished && this.map) {
+      this.spawnTimer -= dt;
+      if (this.spawnTimer <= 0) {
+        this.spawnTimer = rand(SPAWN_MIN, SPAWN_MAX);
+        if (!this.spawnRandom()) this.finished = true;
       }
     }
   }
@@ -364,8 +368,10 @@ export class WeaponPickups {
     for (let i = 0; i < this.items.length; i++) {
       this.items[i].active = false;
       this.items[i].group.visible = false;
-      this.items[i].respawn = 0;
       this.items[i].dropped = false;
+      this.items[i].used = false;
     }
+    this.spawnTimer = 0;
+    this.finished = true;
   }
 }

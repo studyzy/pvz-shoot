@@ -814,11 +814,11 @@ describe('8. 地面武器拾取', () => {
     game.start();
     giveSun(999);
     // 地面刷新是随机的；这条用例要验证「有弹匣的地面武器」完整链路，钉死成双发射手
-    game.pickups.bag.length = 0;
-    game.pickups.nextWeapon = () => WEAPONS.findIndex((w) => w.id === 'repeater');
+    const repeater = WEAPONS.findIndex((w) => w.id === 'repeater');
+    game.pickups.lootIndices = [repeater];
     game.pickups.reset();
-    const spot = game.map.pickupSpots[0];
-    const item = game.pickups.items[0];
+    const item = game.pickups.items.find((it) => it.active);
+    const spot = [item.group.position.x, item.group.position.z];
     expect(item.active).toBe(true);
     const index = item.index;
     const def = WEAPONS[index];
@@ -879,21 +879,82 @@ describe('8. 地面武器拾取', () => {
     expect(game.weapons.locked).toBe(false);
   });
 
-  it('拾取物 9~14 秒后在原点位刷新', () => {
+  it('开局只在随机点位刷一个道具；捡走后本关不再原地刷新', () => {
     game.start();
-    const spot = game.map.pickupSpots[0];
-    const item = game.pickups.items[0];
+    const active = game.pickups.items.filter((it) => it.active);
+    expect(active.length).toBe(1);
+    const item = active[0];
+    expect(game.map.pickupSpots).toContain(item.spot);
+    const spot = item.spot;
+
     game.player.pos.x = spot[0];
     game.player.pos.z = spot[1];
     game.update(1 / 60);
     expect(item.active).toBe(false);
 
+    // 走开等 30 秒：点位上不能重新长出道具（只有其它还没用过的点位可能补刷）
     game.player.pos.x = 0;
     game.player.pos.z = 19;
-    for (let i = 0; i < 60 * 15 && !item.active; i++) game.update(1 / 60);
-    expect(item.active).toBe(true);
-    expect(item.group.position.x).toBe(spot[0]);
-    expect(item.group.position.z).toBe(spot[1]);
+    for (let i = 0; i < 60 * 30; i++) game.update(1 / 60);
+    expect(item.active).toBe(false);
+    expect(item.used).toBe(true);
+    for (const it of game.pickups.items) {
+      if (it.active) expect(it.spot).not.toEqual(spot);
+    }
+  });
+
+  it('随机补刷只在开局出过的点位之外出现，一关里每个点位只出一次；点位用尽后彻底不再刷', () => {
+    game.start();
+    const P = game.pickups;
+    const spots = game.map.pickupSpots;
+    // 清掉开局的第一个，等它被捡走后再看补刷
+    const first = P.items.find((it) => it.active);
+    P.items.forEach((it) => {
+      it.active = false;
+      it.group.visible = false;
+    });
+    const seen = new Set([spots.indexOf(first.spot)]);
+    expect(seen.has(-1)).toBe(false);
+
+    for (let n = 1; n < spots.length; n++) {
+      P.spawnTimer = 0;
+      game.update(1 / 60);
+      const live = P.items.filter((it) => it.active);
+      expect(live.length).toBe(1);
+      const idx = spots.indexOf(live[0].spot);
+      expect(idx).toBeGreaterThanOrEqual(0);
+      expect(seen.has(idx)).toBe(false);
+      seen.add(idx);
+      P.items.forEach((it) => {
+        it.active = false;
+        it.group.visible = false;
+      });
+    }
+    // 点位全部用完：再等也刷不出新道具
+    P.spawnTimer = 0;
+    for (let i = 0; i < 60 * 20; i++) game.update(1 / 60);
+    expect(P.finished).toBe(true);
+    expect(P.items.some((it) => it.active)).toBe(false);
+  });
+
+  it('被顶掉/捡走的道具不会在地图上再次出现，新一局才重新随机关卡道具', () => {
+    game.start();
+    giveSun(999);
+    const P = game.pickups;
+    const item = P.items.find((it) => it.active);
+    const spot = item.spot;
+    const index = item.index;
+    game.player.pos.x = spot[0];
+    game.player.pos.z = spot[1];
+    game.update(1 / 60);
+    expect(item.active).toBe(false);
+    // 同一关里这个点位/这件道具都不会再出现
+    for (let i = 0; i < 60 * 20; i++) game.update(1 / 60);
+    expect(P.items.some((it) => it.active && it.spot === spot && it.index === index)).toBe(false);
+    // 重开一局：重新随机刷新
+    game.restart();
+    expect(P.items.filter((it) => it.active).length).toBe(1);
+    expect(P.finished).toBe(false);
   });
 
   it('豌豆常驻 1 号槽；枪②只一格，捡到新枪顶掉上一把；大杀器独立成槽', () => {
