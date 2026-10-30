@@ -24,8 +24,9 @@ const ARTIFACTS = path.join(ROOT, 'tests/integration/.artifacts');
 const PORT = Number(process.env.E2E_PORT || 4179 + Math.floor(Math.random() * 60));
 
 const CHROME_ARGS = [
-  '--use-gl=swiftshader',
+  // 软件渲染走 ANGLE 的 SwiftShader（裸 GL 版已废弃，会回落到更慢的路径）
   '--use-angle=swiftshader',
+  '--use-gl=angle',
   '--no-sandbox',
   '--disable-dev-shm-usage',
 ];
