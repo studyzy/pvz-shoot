@@ -49,6 +49,22 @@ describe('index.html / HUD 契约', () => {
   });
 });
 
+describe('僵尸图鉴页契约', () => {
+  it('主菜单有图鉴入口，gallery.html 引用独立入口脚本和关键 DOM', () => {
+    const index = read('index.html');
+    const gallery = read('gallery.html');
+    const main = read('src/gallery/main.js');
+    expect(index).toContain('href="./gallery.html"');
+    expect(gallery).toContain('src/gallery/main.js');
+    for (const id of ['galleryCanvas', 'typePanel', 'infoPanel', 'angleBar']) {
+      expect(gallery, '缺少 #' + id).toContain('id="' + id + '"');
+    }
+    // 图鉴必须播放走路动作，而不是静止的 bind pose
+    expect(main).toContain("play('walk'");
+    expect(main).toContain('OrbitControls');
+  });
+});
+
 describe('config 与文档一致', () => {
   it('config 里声明的数值都在允许区间内（防止误改数值表）', () => {
     expect(TUNING.playerSpeed).toBeGreaterThan(2);

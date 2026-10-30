@@ -329,9 +329,12 @@ async function phaseStartup(ctx) {
         // 放到玩家前方 4 米：镜头不糊、瞄点稳定
         if (first) z.root.position.set(g.player.pos.x, 0, g.player.pos.z - 4);
         const p = g.player;
-        const dx = z.root.position.x - p.eye.x;
-        const dy = 0.95 * z.scaleFactor - p.eye.y;
-        const dz = z.root.position.z - p.eye.z;
+        // 瞄胸口（HIT 表里的 chest），不要用固定的 0.95：0.95 在普通僵尸胸口上方 0.12 米，
+        // 僵尸走近后角度会超出桌面的 2.6° 辅助瞄准锥，测试会假红。
+        const chest = z.getChest(new (p.eye.constructor)());
+        const dx = chest.x - p.eye.x;
+        const dy = chest.y - p.eye.y;
+        const dz = chest.z - p.eye.z;
         p.yaw = Math.atan2(-dx, -dz);
         p.pitch = Math.atan2(dy, Math.hypot(dx, dz));
         p.recoil = 0;
@@ -1299,6 +1302,93 @@ async function phaseSkeleton(ctx) {
   };
 }
 
+// ---------------------------------------------------------------- 图鉴页
+
+async function phaseGallery(ctx) {
+  const { page, url } = ctx;
+  const galleryUrl = new URL('gallery.html', url).toString();
+  await page.goto(galleryUrl, { waitUntil: 'load' });
+  await waitUntil(page, () => window.__gallery && window.__gallery.ready, 45000, '图鉴加载');
+  await waitUntil(page, () => window.__gallery.renderer.info.render.calls > 0, 8000, '图鉴渲染第一帧');
+
+  const count = await page.evaluate(() => document.querySelectorAll('#typeList [data-type]').length);
+  check(count === 7, '图鉴类型数量 ' + count + '，应覆盖 7 种僵尸');
+
+  // 7 种都点一遍：确保每种模型都能构造、配件（锥/桶/头盔/气球/木棒）都能挂上
+  for (const type of ['normal', 'cone', 'bucket', 'football', 'balloon', 'skeleton', 'boss']) {
+    await page.click('[data-type="' + type + '"]');
+    await waitUntil(
+      page,
+      (t) => window.__gallery.current && window.__gallery.current.type === t,
+      10000,
+      '切换到 ' + type,
+      type
+    );
+  }
+
+  await page.click('[data-type="football"]');
+  await waitUntil(
+    page,
+    () => window.__gallery.current && window.__gallery.current.type === 'football',
+    15000,
+    '切换到橄榄球僵尸'
+  );
+
+  const before = await page.evaluate(() => ({
+    t: window.__gallery.current.zombie.mixer.time,
+    calls: window.__gallery.renderer.info.render.calls,
+    tris: window.__gallery.renderer.info.render.triangles,
+    model: window.__gallery.current.zombie.modelId,
+  }));
+  check(before.model === 'football', '图鉴里的橄榄球模型是 ' + before.model);
+  check(before.calls > 0, '图鉴没有 draw call');
+  check(before.tris > 1000, '图鉴三角面 ' + before.tris + '，模型可能没加载');
+
+  // 走路动画必须在推进，而不是停在 bind pose
+  await page.waitForTimeout(700);
+  const after = await page.evaluate(() => ({ t: window.__gallery.current.zombie.mixer.time }));
+  check(after.t > before.t + 0.02, '走路动画没有推进：' + before.t.toFixed(3) + ' → ' + after.t.toFixed(3));
+
+  await page.click('[data-angle="back"]');
+  await waitUntil(page, () => window.__gallery.camera.position.z < -1, 6000, '背面视角');
+  await page.click('[data-angle="top"]');
+  await waitUntil(
+    page,
+    () => window.__gallery.camera.position.y > window.__gallery.controls.target.y + 1,
+    6000,
+    '俯视视角'
+  );
+
+  await page.click('[data-type="boss"]');
+  await waitUntil(
+    page,
+    () => window.__gallery.current && window.__gallery.current.type === 'boss',
+    15000,
+    '切换到巨型骷髅'
+  );
+  // 切换后等一帧，截图/指标才看得到新模型和新机位
+  await page.waitForTimeout(250);
+  const boss = await page.evaluate(() => ({
+    h: window.__gallery.current.info.height,
+    d: window.__gallery.camera.position.distanceTo(window.__gallery.controls.target),
+    calls: window.__gallery.renderer.info.render.calls,
+  }));
+  check(boss.h > 4, 'Boss 高度 ' + boss.h.toFixed(2) + '，应约 4.48 米');
+  check(boss.d > 5, 'Boss 相机距离 ' + boss.d.toFixed(2) + '，太近会裁掉模型');
+
+  const file = await shot(page, 'phase-gallery');
+  return {
+    metrics: {
+      types: count,
+      model: before.model,
+      walkTime: after.t.toFixed(2) + 's',
+      calls: boss.calls,
+      bossHeight: boss.h.toFixed(2) + 'm',
+      shot: file,
+    },
+  };
+}
+
 // ---------------------------------------------------------------- 主流程
 
 const PHASES = [
@@ -1309,6 +1399,8 @@ const PHASES = [
   { name: 'mobile', label: '手机模拟（横屏 UI + 竖屏拦截）', group: 'mobile', fn: phaseMobile },
   { name: 'perf', label: '性能与稳定性（10s 采样）', group: 'desktop', fn: phasePerf },
   { name: 'gameover', label: '死亡结算与重开', group: 'desktop', fn: phaseGameOver },
+  // 图鉴是独立页面，放最后：它会导航离开游戏，不能影响前面的场景。
+  { name: 'gallery', label: '僵尸图鉴（模型/走路/视角）', group: 'desktop', fn: phaseGallery },
 ];
 
 async function main() {

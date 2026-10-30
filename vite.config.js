@@ -67,5 +67,11 @@ export default defineConfig({
   build: {
     target: 'es2019',
     assetsInlineLimit: 4096,
+    rollupOptions: {
+      input: {
+        main: resolve(ROOT, 'index.html'),
+        gallery: resolve(ROOT, 'gallery.html'),
+      },
+    },
   },
 });

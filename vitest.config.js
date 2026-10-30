@@ -61,6 +61,7 @@ const audioPlugin = embedAudio();
 // 读好文件内容，再用 define 注入到测试环境。
 const SOURCE_FILES = [
   'index.html',
+  'gallery.html',
   'vite.config.js',
   'src/style.css',
   'src/main.js',
@@ -69,6 +70,8 @@ const SOURCE_FILES = [
   'src/world/materials.js',
   'src/entities/ZombieModel.js',
   'src/fx/audio.js',
+  'src/gallery/main.js',
+  'src/gallery/presets.js',
 ];
 
 const FIXTURES = {
@@ -96,7 +99,9 @@ export default defineConfig({
     coverage: {
       provider: 'v8',
       include: ['src/**/*.js'],
-      exclude: ['src/main.js'],
+      // 图鉴页是独立 WebGL 入口，和 src/main.js 一样由浏览器级 E2E 覆盖；
+      // 纯数据/视角计算在 src/gallery/presets.js，由 tests/unit/gallery.test.js 覆盖。
+      exclude: ['src/main.js', 'src/gallery/main.js'],
       // --coverage 在并行 worker 下偶发 ENOENT（读 .tmp 时被另一 worker 清掉），每次先清空目录
       clean: true,
       reportsDirectory: 'coverage',

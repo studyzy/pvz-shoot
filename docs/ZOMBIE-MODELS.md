@@ -314,7 +314,7 @@ Blender 4.2 headless（同 alchemist，`bpy==4.2.23` + 本地 `libSM/libICE`）�
 
 ### 接入约定
 
-- **归属**：`ZOMBIES.football.model = 'football'`；`MODELS.football = { url: 'models/football.glb', scale: 0.95, height: 2.06 }`。1.938 × 0.95 × 类型 scale 1.12 ≈ 2.06 m。
+- **归属**：`ZOMBIES.football.model = 'football'`；`MODELS.football = { url: 'models/football.glb', scale: 0.95, height: 1.84 }`。1.938 × 0.95 ≈ 1.84 m，再乘类型 scale 1.12 ≈ 2.06 m。
 - **命中球**：`HIT.football = { chest: 1.34, head: 1.66, radius: 1 }`（乘类型 scale 1.12 → 胸口 1.50 / 头 1.86）。头球半径 0.36×1.12 < 身体 0.46×1.12，爆头仍然成立。
 - **头盔是程序化的**（模型本身没头盔）：`buildHat` 的 helmet 分支挂在 `Head` 骨骼、本地 Y 1.76；模型自带白色护肩和红球衣，**不要再补护肩**。
 - 模型未就绪时 `spawnOne` 会改刷别的类型、它留在队首（`zombieModel.football` 槽）。

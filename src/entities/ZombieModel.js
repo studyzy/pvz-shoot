@@ -17,7 +17,7 @@ export const SKELETON_SCALE = 0.9;
 export const ALCHEMIST_SCALE = 1.72;
 
 // 橄榄球僵尸（项目内 AIGC 资产，见 docs/ZOMBIE-MODELS.md）：22 骨骼、5 段动画。
-// 原始高 1.938（T-pose），按 FOOTBALL_SCALE 0.95 + 类型 scale 1.12 ≈ 2.06 米。
+// 原始高 1.938（T-pose），按 FOOTBALL_SCALE 0.95 → 1.84 米；类型 scale 1.12 后约 2.06 米。
 export const FOOTBALL_SCALE = 0.95;
 
 // 模型定义：id -> { url, scale, height }。Zombie.buildRig 按 def.model 取。
@@ -25,7 +25,7 @@ export const MODELS = {
   zombie: { url: 'models/zombie.glb', scale: ZOMBIE_SCALE, height: ZOMBIE_HEIGHT },
   skeleton: { url: 'models/skeleton.glb', scale: SKELETON_SCALE, height: 1.95 },
   alchemist: { url: 'models/alchemist.glb', scale: ALCHEMIST_SCALE, height: 1.85 },
-  football: { url: 'models/football.glb', scale: FOOTBALL_SCALE, height: 2.06 },
+  football: { url: 'models/football.glb', scale: FOOTBALL_SCALE, height: 1.84 },
 };
 
 export const zombieModel = {

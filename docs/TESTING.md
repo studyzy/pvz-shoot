@@ -7,7 +7,7 @@ npm test              # 跑全部 UT + 集成测试（jsdom，约 10 秒）
 npm run test:watch    # 监听模式，改代码自动重跑
 npm run test:coverage # 跑全部测试并输出覆盖率报告（coverage/index.html）
 npm run webgl-check   # 真实 Chromium + WebGL 冒烟（构建 → 起 preview → 点开始 → 刷僵尸 → 开火）
-npm run test:e2e      # 浏览器级 E2E：6 个场景（真 WebGL/glb/DOM 交互），约 70 秒
+npm run test:e2e      # 浏览器级 E2E：8 个场景（真 WebGL/glb/DOM 交互），约 2 分钟
 ```
 
 ---
@@ -20,7 +20,7 @@ npm run test:e2e      # 浏览器级 E2E：6 个场景（真 WebGL/glb/DOM 交�
 | 集成测试（jsdom） | `tests/integration/` | **真实 `Game`** + 真实 `index.html` DOM + 完整 `Game.update` 帧循环 | 系统之间的接线：开火→命中→击杀→掉阳光→拾取→加分；暂停/死亡/重开；切图；触屏 |
 | 静态契约 | `tests/integration/projectcontract.test.js` | 读源码文本 + config 数据 | `HUD` 引用了 index.html 里不存在的 id、新植物忘补图标、数值表被误改、外部 CDN 混入 |
 | 真实渲染冒烟 | `tests/integration/spawnZombies.webgl.mjs` | Playwright + 系统 Chromium（SwiftShader） | jsdom 覆盖不到的部分：真实 WebGL 上下文、材质编译、真实 glb 加载、draw call/三角面 |
-| 浏览器级 E2E | `tests/integration/browser.e2e.webgl.mjs` | 同上 + 真实键鼠/触屏/布局 | 指针锁、WASD/鼠标视角、按钮真实可点、手机横竖屏、地图切换、10 秒性能水位、结算与重开（详见第 5 节） |
+| 浏览器级 E2E | `tests/integration/browser.e2e.webgl.mjs` | 同上 + 真实键鼠/触屏/布局 | 指针锁、WASD/鼠标视角、按钮真实可点、手机横竖屏、地图切换、10 秒性能水位、结算与重开、图鉴页模型/走路/视角（详见第 5 节） |
 
 jsdom 里 WebGL 是假的，所以**渲染与真实交互正确性靠 `npm run webgl-check` / `npm run test:e2e` 兜底**，其余逻辑全部在 `npm test` 里。
 
@@ -98,6 +98,7 @@ vi.mock('three', async (importOriginal) => {
 
 - Node 版本固定 **22**（`jsdom@29` 要求 `^20.19 || ^22.13 || >=24`）。
 - 覆盖率门槛写在 `vitest.config.js` 的 `coverage.thresholds`（当前：语句/行 98%、分支 89%、函数 97%；Vitest 4 的 v8 分支口径比 3 严，分支门槛按新口径校准过），**不要在 CI 里再写死一份**；本地 `npm run test:coverage` 用的是同一套阈值，低于阈值同样 exit 1。
+- `src/main.js` 与独立图鉴入口 `src/gallery/main.js` 是 WebGL 入口，排除在覆盖率之外，由 E2E 覆盖；图鉴的纯数据/视角逻辑在 `src/gallery/presets.js`，必须由 `tests/unit/gallery.test.js` 覆盖。
 - `playwright-core` 必须用 `npx playwright-core install`（不能用 `npx playwright install`）：E2E 脚本按 `chromium-<rev>` 目录名找可执行文件，浏览器版本必须和 `package-lock.json` 锁定的 `playwright-core` 对齐。
 - artifact：`coverage/`（HTML + lcov，14 天）、失败时的 `tests/integration/.artifacts/` 截图。
 - `deploy.yml` 仍然只在 push 到 `main` 时跑，与 CI 独立；想"测试通过才部署"，把 Pages 部署的触发改成 `workflow_run` 依赖 CI 成功即可（当前是并行策略，部署不阻塞）。
@@ -120,6 +121,7 @@ vi.mock('three', async (importOriginal) => {
 | 三张地图切换后 `scene.background` / `fog` 真实变化并继续渲染 | `maps` |
 | 长跑 10 秒的压力水位（14 只僵尸 + 持续开火） | `perf` |
 | 死亡结算面板与"再来一局"的真实 DOM 流程 | `gameover` |
+| 独立图鉴页：7 种僵尸切换、walk 动画推进、3/4/正面/侧面/背面/俯视机位、Boss 完整入镜 | `gallery` |
 
 ```bash
 npm run test:e2e                 # 等价于 node tests/integration/browser.e2e.webgl.mjs

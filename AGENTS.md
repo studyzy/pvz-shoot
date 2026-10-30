@@ -33,6 +33,10 @@ npm run preview   # 预览构建产物
 | 文件 | 职责 |
 | --- | --- |
 | `src/main.js` | 启动、创建 `Game`、挂 `window.__game` 调试句柄、启动渲染循环 |
+| `gallery.html` | 独立的僵尸图鉴页入口（Vite 多页 `gallery`），主菜单右上角可进入 |
+| `src/gallery/main.js` | 图鉴页 Three.js 场景、模型加载/切换、OrbitControls、视角按钮、循环 walk 动画 |
+| `src/gallery/presets.js` | 图鉴类型元数据、`MODELS` 高度/相机距离、视角预设、走路速度、数值行 |
+| `src/gallery/gallery.css` | 图鉴页样式（桌面左栏 + 手机顶部横条布局） |
 | `src/Game.js` | 状态机（menu/playing/paused/over）、系统组装、每帧更新顺序、波次回调、阳光/计分、镜头震动、自适应分辨率 |
 | `src/config.js` | **所有可调数值**：`TUNING`、`WEAPONS`、`ZOMBIES`、波次公式。改平衡先改这里 |
 | `src/world/Arena.js` | 后院场景：地面、栅栏、房子、树、墓碑、割草机、光照与阴影、碰撞体列表 `colliders` |
@@ -190,7 +194,7 @@ npm run preview   # 预览构建产物
 ### 5.3.3 橄榄球模型（第四个模型 → 橄榄球僵尸在用）
 
 - `public/models/football.glb`：仓库所有者提供的 AIGC 橄榄球僵尸（原始 FBX 38.1 MB，处理管线见 [docs/ZOMBIE-MODELS.md](docs/ZOMBIE-MODELS.md)）。**授权与 alchemist 一样由仓库所有者确认**，不是 CC0 素材。
-- **归属**：`ZOMBIES.football.model = 'football'`、`MODELS.football = { scale: 0.95, height: 2.06 }`；原始高 1.938（T-pose），× 0.95 × 类型 scale 1.12 ≈ 2.06 米。
+- **归属**：`ZOMBIES.football.model = 'football'`、`MODELS.football = { scale: 0.95, height: 1.84 }`；原始高 1.938（T-pose），× 0.95 ≈ 1.84 米，再乘类型 scale 1.12 ≈ 2.06 米。
 - 规格：**10,000 三角面、1 个蒙皮网格（1 draw call）、22 骨骼、5 段动画、1.4 MB**；贴图 = 1024 baseColor JPEG + 512 normal PNG。
 - **FBX 的 armature 对象带 0.01 缩放**：导出 glTF 前必须先 `unparent → transform_apply(scale)` 把骨骼和网格都变成米，否则 three.js 里蒙皮会塌缩/浮空（本次踩过）。
 - Quaternius 的 `Walk/Idle_Attack` 带根位移，不能直接照搬：Walk 的根位移会让模型在动画里滑出 4 米。动画只取骨骼旋转，腿骨旋转再乘 0.62（目标腿比源模型长 1.62 倍），每段用**常量**抬升贴地，不要逐帧 `minz`（会做出半米上下颠簸）。
@@ -260,6 +264,15 @@ npm run preview   # 预览构建产物
 - 新增拾取植物必须给 `model`（视图模型分支）、`ammo`、`color`，并在 `WeaponSystem.buildViewModels` 的 `builders` 里有对应构建函数。
 
 ---
+
+### 5.10 僵尸图鉴页
+
+- **入口**：`gallery.html`（Vite 多页），主菜单右上角「僵尸图鉴」链接；`vite.config.js` 的 `rollupOptions.input` 必须同时包含 `index.html` 和 `gallery.html`，否则 `npm run build` 不会产出图鉴页。
+- **复用游戏模型**：`src/gallery/main.js` 直接 `new Zombie(type, ...)`，走和游戏相同的 `ZombieModel` / 配件 / 缩放；新增僵尸或配件会自动出现在图鉴里，不要另写一份 glb 加载器。
+- **必须是走路动画**：图鉴用 `z.play('walk', 0)` + 每帧 `mixer.update(dt)`，不要换成 idle。
+- **根位移**：Quaternius 的 `zombie.glb` Walk 带根位移，图鉴里把根骨的位置/旋转钉在第 0 帧，只保留四肢/躯干的走路动作；football/alchemist/skeleton 的 walk 是原地动画，不需要钉。
+- **数据和视角**：类型列表、`MODELS` 高度、相机距离、3/4/正面/侧面/背面/俯视预设都在 `src/gallery/presets.js`。新增僵尸类型时 `GALLERY_TYPES` 必须同步，`tests/unit/gallery.test.js` 会检查覆盖全部 `ZOMBIES` 键。
+- **覆盖率**：`src/gallery/main.js` 是独立 WebGL 入口，和 `src/main.js` 一样排除在 `vitest.config.js` 的 coverage 之外，由 E2E `gallery` 场景覆盖；纯数据 `presets.js` 仍由单元测试覆盖。
 
 ## 6. 常见改动路径
 
@@ -351,6 +364,7 @@ __game.renderer.info.render     // draw call / 三角面
 - 护甲：打铁桶/橄榄球时头盔先掉（碎裂音），铁桶对豌豆减伤、橄榄球被火豌豆烧穿；仙人掌穿透打不动铁桶。
 - 气球：豌豆打它穿过去（地面打出点点、无伤害）；换玉米炮/樱桃一发带走；跳到它高度以下能躲开撕咬；站上雪地矮墙 + 水平 3 米内用豌豆也能打到。
 - 普通僵尸（新模型）：任意地图第 1 波就有；走路摆臂、攻击抬右手砸下、受击后仰、死亡后仰倒地；正面点头能爆头、打胸口算身体；路障/铁桶仍是原来的僵尸模型 + 锥帽/铁桶。
+- 图鉴：主菜单右上角「僵尸图鉴」→ 独立页面列出 7 种僵尸；点击切换、拖动旋转、滚轮/双指缩放；模型循环走路（不是静止）；3/4/正面/侧面/背面/俯视按钮可用；橄榄球有红头盔、Boss 手持木棒。
 - 流程：击杀掉阳光并拾取（18 秒内没捡会消失）、天降阳光每 30 秒落 1 颗、清波加分、暂停/恢复、死亡结算、再来一局。
 - 性能：1–4 只僵尸时 draw call 约 90–130；14 只时不超过约 250。
 
@@ -359,7 +373,7 @@ __game.renderer.info.render     // draw call / 三角面
 ```bash
 npm test              # UT + 集成测试（Vitest + jsdom），PR 必须全绿
 npm run test:coverage # 覆盖率报告（coverage/index.html）
-npm run test:e2e      # 真实 Chromium 跑 7 个浏览器场景（构建→preview→点按钮→断言），约 100 秒
+npm run test:e2e      # 真实 Chromium 跑 8 个浏览器场景（构建→preview→点按钮→断言），约 2 分钟
 npm run build         # 生产构建
 ```
 
@@ -367,8 +381,8 @@ CI（`.github/workflows/ci.yml`）在每次 push 到 main 和每个 PR 上跑三
 
 | job | 内容 | 失败条件 |
 | --- | --- | --- |
-| **UT + 集成测试** | `vitest run --coverage`（937 用例） | 任何用例失败；覆盖率低于 `vitest.config.js` 的 `thresholds`（语句/行 98%、分支 89%、函数 97%） |
-| **浏览器级 E2E** | `playwright-core install --with-deps chromium` + `npm run test:e2e`（7 场景） | 任一场景 FAIL 或页面出现 console.error / pageerror |
+| **UT + 集成测试** | `vitest run --coverage`（948 用例） | 任何用例失败；覆盖率低于 `vitest.config.js` 的 `thresholds`（语句/行 98%、分支 89%、函数 97%） |
+| **浏览器级 E2E** | `playwright-core install --with-deps chromium` + `npm run test:e2e`（8 场景） | 任一场景 FAIL 或页面出现 console.error / pageerror |
 | **生产构建** | `npm run build` | 构建失败 |
 
 覆盖率 HTML 报告与 E2E 失败截图分别作为 artifact 保留 14 天。三个 job 互不依赖，可并行跑；改覆盖率门槛请改 `vitest.config.js` 而不是在 CI 里写死。
