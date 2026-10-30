@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="theme-color" content="#0b1408" />
+  <meta name="description" content="戴夫的后院 · 僵尸压测台：指定僵尸类型和同屏数量，观察帧率、draw call 与三角面，找出手机 / iPad 的掉帧拐点。" />
+  <title>僵尸压测台 · 戴夫的后院</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='14' cy='14' r='10' fill='%237ed321'/%3E%3Crect x='21' y='11' width='9' height='6' rx='3' fill='%238ede2a'/%3E%3C/svg%3E" />
+</head>
+<body>
+  <div id="stressApp">
+    <canvas id="stressCanvas"></canvas>
+
+    <header class="stress-header">
+      <a class="back-link" href="./index.html">← 返回游戏</a>
+      <div class="stress-title">
+        <div class="kicker">PERFORMANCE LAB</div>
+        <h1>僵尸压测台</h1>
+      </div>
+      <div class="header-spacer" aria-hidden="true"></div>
+    </header>
+
+    <section class="stats-panel" id="statsPanel" aria-live="polite">
+      <div class="fps-row">
+        <b id="fpsValue">--</b>
+        <span class="fps-unit">FPS</span>
+        <span class="verdict" id="verdict" data-tone="idle">待测</span>
+      </div>
+      <div class="stat-line" id="frameLine">帧时间 --</div>
+      <div class="stat-line" id="renderLine">draw -- · 三角面 --</div>
+      <div class="stat-line dim" id="memoryLine">几何 -- · 贴图 --</div>
+      <div class="stat-line" id="sceneLine">-- 只 · --</div>
+      <div class="stat-line dim" id="deviceLine">--</div>
+      <div class="ramp-result hidden" id="rampResult"></div>
+    </section>
+
+    <section class="control-panel" id="controlPanel">
+      <div class="control-row type-row">
+        <div class="control-label">僵尸类型</div>
+        <div class="type-chips" id="typeChips" role="group" aria-label="僵尸类型"></div>
+      </div>
+
+      <div class="control-row">
+        <div class="control-label">同屏数量 <b id="countValue">8</b> 只</div>
+        <div class="count-control">
+          <input type="range" id="countRange" min="0" max="64" step="1" value="8" aria-label="同屏僵尸数量" />
+          <div class="quick-btns" id="quickBtns"></div>
+        </div>
+      </div>
+
+      <div class="control-row toggles">
+        <label class="switch"><input type="checkbox" id="shadowToggle" checked /><span>阴影</span></label>
+        <label class="switch"><input type="checkbox" id="animToggle" checked /><span>骨骼动画</span></label>
+        <label class="switch"><input type="checkbox" id="dprToggle" checked /><span>2× 像素比</span></label>
+        <button type="button" class="ramp-btn" id="rampBtn">自动测极限</button>
+      </div>
+      <p class="panel-hint">拖动旋转 · 滚轮 / 双指缩放。压测页不会自动降分辨率，读数就是这台设备的真实开销。</p>
+    </section>
+
+    <div class="loading" id="loading">
+      <div class="spinner" aria-hidden="true"></div>
+      <p>正在加载僵尸模型…</p>
+    </div>
+    <div class="error hidden" id="error" role="alert"></div>
+  </div>
+  <script type="module" src="/src/stress/main.js"></script>
+</body>
+</html>

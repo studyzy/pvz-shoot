@@ -37,6 +37,10 @@ npm run preview   # 预览构建产物
 | `src/gallery/main.js` | 图鉴页 Three.js 场景、模型加载/切换、OrbitControls、视角按钮、循环 walk 动画 |
 | `src/gallery/presets.js` | 图鉴类型元数据、`MODELS` 高度/相机距离、视角预设、走路速度、数值行 |
 | `src/gallery/gallery.css` | 图鉴页样式（桌面左栏 + 手机顶部横条布局） |
+| `stress.html` | 独立的性能压测页入口（Vite 多页 `stress`），主菜单右上角「压测台」可进入 |
+| `src/stress/main.js` | 压测页 Three.js 场景：按类型/数量批量生成 `Zombie`、FPS/draw call 读数、自动爬坡 |
+| `src/stress/metrics.js` | 帧率滑窗、方阵排布、相机取景、爬坡档位等纯计算（单元测试覆盖） |
+| `src/stress/stress.css` | 压测页样式（读数面板 + 底部控制条，不用 backdrop-filter） |
 | `src/Game.js` | 状态机（menu/playing/paused/over）、系统组装、每帧更新顺序、波次回调、阳光/计分、镜头震动、自适应分辨率 |
 | `src/config.js` | **所有可调数值**：`TUNING`、`WEAPONS`、`ZOMBIES`、波次公式。改平衡先改这里 |
 | `src/world/Arena.js` | 后院场景：地面、栅栏、房子、树、墓碑、割草机、光照与阴影、碰撞体列表 `colliders` |
@@ -275,6 +279,21 @@ npm run preview   # 预览构建产物
 - **数据和视角**：类型列表、`MODELS` 高度、相机距离、3/4/正面/侧面/背面/俯视预设都在 `src/gallery/presets.js`。新增僵尸类型时 `GALLERY_TYPES` 必须同步，`tests/unit/gallery.test.js` 会检查覆盖全部 `ZOMBIES` 键。
 - **覆盖率**：`src/gallery/main.js` 是独立 WebGL 入口，和 `src/main.js` 一样排除在 `vitest.config.js` 的 coverage 之外，由 E2E `gallery` 场景覆盖；纯数据 `presets.js` 仍由单元测试覆盖。
 
+### 5.11 性能压测页
+
+- **入口**：`stress.html`（Vite 多页 `stress`），主菜单右上角「压测台」；`vite.config.js` 的 `rollupOptions.input` 要包含它，否则构建不产出。
+- **目的**：回答「这台手机 / iPad 同屏多少只僵尸开始卡」。只生成不移动的僵尸（`spawnT = 1`、`play('walk')` + 每帧 `mixer.update`），不跑 AI/寻路，专门测模型渲染与蒙皮开销。
+- **必须复用 `Zombie`**：和游戏同一套 glb / 骨骼 / 配件 / 缩放，不要另写加载器，否则测出来的不是游戏里的成本。
+- **渲染设置与游戏一致**：antialias、PCFSoft 1024 阴影、DPR 上限 2、NeutralToneMapping、PMREM 环境贴图（`outdoorEnvironment`）。
+- **不要加自动降分辨率**：`Game.trackPerformance` 那套会把读数悄悄抹平；压测页必须显示真实开销。
+- **指标**：最近 90 帧的 FPS / 平均帧时间 / P95 / draw call / 三角面 / 几何与贴图数。draw call 与三角面只统计主渲染通道，阴影 pass 另算（`renderer.info` 的口径）。
+- **类型**来自 `GALLERY_TYPES`（另有「混合」），模型没加载好的类型自动禁用；新增僵尸类型不用改这个页面。
+- **自动测极限**：按 `RAMP_STEPS` 递增，每档 `RAMP.warmupMs` 热身 + `RAMP.measureMs` 采样，FPS 低于 `RAMP.failFps`（45，与游戏自动降分辨率同口径）就停，报出「撑到 N 只 / M 只掉到 X fps」。
+- **生成分帧**（每帧 4 只），生成与 settle 期间的帧不进统计，否则初始化开销会污染稳态读数。
+- **覆盖率**：`src/stress/main.js` 是独立 WebGL 入口，排除在 `vitest.config.js` 的 coverage 外，由 E2E `stress` 场景覆盖；纯计算在 `metrics.js`，由 `tests/unit/stress.test.js` 覆盖。
+- **实测口径**（每只僵尸的主通道 draw call，含 blob 影子）：普通 2、路障 6、气球 5、橄榄球 9（其中 6 个来自程序化头盔）、骷髅 10、Boss 12；普通僵尸 1 万三角面，其余 5k–1.1 万。
+
+
 ## 6. 常见改动路径
 
 ### 新增一株植物 / 武器
@@ -366,6 +385,7 @@ __game.renderer.info.render     // draw call / 三角面
 - 气球：豌豆打它穿过去（地面打出点点、无伤害）；换玉米炮/樱桃一发带走；跳到它高度以下能躲开撕咬；站上雪地矮墙 + 水平 3 米内用豌豆也能打到。
 - 普通僵尸（新模型）：任意地图第 1 波就有；走路摆臂、攻击抬右手砸下、受击后仰、死亡后仰倒地；正面点头能爆头、打胸口算身体；路障/铁桶仍是原来的僵尸模型 + 锥帽/铁桶。
 - 图鉴：主菜单右上角「僵尸图鉴」→ 独立页面列出 7 种僵尸；点击切换、拖动旋转、滚轮/双指缩放；模型循环走路（不是静止）；3/4/正面/侧面/背面/俯视按钮可用；橄榄球有红头盔、Boss 手持木棒。
+- 压测页：主菜单右上角「压测台」→ 选类型 / 拖数量后僵尸立刻按方阵重排；开关阴影、骨骼动画、2× 像素比时读数跟着变；「自动测极限」从 2 只往上爬，掉帧后停下并报出拐点。
 - 流程：击杀掉阳光并拾取（18 秒内没捡会消失）、天降阳光每 30 秒落 1 颗、清波加分、暂停/恢复、死亡结算、再来一局。
 - 性能：1–4 只僵尸时 draw call 约 90–130；14 只时不超过约 250。
 
@@ -374,7 +394,7 @@ __game.renderer.info.render     // draw call / 三角面
 ```bash
 npm test              # UT + 集成测试（Vitest + jsdom），PR 必须全绿
 npm run test:coverage # 覆盖率报告（coverage/index.html）
-npm run test:e2e      # 真实 Chromium 跑 8 个浏览器场景（构建→preview→点按钮→断言），约 2 分钟
+npm run test:e2e      # 真实 Chromium 跑 9 个浏览器场景（构建→preview→点按钮→断言），约 2 分钟
 npm run build         # 生产构建
 ```
 
@@ -382,8 +402,8 @@ CI（`.github/workflows/ci.yml`）在每次 push 到 main 和每个 PR 上跑三
 
 | job | 内容 | 失败条件 |
 | --- | --- | --- |
-| **UT + 集成测试** | `vitest run --coverage`（948 用例） | 任何用例失败；覆盖率低于 `vitest.config.js` 的 `thresholds`（语句/行 98%、分支 89%、函数 97%） |
-| **浏览器级 E2E** | `playwright-core install --with-deps chromium` + `npm run test:e2e`（8 场景） | 任一场景 FAIL 或页面出现 console.error / pageerror |
+| **UT + 集成测试** | `vitest run --coverage`（974 用例） | 任何用例失败；覆盖率低于 `vitest.config.js` 的 `thresholds`（语句/行 98%、分支 89%、函数 97%） |
+| **浏览器级 E2E** | `playwright-core install --with-deps chromium` + `npm run test:e2e`（9 场景） | 任一场景 FAIL 或页面出现 console.error / pageerror |
 | **生产构建** | `npm run build` | 构建失败 |
 
 覆盖率 HTML 报告与 E2E 失败截图分别作为 artifact 保留 14 天。三个 job 互不依赖，可并行跑；改覆盖率门槛请改 `vitest.config.js` 而不是在 CI 里写死。

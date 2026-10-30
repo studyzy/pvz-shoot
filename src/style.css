@@ -894,6 +894,14 @@ h2 {
   transition: background .15s, border-color .15s, color .15s;
 }
 .codex-link span { font-size: 13px; }
+.codex-link.perf-link {
+  top: calc(64px + var(--safe-t));
+  padding: 6px 12px;
+  font-size: 11px;
+  opacity: 0.72;
+}
+.codex-link.perf-link span { font-size: 11px; }
+.codex-link.perf-link:hover { opacity: 1; }
 .codex-link:hover { background: rgba(126, 211, 33, 0.18); border-color: rgba(211, 255, 142, 0.65); color: #f4ffe6; }
 
 .ghost-btn {

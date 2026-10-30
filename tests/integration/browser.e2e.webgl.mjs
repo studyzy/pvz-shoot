@@ -1389,6 +1389,69 @@ async function phaseGallery(ctx) {
   };
 }
 
+async function phaseStress(ctx) {
+  const { page, url } = ctx;
+  await page.goto(new URL('stress.html', url).toString(), { waitUntil: 'load' });
+  await waitUntil(page, () => window.__stress && window.__stress.ready, 45000, '压测页加载');
+  await waitUntil(page, () => window.__stress.renderer.info.render.calls > 0, 10000, '压测页渲染第一帧');
+
+  const chips = await page.evaluate(() => document.querySelectorAll('#typeChips [data-type]').length);
+  check(chips === 8, '压测页类型 ' + chips + ' 个，应为 7 种僵尸 + 混合');
+
+  // 指定数量：6 只炼金僵尸，等生成队列排空后才有稳态帧率
+  await page.evaluate(() => window.__stress.setCount(6));
+  await waitUntil(page, () => window.__stress.zombies.length === 6, 20000, '生成 6 只僵尸');
+  await waitUntil(page, () => window.__stress.stats.frames >= 6, 20000, '帧率采样');
+
+  const normal = await page.evaluate(() => ({
+    count: window.__stress.zombies.length,
+    type: window.__stress.state.type,
+    calls: window.__stress.renderer.info.render.calls,
+    tris: window.__stress.renderer.info.render.triangles,
+    fps: window.__stress.stats.fps,
+  }));
+  check(normal.count === 6, '压测页僵尸数 ' + normal.count + '，应为 6');
+  check(normal.type === 'normal', '压测页默认类型 ' + normal.type);
+  check(normal.calls > 0, '压测页没有 draw call');
+  check(normal.tris > 5000, '压测页三角面 ' + normal.tris + '，模型可能没加载');
+
+  // 换类型：骷髅拆成 9 个蒙皮网格，同数量下 draw call 必须明显高于炼金僵尸
+  await page.evaluate(() => window.__stress.setType('skeleton'));
+  await waitUntil(
+    page,
+    () => window.__stress.state.type === 'skeleton' && window.__stress.zombies.length === 6,
+    20000,
+    '切换到骷髅'
+  );
+  await page.waitForTimeout(700);
+  const skeleton = await page.evaluate(() => ({
+    calls: window.__stress.renderer.info.render.calls,
+    tris: window.__stress.renderer.info.render.triangles,
+  }));
+  check(skeleton.calls > normal.calls, '骷髅 draw call ' + skeleton.calls + ' 不高于炼金僵尸 ' + normal.calls);
+
+  // 自动测极限：点一下开、再点一下停（完整跑完要 1 分钟，E2E 只验证按钮接线与状态机）
+  await page.click('#rampBtn');
+  await waitUntil(page, () => !!window.__stress.state.ramp, 6000, '自动测极限启动');
+  await page.click('#rampBtn');
+  await waitUntil(page, () => !window.__stress.state.ramp, 6000, '自动测极限停止');
+
+  await page.evaluate(() => window.__stress.setCount(6));
+  await waitUntil(page, () => window.__stress.zombies.length === 6, 20000, '恢复 6 只');
+  const file = await shot(page, 'phase-stress');
+  return {
+    metrics: {
+      types: chips,
+      count: normal.count,
+      calls: normal.calls,
+      skeletonCalls: skeleton.calls,
+      tris: normal.tris,
+      fps: normal.fps.toFixed(1),
+      shot: file,
+    },
+  };
+}
+
 // ---------------------------------------------------------------- 主流程
 
 const PHASES = [
@@ -1401,6 +1464,7 @@ const PHASES = [
   { name: 'gameover', label: '死亡结算与重开', group: 'desktop', fn: phaseGameOver },
   // 图鉴是独立页面，放最后：它会导航离开游戏，不能影响前面的场景。
   { name: 'gallery', label: '僵尸图鉴（模型/走路/视角）', group: 'desktop', fn: phaseGallery },
+  { name: 'stress', label: '压测页（数量/类型/帧率）', group: 'desktop', fn: phaseStress },
 ];
 
 async function main() {

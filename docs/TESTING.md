@@ -7,7 +7,7 @@ npm test              # 跑全部 UT + 集成测试（jsdom，约 10 秒）
 npm run test:watch    # 监听模式，改代码自动重跑
 npm run test:coverage # 跑全部测试并输出覆盖率报告（coverage/index.html）
 npm run webgl-check   # 真实 Chromium + WebGL 冒烟（构建 → 起 preview → 点开始 → 刷僵尸 → 开火）
-npm run test:e2e      # 浏览器级 E2E：8 个场景（真 WebGL/glb/DOM 交互），约 2 分钟
+npm run test:e2e      # 浏览器级 E2E：9 个场景（真 WebGL/glb/DOM 交互），约 2 分钟
 ```
 
 ---
@@ -98,7 +98,7 @@ vi.mock('three', async (importOriginal) => {
 
 - Node 版本固定 **22**（`jsdom@29` 要求 `^20.19 || ^22.13 || >=24`）。
 - 覆盖率门槛写在 `vitest.config.js` 的 `coverage.thresholds`（当前：语句/行 98%、分支 89%、函数 97%；Vitest 4 的 v8 分支口径比 3 严，分支门槛按新口径校准过），**不要在 CI 里再写死一份**；本地 `npm run test:coverage` 用的是同一套阈值，低于阈值同样 exit 1。
-- `src/main.js` 与独立图鉴入口 `src/gallery/main.js` 是 WebGL 入口，排除在覆盖率之外，由 E2E 覆盖；图鉴的纯数据/视角逻辑在 `src/gallery/presets.js`，必须由 `tests/unit/gallery.test.js` 覆盖。
+- `src/main.js`、图鉴入口 `src/gallery/main.js`、压测入口 `src/stress/main.js` 是 WebGL 入口，排除在覆盖率之外，由 E2E 覆盖；图鉴的纯数据/视角逻辑在 `src/gallery/presets.js`（`tests/unit/gallery.test.js`），压测的帧率统计/排布/取景在 `src/stress/metrics.js`（`tests/unit/stress.test.js`）。
 - `playwright-core` 必须用 `npx playwright-core install`（不能用 `npx playwright install`）：E2E 脚本按 `chromium-<rev>` 目录名找可执行文件，浏览器版本必须和 `package-lock.json` 锁定的 `playwright-core` 对齐。
 - artifact：`coverage/`（HTML + lcov，14 天）、失败时的 `tests/integration/.artifacts/` 截图。
 - `deploy.yml` 仍然只在 push 到 `main` 时跑，与 CI 独立；想"测试通过才部署"，把 Pages 部署的触发改成 `workflow_run` 依赖 CI 成功即可（当前是并行策略，部署不阻塞）。
@@ -122,6 +122,7 @@ vi.mock('three', async (importOriginal) => {
 | 长跑 10 秒的压力水位（14 只僵尸 + 持续开火） | `perf` |
 | 死亡结算面板与"再来一局"的真实 DOM 流程 | `gameover` |
 | 独立图鉴页：7 种僵尸切换、walk 动画推进、3/4/正面/侧面/背面/俯视机位、Boss 完整入镜 | `gallery` |
+| 独立压测页：数量/类型切换后真实生成僵尸、draw call 随类型变化、自动测极限的启停 | `stress` |
 
 ```bash
 npm run test:e2e                 # 等价于 node tests/integration/browser.e2e.webgl.mjs

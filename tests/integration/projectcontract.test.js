@@ -65,6 +65,29 @@ describe('僵尸图鉴页契约', () => {
   });
 });
 
+describe('僵尸压测页契约', () => {
+  it('stress.html 引用独立入口，数量/类型/读数控件齐全', () => {
+    const html = read('stress.html');
+    const main = read('src/stress/main.js');
+    expect(html).toContain('src/stress/main.js');
+    // 主菜单要有入口，手机 / iPad 上才不用手输 /stress.html
+    expect(read('index.html')).toContain('href="./stress.html"');
+    for (const id of ['stressCanvas', 'typeChips', 'countRange', 'rampBtn', 'fpsValue', 'rampResult']) {
+      expect(html, '缺少 #' + id).toContain('id="' + id + '"');
+    }
+    // 压测页必须复用游戏里的 Zombie（同一套 glb / 骨骼 / 配件），不能另写一份加载器
+    expect(main).toContain("from '../entities/Zombie.js'");
+    expect(main).toContain('window.__stress');
+    // 压测页不能自动降分辨率，否则读数会被悄悄抹平，测不出真实拐点
+    expect(main).not.toContain('trackPerformance');
+  });
+
+  it('vite 多页构建包含压测页', () => {
+    const cfg = read('vite.config.js');
+    expect(cfg).toContain("stress: resolve(ROOT, 'stress.html')");
+  });
+});
+
 describe('config 与文档一致', () => {
   it('config 里声明的数值都在允许区间内（防止误改数值表）', () => {
     expect(TUNING.playerSpeed).toBeGreaterThan(2);

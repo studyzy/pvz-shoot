@@ -71,6 +71,7 @@ export default defineConfig({
       input: {
         main: resolve(ROOT, 'index.html'),
         gallery: resolve(ROOT, 'gallery.html'),
+        stress: resolve(ROOT, 'stress.html'),
       },
     },
   },
