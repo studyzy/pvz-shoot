@@ -54,7 +54,7 @@ describe('僵尸配件挂在骨骼上不会跟着骨架缩放放大', () => {
     expect(head.getWorldScale(new THREE.Vector3()).x).toBeGreaterThan(100);
   });
 
-  it.each(['cone', 'bucket'])('%s 的世界尺寸和僵尸身体匹配（不超过身高的 0.6 倍、不超过 1 米宽）', (type) => {
+  it.each(['cone', 'bucket'])('%s 的世界尺寸和僵尸身体匹配（不超过身高的 0.6 倍、不超过 1.2 米宽）', (type) => {
     const z = spawn(type);
     // 播一会儿动画再量：bind 姿态的 Head 骨骼还带着 glb 的 Z-up 修正旋转（约 108°），
     // 帽子包围盒会按倾斜后的外接盒虚胖（铁桶 0.87 → 1.14），玩家看到的其实是动画姿态。
@@ -63,8 +63,9 @@ describe('僵尸配件挂在骨骼上不会跟着骨架缩放放大', () => {
     const hat = worldSize(z.hat);
     const body = worldSize(z.body);
     // 旧 bug：直接挂骨骼，交通锥被放大到 80+ 米宽、世界 y 从 -39 跨到 +43
-    expect(hat.x).toBeLessThan(1);
-    expect(hat.z).toBeLessThan(1);
+    // 铁桶外径约等于头宽（1.06 m），动画倾斜后 AABB 会到 1.05；旧的 100 倍缩放 bug 是 80 m 量级。
+    expect(hat.x).toBeLessThan(1.2);
+    expect(hat.z).toBeLessThan(1.2);
     expect(hat.y).toBeLessThan(body.y * 0.6);
   });
 

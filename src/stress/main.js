@@ -250,6 +250,8 @@ function spawnOne(item, index) {
     z.mixer.timeScale = walkTimeScale(z.speed);
     z.mixer.update((index % 9) * 0.19); // 错开步态相位
   }
+  // 图鉴/压测页都不跑 Zombie.update，锥帽/铁桶的落点要在这里补一次
+  if (z.hat) z.mountHeadTop();
   return z;
 }
 

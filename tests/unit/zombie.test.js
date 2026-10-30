@@ -7,7 +7,19 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 vi.mock('../../src/entities/ZombieModel.js', async (importOriginal) => {
   const THREE = await import('three');
   const actual = await importOriginal();
-  const geo = new THREE.BoxGeometry(0.45, 1.194, 0.3);
+  // SkinnedMesh.applyBoneTransform 需要 skinIndex/skinWeight；
+  // 缺了它们 headCrownLocal 会跳过网格，帽子高度就按默认值算，测试会误判。
+  const skinGeo = (w, h, d) => {
+    const g = new THREE.BoxGeometry(w, h, d);
+    const n = g.attributes.position.count;
+    g.setAttribute('skinIndex', new THREE.Uint16BufferAttribute(new Uint16Array(n * 4), 4));
+    g.setAttribute('skinWeight', new THREE.Float32BufferAttribute(
+      Float32Array.from({ length: n * 4 }, (_, i) => (i % 4 === 0 ? 1 : 0)), 4
+    ));
+    return g;
+  };
+  const geo = skinGeo(0.45, 1.194, 0.3);
+  geo.translate(0, 1.194 / 2, 0); // BoxGeometry 居中；真实 glb 脚底在 y≈0，这里对齐
   const mat = new THREE.MeshStandardMaterial({ color: 0x9ab271, roughness: 0.8 });
   // 真实模型是 SkinnedMesh：造一套最小骨骼，让 AnimationMixer 有东西可驱动
   const rootBone = new THREE.Bone();
@@ -20,11 +32,20 @@ vi.mock('../../src/entities/ZombieModel.js', async (importOriginal) => {
   head.position.y = 0.39;
   rootBone.add(hips);
   hips.add(head);
+  // bind 时传 bindMatrix=单位阵：让骨骼的世界缩放保持 1（真实 glb 里缩放算在 body 上，
+  // 不算在 Head 骨骼里）；否则 headCrownLocal 的 worldToLocal 会被骨骼缩放带偏。
   const skeleton = new THREE.Skeleton([rootBone, hips, head]);
   const mesh = new THREE.SkinnedMesh(geo, mat);
   mesh.name = 'zombie_body';
   mesh.add(rootBone);
-  mesh.bind(skeleton);
+  mesh.bind(skeleton, new THREE.Matrix4());
+  // 绑定姿态统一成单位变换：替身几何本身就是最终形状，
+  // headCrownLocal 量出来的头顶才等于 BoxGeometry 的顶面（和真实 glb 的口径一致）。
+  // 全部顶点权重给 Root（skinIndex 恒 0），Head 只用来给 buildHat 提供挂点。
+  rootBone.updateMatrixWorld(true);
+  skeleton.calculateInverses();
+  mesh.bindMatrix.identity();
+  mesh.bindMatrixInverse.identity();
   // 动画轨道驱动 Head 的旋转，验证 mixer 确实在工作
   const mkClip = (name) => new THREE.AnimationClip(name, 1, [
     new THREE.QuaternionKeyframeTrack('Head.quaternion', [0, 1], [0, 0, 0, 1, 0, 0.1, 0, 0.99]),
@@ -328,6 +349,12 @@ describe('Zombie · 属性与模型骨架', () => {
       zz.model.position.y = 0;
       zz.root.updateMatrixWorld(true);
       zz.body.updateWorldMatrix(true, true);
+      // 头顶落点是在首帧 mountHeadTop() 里量的（构造时骨骼绑定矩阵还没稳定），
+      // 这里显式调一次，别依赖前面用例有没有把全局缓存填上。
+      // 缓存是挂在模型源上的（按模型只量一次），先清掉，免得拿到构造期 model.position.y=-2.3 时量的错值。
+      zz.modelSource()._headCrown = null;
+      zz.mountHeadTop();
+      zz.root.updateMatrixWorld(true);
       const w = vec();
       zz.hat.getWorldPosition(w);
       // 模型替身高 1.194 × ZOMBIE_SCALE 1.55，再乘 scaleFactor

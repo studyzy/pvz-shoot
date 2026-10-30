@@ -84,7 +84,9 @@ export function typeInfo(id) {
   const model = MODELS[modelId] || MODELS.zombie;
   const height = (model.height || 1.8) * (def.scale || 1);
   const air = def.airborne ? def.airHeight || 2.2 : 0;
-  const total = height + air;
+  // 锥帽/铁桶会把头顶再抬高 0.6 米左右；不单独算进取景，图鉴里帽子会被顶栏裁掉。
+  const hat = def.acc === 'cone' ? 0.65 : def.acc === 'bucket' ? 0.55 : 0;
+  const total = height + air + hat;
   return {
     ...meta,
     id,
@@ -95,9 +97,9 @@ export function typeInfo(id) {
     height,
     air,
     total,
-    focusY: air + height * 0.55,
-    // 让 Boss / 悬浮气球也能完整入镜；普通僵尸约 3.8 米，Boss 约 9.2 米。
-    distance: Math.max(2.4, total * 2.05),
+    focusY: air + height * 0.55 + hat * 0.7,
+    // 让 Boss / 悬浮气球 / 戴帽僵尸也能完整入镜；普通僵尸约 3.8 米，Boss 约 9.2 米。
+    distance: Math.max(2.4, (height + air) * 2.05 + hat * 1.6),
   };
 }
 

@@ -271,6 +271,8 @@ function selectType(type) {
   z.play('walk', 0);
   z.mixer.timeScale = walkTimeScale(z.speed);
   z.mixer.update(0);
+  // 锥帽/铁桶的落点要等 root 进场景后才能量（见 Zombie.mountHeadTop）；图鉴不跑 update，这里补一次。
+  if (z.hat) z.mountHeadTop();
 
   // Quaternius 的 Walk 带根位移；图鉴里把它按第 0 帧钉住，只保留四肢/躯干的走路动画。
   const rootBone = info.modelId === 'zombie' ? firstBone(z.body) : null;

@@ -10,6 +10,64 @@ const WHITE = new THREE.Color(0xffffff);
 const tmpV = new THREE.Vector3();
 const hatQuat = new THREE.Quaternion();
 
+// 交通锥 / 铁桶的落点：用**骨架绑定空间**里的头顶，而不是世界坐标。
+// Head 骨骼在 glb 里带 ~108° 的 Z-up 修正旋转，拿世界坐标反算局部点会在动画里被甩到脑后；
+// 这里量一次「颅顶最高点 + 其正上方的中心」，换算成 Head 骨骼局部坐标，
+// 之后不管播 walk / attack / death，帽子都钉在同一个颅顶点上。按模型缓存，只量一次。
+function headCrownLocal(zombie, headBone) {
+  const src = zombie.modelSource();
+  if (src._headCrown) return src._headCrown;
+  zombie.body.updateWorldMatrix(true, true);
+  // 蒙皮顶点还要靠 skeleton.bones 的 matrixWorld；这些骨骼不一定在 body 的子树里
+  // （SkeletonUtils.clone 会把骨骼表挂到 mesh.skeleton 上），逐个强制刷新一次。
+  zombie.body.traverse((mesh) => {
+    if (!mesh.isSkinnedMesh) return;
+    mesh.updateWorldMatrix(true, false);
+    if (!mesh.skeleton) return;
+    for (let i = 0; i < mesh.skeleton.bones.length; i++) mesh.skeleton.bones[i].updateWorldMatrix(true, false);
+  });
+  // 用 Head 骨骼自己的局部坐标找「颅顶」，而不是世界 Y：世界 Y 的最高点在歪头时会偏到一侧，
+  // 走路动画一摆，帽子就会跟着左右横跳。骨骼局部 +Y 在该模型上就是头顶方向。
+  const invHead = headBone.matrixWorld.clone().invert();
+  // 局部单位被 100× 骨架缩得极小，阈值也要按骨骼世界缩放换算（否则 0.08 等于 12 米，
+  // 会把整只僵尸都算进「颅顶」平均里）。
+  const headScale = headBone.getWorldScale(new THREE.Vector3()).x || 1;
+  const band = 0.06 / headScale;
+  const v = new THREE.Vector3();
+  let maxY = -Infinity;
+  let sumX = 0;
+  let sumZ = 0;
+  let n = 0;
+  zombie.body.traverse((mesh) => {
+    if (!mesh.isSkinnedMesh) return;
+    // 蒙皮变换要用 skinIndex/skinWeight；测试替身或残缺 glb 可能没有，跳过而不是崩
+    if (!mesh.geometry.attributes.skinIndex || !mesh.geometry.attributes.skinWeight) return;
+    const pos = mesh.geometry.attributes.position;
+    for (let i = 0; i < pos.count; i++) {
+      v.fromBufferAttribute(pos, i);
+      mesh.applyBoneTransform(i, v);
+      mesh.localToWorld(v);
+      v.applyMatrix4(invHead);
+      if (v.y > maxY) {
+        maxY = v.y;
+        sumX = v.x;
+        sumZ = v.z;
+        n = 1;
+      } else if (v.y > maxY - band) {
+        sumX += v.x;
+        sumZ += v.z;
+        n++;
+      }
+    }
+  });
+  // 一个蒙皮顶点都没量到（残缺 glb / 测试替身）：没有可信的颅顶，别把帽子塞进身体里，
+  // 交给调用方走 _hatPending，等真正稳定了再定。
+  if (n === 0 || !Number.isFinite(maxY)) return null;
+  const local = new THREE.Vector3(sumX / n, maxY, sumZ / n);
+  src._headCrown = local.clone();
+  return local;
+}
+
 // 各模型的命中球（世界米：模型已按 MODELS[x].scale 拉过，再乘类型的 scaleFactor）。
 // chest/head 是球心高度，radius 是半径倍率：骷髅骨架细取 0.8；普通僵尸用的炼金模型 Q 版身宽，取 0.85。
 // 头部球半径必须仍小于身体球，否则爆头会退化成“打哪儿都爆头”。
@@ -209,6 +267,9 @@ export class Zombie {
       this.actions[k] = a;
     }
     this.play('idle', 0);
+    // 先把 idle 姿态真正写进骨骼，再挂配件：glb 的 bind pose 带着 108° Z-up 修正，
+    // 在 bind pose 里算朝向会让帽子相对游戏姿态歪掉（交通锥曾因此斜插在脑后）。
+    this.mixer.update(0);
   }
 
   play(name, fade) {
@@ -234,14 +295,15 @@ export class Zombie {
     // 坑：这个 glb 的 CharacterArmature 带 100 倍缩放、Head 骨骼自带 13° 前倾，buildRig 又乘了模型缩放，
     // 手算局部偏移很容易算错（试过，帽子飞到 40 米高 / 偏到 z=0.65）。
     // 所以这里用 Three.js 的 worldToLocal 把"想要的世界位置"反算成骨骼局部坐标，旋转和缩放都交给引擎。
-    // 目标位置按**模型本地单位**给：僵尸头顶 ≈1.186，帽子压在 1.10/1.11。
+    // 锥帽/铁桶的落点由 headCrownLocal() 量真实颅顶；下面这组手填坐标只留给橄榄球头盔 /
+    // 没有 Head 骨骼的退回路径。
     const headBone = this.isSkeleton ? this.body.getObjectByName('head') : this.body.getObjectByName('Head');
     // 橄榄球模型头大、头顶 1.938（旧僵尸 1.186），头盔的落点单独给一套。
     const isFootball = this.modelId === 'football';
-    const targetLocalY = isFootball && acc === 'helmet' ? 1.76 : acc === 'bucket' ? 1.10 : acc === 'helmet' ? 1.09 : 1.11;
+    const isHeadTop = acc === 'cone' || acc === 'bucket';
+    const targetLocalY = isFootball && acc === 'helmet' ? 1.76 : acc === 'helmet' ? 1.09 : 1.11;
     const targetLocalZ = isFootball && acc === 'helmet' ? -0.02 : 0.03;
-    let hatY = targetLocalY;
-    let hatZ = targetLocalZ;
+    let hatPos = new THREE.Vector3(0, targetLocalY, targetLocalZ);
     // 骨骼链上"多出来"的缩放必须抵掉：glb 里 CharacterArmature 带 100 倍缩放，Head 骨骼自己在它下面，
     // 直接把帽子 add 到 Head 上，几何体会被这 100 倍放大 —— 交通锥会变成十米宽的巨物。
     // 把帽子缩到「应得世界缩放 / 骨骼世界缩放」，再按骨骼的世界旋转摆正，就能得到"手写世界坐标"的老效果，
@@ -252,21 +314,38 @@ export class Zombie {
     // 1/1.55，大半截陷进脑袋里，看起来像「没戴帽子」；Boss 木棒同理缩水一半。
     const hatWorldScale = MODELS[this.modelId].scale * this.scaleFactor;
     let hatScale = 1;
+    let headScale = 1;
     if (headBone) {
-      this.body.updateWorldMatrix(true, false);
+      this.body.updateWorldMatrix(true, true);
       headBone.updateWorldMatrix(true, false);
-      const target = new THREE.Vector3(0, targetLocalY, targetLocalZ).applyMatrix4(this.body.matrixWorld);
-      const local = headBone.worldToLocal(target);
-      hatY = local.y;
-      hatZ = local.z;
-      hatScale = hatWorldScale / headBone.getWorldScale(new THREE.Vector3()).x;
-      headBone.getWorldQuaternion(hatQuat).invert();
+      headScale = headBone.getWorldScale(new THREE.Vector3()).x;
+      if (isHeadTop) {
+        // 头顶落点由模型几何量出来（见 headCrownLocal），不再手填世界高度 ——
+        // 旧写法的 1.10 其实落在眼眶高度，锥帽大半截陷进脑袋里。
+        // 构造时骨骼的绑定矩阵还没稳定（量出来会飞到 100 米外），有缓存才用，
+        // 否则先藏起来，等 root 进场景后的第一次 mountHeadTop()。
+        const cached = this.modelSource()._headCrown;
+        if (cached) hatPos = cached.clone();
+        else this._hatPending = true;
+      } else {
+        const target = new THREE.Vector3(0, targetLocalY, targetLocalZ).applyMatrix4(this.body.matrixWorld);
+        hatPos = headBone.worldToLocal(target);
+      }
+      hatScale = hatWorldScale / headScale;
+      if (isHeadTop) hatQuat.identity();
+      else headBone.getWorldQuaternion(hatQuat).invert();
     }
-    hat.position.set(0, hatY, hatZ);
+    hat.position.copy(hatPos);
     hat.quaternion.copy(hatQuat);
-    hat.rotateX(0.03);
-    hat.rotateY(0.1);
-    hat.rotateZ(0.05);
+    if (isHeadTop && headBone) {
+      // 锥帽底座压在颅顶（略嵌入 1 cm），铁桶往下扣到眉骨上方。
+      hat.translateY((acc === 'cone' ? -0.01 : -0.06) / headScale);
+    }
+    if (!isHeadTop) {
+      hat.rotateX(0.03);
+      hat.rotateY(0.1);
+      hat.rotateZ(0.05);
+    }
     hat.scale.setScalar(hatScale);
 
     const push = (geo, color, opts) => {
@@ -391,21 +470,57 @@ export class Zombie {
     }
 
     if (acc === 'cone') {
-      // 路障锥：底座 + 锥体 + 两道反光带
-      push(new THREE.CylinderGeometry(0.205, 0.215, 0.032, 22), 0xd85c24, { roughness: 0.75 });
-      push(new THREE.CylinderGeometry(0.045, 0.175, 0.42, 22), 0xe0662a, { roughness: 0.6 });
-      push(new THREE.CylinderGeometry(0.118, 0.138, 0.07, 22, 1, true), 0xf3efe2, { roughness: 0.45 });
-      push(new THREE.CylinderGeometry(0.078, 0.094, 0.055, 22, 1, true), 0xf3efe2, { roughness: 0.45 });
+      // 路障锥：底座 + 锥体 + 两道反光带。组原点在底座**下沿**，整只锥子向上叠，
+      // 旧代码四件都摆在 y=0，导致锥体只剩半截、反光带糊在底座上。
+      const base = push(new THREE.CylinderGeometry(0.225, 0.235, 0.035, 24), 0xd85c24, { roughness: 0.75 });
+      base.position.y = 0.0175;
+      const bodyCone = push(new THREE.CylinderGeometry(0.05, 0.195, 0.38, 24), 0xe0662a, { roughness: 0.6 });
+      bodyCone.position.y = 0.225;
+      const lowBand = push(new THREE.CylinderGeometry(0.147, 0.175, 0.07, 24, 1, true), 0xf3efe2, { roughness: 0.45 });
+      lowBand.position.y = 0.13;
+      const highBand = push(new THREE.CylinderGeometry(0.101, 0.122, 0.055, 24, 1, true), 0xf3efe2, { roughness: 0.45 });
+      highBand.position.y = 0.26;
     } else {
-      // 铁桶：桶身 + 上下箍
-      push(new THREE.CylinderGeometry(0.222, 0.242, 0.26, 24), 0xb9c0c7, { roughness: 0.5, metalness: 0.45 });
-      push(new THREE.TorusGeometry(0.244, 0.016, 6, 24), 0x878f96, { roughness: 0.45, metalness: 0.5 });
-      push(new THREE.TorusGeometry(0.226, 0.014, 6, 24), 0x878f96, { roughness: 0.45, metalness: 0.5 });
+      // 铁桶：桶身 + 上下箍。组原点在桶身中心，桶沿在 ±0.17，扣在头上时沿口约在眉骨。
+      push(new THREE.CylinderGeometry(0.255, 0.28, 0.34, 28), 0xb9c0c7, { roughness: 0.5, metalness: 0.45 });
+      const rimLow = push(new THREE.TorusGeometry(0.28, 0.016, 8, 28), 0x878f96, { roughness: 0.45, metalness: 0.5 });
+      rimLow.rotation.x = Math.PI / 2;
+      rimLow.position.y = -0.17;
+      const rimHigh = push(new THREE.TorusGeometry(0.255, 0.014, 8, 28), 0x878f96, { roughness: 0.45, metalness: 0.5 });
+      rimHigh.rotation.x = Math.PI / 2;
+      rimHigh.position.y = 0.17;
     }
 
     // 有 Head 骨骼就挂骨骼（跟着头部动），否则退回身体（静态模型/骨骼名不匹配时）
     (headBone || this.body).add(hat);
     this.hat = hat;
+    if (this._hatPending) hat.visible = false;
+  }
+
+  // 首帧把锥帽/铁桶落到真实头顶：此时 root 已在场景里，骨骼矩阵和蒙皮顶点都稳定了。
+  mountHeadTop() {
+    // 只服务锥帽/铁桶；Boss 木棒、橄榄球头盔、气球各有自己的挂点，别被这个函数改名顶掉。
+    if (this.def.acc !== 'cone' && this.def.acc !== 'bucket') return;
+    this._hatPending = false;
+    const headBone = this.isSkeleton ? this.body.getObjectByName('head') : this.body.getObjectByName('Head');
+    if (!this.hat || !headBone) {
+      if (this.hat) this.hat.visible = true;
+      return;
+    }
+    this.root.updateMatrixWorld(true);
+    const local = headCrownLocal(this, headBone);
+    if (!local) {
+      // 量不到颅顶就先保持隐藏，下一帧再试，别把帽子摆到错误位置
+      this._hatPending = true;
+      this.hat.visible = false;
+      return;
+    }
+    const headScale = headBone.getWorldScale(new THREE.Vector3()).x;
+    this.hat.position.copy(local);
+    hatQuat.identity();
+    this.hat.quaternion.copy(hatQuat);
+    this.hat.translateY((this.def.acc === 'cone' ? -0.01 : -0.06) / headScale);
+    this.hat.visible = true;
   }
 
   // 白闪 / 寒冰要同时作用到身体和帽子，所以遍历所有材质
@@ -597,6 +712,7 @@ export class Zombie {
 
   update(dt, player, colliders) {
     if (this.dead) return;
+    if (this._hatPending) this.mountHeadTop();
 
     if (this.remote) {
       if (this.dying) {
