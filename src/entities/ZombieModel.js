@@ -16,11 +16,16 @@ export const SKELETON_SCALE = 0.9;
 // 原始高 1.077（Q 版大头身），按 ALCHEMIST_SCALE 拉到 1.85 米，和普通僵尸同高。
 export const ALCHEMIST_SCALE = 1.72;
 
+// 橄榄球僵尸（项目内 AIGC 资产，见 docs/ZOMBIE-MODELS.md）：22 骨骼、5 段动画。
+// 原始高 1.938（T-pose），按 FOOTBALL_SCALE 0.95 + 类型 scale 1.12 ≈ 2.06 米。
+export const FOOTBALL_SCALE = 0.95;
+
 // 模型定义：id -> { url, scale, height }。Zombie.buildRig 按 def.model 取。
 export const MODELS = {
   zombie: { url: 'models/zombie.glb', scale: ZOMBIE_SCALE, height: ZOMBIE_HEIGHT },
   skeleton: { url: 'models/skeleton.glb', scale: SKELETON_SCALE, height: 1.95 },
   alchemist: { url: 'models/alchemist.glb', scale: ALCHEMIST_SCALE, height: 1.85 },
+  football: { url: 'models/football.glb', scale: FOOTBALL_SCALE, height: 2.06 },
 };
 
 export const zombieModel = {
@@ -33,6 +38,8 @@ export const zombieModel = {
   skeleton: { ready: false, failed: false, scene: null, clips: [] },
   // 炼金模型：普通僵尸在用，加载失败不影响主流程（只是这个类型刷不出来）
   alchemist: { ready: false, failed: false, scene: null, clips: [] },
+  // 橄榄球模型：只给橄榄球僵尸用，加载失败时这个类型会一直留在队列里
+  football: { ready: false, failed: false, scene: null, clips: [] },
 };
 
 // 按名字取动画：glb 里可能带 CharacterArmature| 前缀，统一去掉再比
@@ -97,6 +104,19 @@ export function initZombieModel() {
     (err) => {
       zombieModel.alchemist.failed = true;
       console.warn('alchemist glb failed', err);
+    }
+  );
+  loader.load(
+    BASE + MODELS.football.url,
+    (gltf) => {
+      zombieModel.football.scene = prepare(gltf.scene);
+      zombieModel.football.clips = gltf.animations || [];
+      zombieModel.football.ready = true;
+    },
+    undefined,
+    (err) => {
+      zombieModel.football.failed = true;
+      console.warn('football glb failed', err);
     }
   );
 }

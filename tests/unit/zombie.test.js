@@ -71,6 +71,7 @@ vi.mock('../../src/entities/ZombieModel.js', async (importOriginal) => {
       clips,
       skeleton: { ready: true, failed: false, scene: skScene, clips: skClips },
       alchemist: { ready: true, failed: false, scene, clips },
+      football: { ready: true, failed: false, scene, clips },
     },
   };
 });

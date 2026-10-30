@@ -189,10 +189,11 @@ async function ensureZombieTypes(page, want) {
     g.player.maxHp = 1e9;
     g.zombies.reset();
     g.zombies.startWave(9); // 第 9 波：含锥、桶，且 n % 5 === 0 出 Boss
-    // startWave 会洗牌，缺的类型提到队首
-    const have = new Set(g.zombies.queue);
+    // startWave 会洗牌：要求的类型不管原来在队里哪个位置，都提到队首，
+    // 否则同屏上限 14 会被前面的 football/cone 填满，bucket 永远排不到。
     for (const t of types.slice().reverse()) {
-      if (!have.has(t)) g.zombies.queue.unshift(t);
+      g.zombies.queue = g.zombies.queue.filter((x) => x !== t);
+      g.zombies.queue.unshift(t);
     }
     g.zombies.maxAlive = 14;
     g.zombies.interval = 0.05; // 无头 SwiftShader 帧率极低，刷怪要够快
@@ -398,12 +399,16 @@ async function phaseStartup(ctx) {
 // 材质克隆、SkeletonUtils 骨骼克隆、AnimationMixer 驱动骨骼、配件 buildHat 都只有真浏览器才跑得通。
 async function phaseGlb(ctx) {
   const { page } = ctx;
-  // 两个 glb 都是异步加载的：Boss 用骷髅模型，没就绪时 spawnOne 会把它留在队首不刷，
-  // 于是"刷出全部类型"永远等不到 boss。CI 的 SwiftShader 起得慢，这个窗口会被拉长，
-  // 所以先明确等两个模型都就绪，别让断言去猜。
+  // 多个 glb 都是异步加载的：Boss 用骷髅模型、橄榄球用自己的 football 模型，没就绪时
+  // spawnOne 会把它们留在队首不刷，于是"刷出全部类型"永远等不到。CI 的 SwiftShader 起得慢，
+  // 这个窗口会被拉长，所以先明确等模型都就绪，别让断言去猜。
   const modelsReady = await page
     .waitForFunction(
-      () => window.__game.models && window.__game.models.ready && window.__game.models.skeleton.ready,
+      () =>
+        window.__game.models &&
+        window.__game.models.ready &&
+        window.__game.models.skeleton.ready &&
+        window.__game.models.football.ready,
       null,
       { timeout: 60000, polling: 100 }
     )
@@ -415,8 +420,10 @@ async function phaseGlb(ctx) {
       zombieFailed: !!(window.__game.models && window.__game.models.failed),
       skReady: !!(window.__game.models && window.__game.models.skeleton.ready),
       skFailed: !!(window.__game.models && window.__game.models.skeleton.failed),
+      footballReady: !!(window.__game.models && window.__game.models.football.ready),
+      footballFailed: !!(window.__game.models && window.__game.models.football.failed),
     }));
-    throw new PhaseError('两个 glb 60 秒内没加载完：' + JSON.stringify(dbg));
+    throw new PhaseError('模型 60 秒内没加载完：' + JSON.stringify(dbg));
   }
   await ensureZombieTypes(page, ['normal', 'cone', 'bucket', 'boss']);
 

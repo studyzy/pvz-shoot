@@ -126,9 +126,9 @@ export async function createGame(options = {}) {
 export async function readyGame() {
   const booted = await createGame();
   const { zombieModel } = await import('../../src/entities/ZombieModel.js');
-  // 两个 glb 是先后两次 load，骷髅（Boss 用）通常比僵尸晚一个宏任务就绪，
-  // 只等 ready 会让 Boss/骷髅用例撞上"模型没就绪所以不刷怪"。
-  const ready = () => zombieModel.ready && zombieModel.skeleton.ready;
+  // 多个 glb 是先后多次 load，骷髅（Boss 用）/ 橄榄球通常比僵尸晚一个宏任务就绪，
+  // 只等 ready 会让对应类型撞上"模型没就绪所以不刷怪"。
+  const ready = () => zombieModel.ready && zombieModel.skeleton.ready && zombieModel.football.ready;
   for (let i = 0; i < 40 && !ready(); i++) await new Promise((r) => setTimeout(r, 0));
   return booted;
 }

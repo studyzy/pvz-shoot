@@ -34,6 +34,7 @@ vi.mock('../../src/entities/ZombieModel.js', async (importOriginal) => {
       clips,
       skeleton: { ready: true, failed: false, scene: new THREE.Group(), clips: [] },
       alchemist: { ready: true, failed: false, scene: new THREE.Group(), clips: [] },
+      football: { ready: true, failed: false, scene, clips },
     },
   };
 });
@@ -392,10 +393,10 @@ describe('新僵尸造型与视图模型', () => {
     game = await boot();
   });
 
-  it('橄榄球僵尸：头盔挂在头上，另有一对护肩', () => {
+  it('橄榄球僵尸：新模型自带护肩，程序化头盔仍挂在头上', () => {
     const z = makeZombie('football');
     expect(z.hat).toBeTruthy();
-    expect(z.shoulders).toBeTruthy();
+    expect(z.shoulders).toBeUndefined();
     expect(z.hat.children.length).toBeGreaterThanOrEqual(5);
   });
 
@@ -408,7 +409,7 @@ describe('新僵尸造型与视图模型', () => {
     expect(z.hat).toBeUndefined();
   });
 
-  it('护甲材质的白闪/冰冻会同时作用到护肩（材质都进了 matBase）', () => {
+  it('护甲材质的白闪/冰冻会同时作用到头盔（材质都进了 matBase）', () => {
     const z = makeZombie('football');
     const before = z.mats.map((m) => m.color.getHex());
     z.applyTint(0.55);

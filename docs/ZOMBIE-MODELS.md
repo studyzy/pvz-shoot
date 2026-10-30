@@ -270,9 +270,52 @@ Blender 4.2 headless（`pip install bpy==4.2.23`；缺 `libSM/libICE` 时用 `dn
 
 ### 接入约定
 
-- **归属**：`ZOMBIES.normal.model = 'alchemist'` —— 它是**普通僵尸**的模型（场上最多）；路障/铁桶/橄榄球/气球继续用 `zombie.glb`，锥帽/铁桶/头盔按那个模型头顶尺寸挂，不要互换。
+- **归属**：`ZOMBIES.normal.model = 'alchemist'` —— 它是**普通僵尸**的模型（场上最多）；橄榄球用 `football.glb`（见下节）；路障/铁桶/气球继续用 `zombie.glb`，锥帽/铁桶/气球按那个模型头顶尺寸挂，不要互换。
 - `MODELS.alchemist = { url: 'models/alchemist.glb', scale: 1.72, height: 1.85 }`：1.077 × 1.72 ≈ 1.85 m，和原普通僵尸同高（Q 版头大，肩线会低一截，这是模型本身的风格）。
 - **命中球单独一套口径**：`HIT.alchemist = { chest: 0.83, head: 1.44, radius: 0.85 }`（**世界米**：1.077 × 1.72 换算过，不是模型本地单位）。Q 版头大，头心只有 1.44 而不是普通僵尸的 1.52。
 - 一个 `SkinnedMesh` = **1 个 draw call**，比骷髅省；但它 1 万面，是原僵尸的 1.28 倍，而它现在是**主力怪**：同屏 14 只全普通时约 15 万三角面（E2E 实测 15.1 万），已经贴着项目预算上限。
 - **抽面已到极限**：Decimate 到 8,500 面时手里的药瓶开始烂，6,500 面瓶子直接消失；10,000 面是保住轮廓的下限。
 - 模型未就绪时 `spawnOne` 改刷别的类型、它留在队首等下次（`modelReady(type)` 按 `ZOMBIES[type].model` 查对应槽位）。
+
+
+---
+
+## 附：橄榄球僵尸（`public/models/football.glb`，项目内 AIGC 资产）
+
+第四套模型，由仓库所有者提供的 AIGC 模型 `aigc/橄榄球僵尸.fbx`（Kaydara FBX 7400，38.1 MB）转制。**授权与 alchemist 一样由仓库所有者确认**，不是 CC0 素材；如果要换成第三方生成的资产，先确认平台条款允许随公开仓库分发。
+
+### 原始规格（实测）
+
+| 项 | 值 |
+| --- | --- |
+| 三角面 | **49,986**（24,985 顶点，单个蒙皮网格、单材质） |
+| 骨骼 | **22 根**（Mixamo 命名：`Hips/Spine/LeftArm/LeftUpLeg/...`，有语义名） |
+| 动画 | **0 段**（只有绑定姿态；T-pose，双臂水平） |
+| 贴图 | 4 × 4096²（baseColor / normal / metallic / roughness） |
+| 原始高 | 1.938 m（T-pose；Blender 里面朝 -Y） |
+| Armature | **对象缩放 0.01**（FBX 厘米单位），骨骼坐标是厘米 |
+
+### 处理管线（可复现）
+
+Blender 4.2 headless（同 alchemist，`bpy==4.2.23` + 本地 `libSM/libICE`）：
+
+1. **修 bind**：FBX 的 mesh 是 T-pose、骨骼 rest 是 A-pose，且 armature 对象带 0.01 缩放。先 Apply Armature Modifier 把 T-pose 烘进网格，再 `pose.armature_apply()` 把 T-pose 设为 rest；然后 **unparent → 对 armature 和 mesh 各做一次 `transform_apply(scale)`**，把骨骼/网格都变成米。  
+   ⚠️ 不 apply 这 0.01：导出的 glTF 在 three.js 里蒙皮会塌缩/浮空（Blender 里看着正常，浏览器里翻车）。
+2. **抽面**：`Decimate(COLLAPSE, ratio = 10000/49986, use_collapse_triangulate)` → **10,000 面**，保留 22 个顶点组与 UV。
+3. **贴图**：baseColor → 1024 JPEG q88（252 KB）；normal → 512 PNG（250 KB）；metallic/roughness 丢掉，常量 `metalness 0 / roughness 0.72`。
+4. **动画**：源模型 0 段，从 Quaternius `zombie.glb` 重定向：
+   - Idle **程序化**：手臂下垂 + 膝盖微屈 + 呼吸摆动（源僵尸的 Idle 是趴地爬行，不能用）。
+   - Walk / Idle_Attack / HitReact：取源骨骼的**局部旋转**（转成 armature 空间），**丢弃源根位移**（Quaternius Walk 的根位移会让模型在动画里滑出 4 米）；腿骨旋转幅度 ×0.62（目标腿比源长 1.62 倍）；每段用一个**常量抬升**贴地。
+   - Death：保留源 `Body` 的整体旋转，让身体后仰倒地；不加常量抬升，游戏自己负责死亡下沉。
+   - 命名仍然对齐 `Idle / Walk / Idle_Attack / Death / HitReact`，`Zombie.buildAnimations` 不需要新分支。
+5. **导出**：`export_animation_mode='ACTIONS'`、`export_yup=True`、GLB 内嵌贴图。
+
+结果：**10,000 面 / 22 骨骼 / 5 段动画 / 1.40 MB**（baseColor 252 KB + normal 250 KB）。
+
+### 接入约定
+
+- **归属**：`ZOMBIES.football.model = 'football'`；`MODELS.football = { url: 'models/football.glb', scale: 0.95, height: 2.06 }`。1.938 × 0.95 × 类型 scale 1.12 ≈ 2.06 m。
+- **命中球**：`HIT.football = { chest: 1.34, head: 1.66, radius: 1 }`（乘类型 scale 1.12 → 胸口 1.50 / 头 1.86）。头球半径 0.36×1.12 < 身体 0.46×1.12，爆头仍然成立。
+- **头盔是程序化的**（模型本身没头盔）：`buildHat` 的 helmet 分支挂在 `Head` 骨骼、本地 Y 1.76；模型自带白色护肩和红球衣，**不要再补护肩**。
+- 模型未就绪时 `spawnOne` 会改刷别的类型、它留在队首（`zombieModel.football` 槽）。
+- 同屏最多 14 只、单只 1 万面/1 draw call；橄榄球每波数量有限，性能预算与炼金模型同量级。

@@ -365,6 +365,7 @@ export const ZOMBIES = {
     radius: 0.52,
   },
   // 橄榄球僵尸：快（2.6 m/s，全场第二）、厚甲（buffalo 材质，吸收 50%，怕火）
+  // 模型是 AIGC 橄榄球僵尸（无头盔），头顶的头盔仍由 buildHat 程序化补上。
   football: {
     hp: 190,
     armor: { material: 'buffalo', hp: 140 },
@@ -372,6 +373,7 @@ export const ZOMBIES = {
     damage: 16,
     score: 450,
     scale: 1.12,
+    model: 'football',
     acc: 'helmet',
     radius: 0.55,
   },

@@ -221,13 +221,17 @@ describe('config / ZOMBIES', () => {
     ]);
   });
 
-  it('模型归属：普通僵尸用 alchemist.glb，路障/铁桶仍用原来的 zombie.glb', () => {
+  it('模型归属：普通僵尸用 alchemist.glb、橄榄球用 football.glb，路障/铁桶仍用原来的 zombie.glb', () => {
     expect(ZOMBIES.normal.model).toBe('alchemist');
+    expect(ZOMBIES.football.model).toBe('football');
     expect(ZOMBIES.cone.model).toBeUndefined();
     expect(ZOMBIES.bucket.model).toBeUndefined();
     // 模型 1.077 高 × 1.72 ≈ 1.85 米，和原本的普通僵尸齐平
     expect(MODELS.alchemist.scale * 1.0767).toBeCloseTo(1.85, 1);
+    // 橄榄球原始 1.938 × 0.95 ≈ 1.84 米，再乘类型 scale 1.12 ≈ 2.06 米
+    expect(MODELS.football.scale * 1.938).toBeCloseTo(1.84, 1);
     expect(MODELS.alchemist.url).toBe('models/alchemist.glb');
+    expect(MODELS.football.url).toBe('models/football.glb');
     expect(MODELS.zombie.url).toBe('models/zombie.glb');
   });
 

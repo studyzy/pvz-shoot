@@ -17,6 +17,8 @@ const HIT = {
   zombie: { chest: 1.02, head: 1.52, radius: 1 },
   skeleton: { chest: 0.9, head: 1.68, radius: 0.8 },
   alchemist: { chest: 0.83, head: 1.44, radius: 0.85 },
+  // 橄榄球模型原始高 1.938（头心 1.747、胸心 1.408）；下面的数已乘 MODELS.football.scale 0.95，调用方再乘类型 scale。
+  football: { chest: 1.34, head: 1.66, radius: 1 },
 };
 
 let shadowMatShared = null;
@@ -116,11 +118,12 @@ export class Zombie {
   modelSource() {
     if (this.modelId === 'skeleton') return zombieModel.skeleton;
     if (this.modelId === 'alchemist') return zombieModel.alchemist;
+    if (this.modelId === 'football') return zombieModel.football;
     return zombieModel;
   }
 
   buildRig() {
-    // 按 def.model 选模型：不写就是普通僵尸 glb，'skeleton' 是 KayKit 骷髅，'alchemist' 是炼金僵尸
+    // 按 def.model 选模型：不写就是普通僵尸 glb，'skeleton' 是 KayKit 骷髅，'alchemist' 是炼金僵尸，'football' 是橄榄球僵尸
     this.modelId = MODELS[this.def.model] ? this.def.model : 'zombie';
     const src = this.modelSource();
     const def = MODELS[this.modelId];
@@ -225,8 +228,10 @@ export class Zombie {
     // 所以这里用 Three.js 的 worldToLocal 把"想要的世界位置"反算成骨骼局部坐标，旋转和缩放都交给引擎。
     // 目标位置按**模型本地单位**给：僵尸头顶 ≈1.186，帽子压在 1.10/1.11。
     const headBone = this.isSkeleton ? this.body.getObjectByName('head') : this.body.getObjectByName('Head');
-    const targetLocalY = acc === 'bucket' ? 1.10 : acc === 'helmet' ? 1.09 : 1.11;
-    const targetLocalZ = 0.03;
+    // 橄榄球模型头大、头顶 1.938（旧僵尸 1.186），头盔的落点单独给一套。
+    const isFootball = this.modelId === 'football';
+    const targetLocalY = isFootball && acc === 'helmet' ? 1.76 : acc === 'bucket' ? 1.10 : acc === 'helmet' ? 1.09 : 1.11;
+    const targetLocalZ = isFootball && acc === 'helmet' ? -0.02 : 0.03;
     let hatY = targetLocalY;
     let hatZ = targetLocalZ;
     // 骨骼链上"多出来"的缩放必须抵掉：glb 里 CharacterArmature 带 100 倍缩放，Head 骨骼自己在它下面，
@@ -313,45 +318,28 @@ export class Zombie {
     }
 
     if (acc === 'helmet') {
-      // 橄榄球头盔：深红球壳 + 米白前额横杠 + 三道面罩格栅，再补一对护肩。
-      // 头盔/chinstrap 都是模型单位（头顶 ≈1.19），球壳半径 0.19 刚好扣住脑袋。
-      push(new THREE.SphereGeometry(0.192, 18, 14), 0x9c2f2b, { roughness: 0.55 });
+      // 橄榄球头盔：后移的深红球壳 + 米白前额条 + 面罩格栅。
+      // 模型本地单位：头顶 1.938、头心 1.747；球壳后移留出脸，前额条/格栅在脸前。
+      // 新模型自带护肩，这里不再补护肩 —— 旧的红色球护肩会和模型自带的白色护肩打架。
+      push(new THREE.SphereGeometry(0.25, 20, 14, 0, Math.PI * 2, 0, Math.PI * 0.54), 0xb0392e, { roughness: 0.5 });
       const shell = hat.children[hat.children.length - 1];
-      shell.scale.set(1.04, 0.98, 1.08);
-      shell.position.y = 0.015;
-      // 前额横杠
-      push(new THREE.BoxGeometry(0.30, 0.045, 0.05), 0xf2e6d2, { roughness: 0.45 });
-      hat.children[hat.children.length - 1].position.set(0, 0.075, 0.155);
-      // 面罩格栅（三根细圆柱，横向）
+      shell.scale.set(1.06, 0.96, 1.04);
+      shell.position.set(0, 0.005, -0.07);
+      // 前额横条
+      push(new THREE.BoxGeometry(0.34, 0.05, 0.055), 0xf2e6d2, { roughness: 0.45 });
+      hat.children[hat.children.length - 1].position.set(0, 0.02, 0.215);
+      // 面罩：三根横杆
       for (let i = 0; i < 3; i++) {
-        push(new THREE.CylinderGeometry(0.011, 0.011, 0.26, 6), 0x4a4746, { roughness: 0.5, metalness: 0.3 });
+        push(new THREE.CylinderGeometry(0.012, 0.012, 0.30, 6), 0x4a4746, { roughness: 0.5, metalness: 0.3 });
         const bar = hat.children[hat.children.length - 1];
         bar.rotation.z = Math.PI / 2;
-        bar.position.set(0, -0.02 - i * 0.042, 0.175);
+        bar.position.set(0, -0.04 - i * 0.05, 0.235);
       }
-      // 护肩：挂在身体上（头盔的帽子组只挂 Head 骨骼，护肩要挂躯干）
-      const shoulder = new THREE.Group();
-      shoulder.position.set(0, 0.98, 0);
-      this.body.add(shoulder);
+      // 两根竖杆，把横杆连成面罩
       for (let i = 0; i < 2; i++) {
-        const mat = new THREE.MeshStandardMaterial({
-          color: 0x9c2f2b,
-          roughness: 0.55,
-          emissive: 0xffffff,
-          emissiveIntensity: 0,
-          envMap: this.ctx.env || null,
-          envMapIntensity: 0.4,
-        });
-        const pad = new THREE.Mesh(new THREE.SphereGeometry(0.16, 12, 10), mat);
-        pad.scale.set(1, 0.78, 1.12);
-        pad.position.set(i === 0 ? 0.245 : -0.245, 0.02, -0.01);
-        pad.castShadow = true;
-        pad.frustumCulled = false;
-        shoulder.add(pad);
-        this.mats.push(mat);
-        this.matBase.push(mat.color.clone());
+        push(new THREE.CylinderGeometry(0.012, 0.012, 0.17, 6), 0x4a4746, { roughness: 0.5, metalness: 0.3 });
+        hat.children[hat.children.length - 1].position.set(i === 0 ? 0.14 : -0.14, -0.065, 0.23);
       }
-      this.shoulders = shoulder;
       (headBone || this.body).add(hat);
       this.hat = hat;
       return;

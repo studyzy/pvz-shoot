@@ -43,7 +43,7 @@ npm run preview   # 预览构建产物
 | `src/world/materials.js` | Toon 材质、程序化草地/雪地/冰面/沙地/天空/沙漠天空/云/光晕/污渍贴图、PMREM 户外环境贴图（`outdoorEnvironment`，支持 backyard/snow/dust） |
 | `src/entities/Player.js` | 第一人称移动、跳跃、平台落脚/踏步、碰撞、生命/回血、镜头位置与后坐力 |
 | `src/entities/Zombie.js` | 单个僵尸：绑定模型骨架、AI、行走/攻击/死亡动画、受击/减速/掉落回调 |
-| `src/entities/ZombieModel.js` | 加载三个外部模型：`zombie.glb`（Quaternius 僵尸，路障/铁桶/橄榄球/气球用）、`skeleton.glb`（KayKit 骷髅）、`alchemist.glb`（炼金模型，**普通僵尸**用）；导出 `zombieModel` 就绪标志、`MODELS` 缩放表与 `findClip()` |
+| `src/entities/ZombieModel.js` | 加载四个外部模型：`zombie.glb`（Quaternius 僵尸，路障/铁桶/气球用）、`skeleton.glb`（KayKit 骷髅）、`alchemist.glb`（炼金模型，**普通僵尸**用）、`football.glb`（AIGC 橄榄球模型）；导出 `zombieModel` 就绪标志、`MODELS` 缩放表与 `findClip()` |
 | `src/entities/ZombieManager.js` | 波次生成、分离、范围伤害、击杀结算、Boss 跟踪、阳光掉落数量 |
 | `src/entities/WallNuts.js` | **坚果免伤盾**：玩家身上的一个状态（不是场景实体）。`absorb()` 拦伤害、盾血/破盾动画、罩壳跟随 |
 | `src/entities/SunOrbs.js` | 阳光球池、弹跳、磁吸、拾取 |
@@ -57,7 +57,7 @@ npm run preview   # 预览构建产物
 | `src/input/Controls.js` | 键鼠 + 触屏输入、平台识别、虚拟摇杆、指针锁定 |
 | `src/ui/HUD.js` | DOM HUD、**5 个角色槽底栏**、蓄力条、横幅、命中标记、开始/暂停/结算界面 |
 | `src/style.css` | 全部界面样式与响应式/安全区适配 |
-| `public/models/` | `zombie.glb`（660 KB：7.8k 三角面、50 骨骼、16 段动画）+ `skeleton.glb`（1.4 MB：5.3k 三角面、41 骨骼、13 段动画）+ `alchemist.glb`（1.3 MB：1 万三角面、22 骨骼、5 段动画）+ 两份 `LICENSE-*.txt`，构建时原样拷贝到 `dist/models/`。**普通僵尸用 alchemist，其余地面僵尸用 zombie** |
+| `public/models/` | `zombie.glb`（660 KB：7.8k 三角面、50 骨骼、16 段动画）+ `skeleton.glb`（1.4 MB：5.3k 三角面、41 骨骼、13 段动画）+ `alchemist.glb`（1.3 MB：1 万三角面、22 骨骼、5 段动画）+ `football.glb`（1.4 MB：1 万三角面、22 骨骼、5 段动画）+ 两份 `LICENSE-*.txt`，构建时原样拷贝到 `dist/models/`。**普通僵尸用 alchemist，橄榄球用 football，其余地面僵尸用 zombie** |
 | `docs/GAMEPLAY.md` | 玩家向完整数值文档；**改数值后同步更新** |
 
 ---
@@ -178,7 +178,7 @@ npm run preview   # 预览构建产物
 ### 5.3.2 炼金模型（第三个模型 → 普通僵尸在用）
 
 - `public/models/alchemist.glb`：仓库所有者提供的 AIGC 资产，由 38 MB / 50 万面的 FBX 转制（处理管线见 [docs/ZOMBIE-MODELS.md](docs/ZOMBIE-MODELS.md)）。**授权由仓库所有者确认**，别当成 CC0 随便搬。
-- **归属**：`ZOMBIES.normal.model = 'alchemist'`（场上最多的类型）；路障 / 铁桶 / 橄榄球 / 气球仍用 `zombie.glb`（不写 `model`），因为锥帽、铁桶、头盔、护肩是按那个模型的头顶尺寸挂的。
+- **归属**：`ZOMBIES.normal.model = 'alchemist'`（场上最多的类型）；橄榄球用 `football.glb`（见 5.3.3）；路障 / 铁桶 / 气球仍用 `zombie.glb`（不写 `model`），因为锥帽、铁桶、气球是按那个模型的头顶尺寸挂的。
 - 规格：**9,999 三角面、1 个蒙皮网格（1 draw call）、22 骨骼、5 段动画、1.3 MB**，原始高 1.077（Q 版大头身），`ALCHEMIST_SCALE = 1.72` → 1.85 米。
 - **三角面预算**：它是主力怪，同屏 14 只就是 14 万面（E2E 实测 15.1 万含场景）。想再抽面必须先看**药瓶**：Decimate 到 8.5k 瓶子就开始烂，10k 是这条线。要压性能只能从别处省。
 - 骨骼名是 `bone_0`…`bone_21`，只有头部重命名成了 `Head`（权重实测在这根上），没有 Hand 挂点；这个类型 `acc: null`。要加配件就挂 `this.body`。
@@ -186,6 +186,18 @@ npm run preview   # 预览构建产物
 - 命中球单独一套：`HIT.alchemist = { chest: 0.83, head: 1.44, radius: 0.85 }`（**世界米**，不是模型本地单位 —— 模型已按 1.72 拉过）。Q 版头大，**别照抄原僵尸的 1.02/1.52**，那样头球会飘到头顶外面。
 - 模型未就绪时 `spawnOne` 会改刷别的类型、它留在队首（`modelReady(type)` 按 `ZOMBIES[type].model` 查槽，所以普通僵尸等的是 alchemist 的 glb，不是 zombie 的）。
 - **抽面只能用 Blender 的 Decimate**（保留顶点组 / UV）；`gltf-transform simplify` 会破坏 `JOINTS_0/WEIGHTS_0`。
+
+### 5.3.3 橄榄球模型（第四个模型 → 橄榄球僵尸在用）
+
+- `public/models/football.glb`：仓库所有者提供的 AIGC 橄榄球僵尸（原始 FBX 38.1 MB，处理管线见 [docs/ZOMBIE-MODELS.md](docs/ZOMBIE-MODELS.md)）。**授权与 alchemist 一样由仓库所有者确认**，不是 CC0 素材。
+- **归属**：`ZOMBIES.football.model = 'football'`、`MODELS.football = { scale: 0.95, height: 2.06 }`；原始高 1.938（T-pose），× 0.95 × 类型 scale 1.12 ≈ 2.06 米。
+- 规格：**10,000 三角面、1 个蒙皮网格（1 draw call）、22 骨骼、5 段动画、1.4 MB**；贴图 = 1024 baseColor JPEG + 512 normal PNG。
+- **FBX 的 armature 对象带 0.01 缩放**：导出 glTF 前必须先 `unparent → transform_apply(scale)` 把骨骼和网格都变成米，否则 three.js 里蒙皮会塌缩/浮空（本次踩过）。
+- Quaternius 的 `Walk/Idle_Attack` 带根位移，不能直接照搬：Walk 的根位移会让模型在动画里滑出 4 米。动画只取骨骼旋转，腿骨旋转再乘 0.62（目标腿比源模型长 1.62 倍），每段用**常量**抬升贴地，不要逐帧 `minz`（会做出半米上下颠簸）。
+- **Idle 是程序化的**（手臂下垂 + 呼吸），源僵尸的 `Idle` 其实是趴地爬行；Death 保留源 `Body` 的整体旋转做后仰倒地，游戏自己负责死亡下沉。
+- 命中球单独一套：`HIT.football = { chest: 1.34, head: 1.66, radius: 1 }`（乘类型 scale 1.12 → 胸口 1.50 / 头 1.86）。
+- **头盔仍然是程序化的**：新模型没有头盔、但自带白色护肩和红球衣；`buildHat` 的 helmet 分支挂在 `Head` 骨骼、本地 Y 1.76，**不要再补护肩**（会和模型自带的白色护肩打架）。
+- 模型未就绪时 `spawnOne` 改刷别的类型、它留在队首（`modelReady` 查 `zombieModel.football` 槽）。
 
 ### 5.4 输入与平台
 
