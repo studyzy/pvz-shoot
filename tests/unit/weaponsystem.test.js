@@ -378,7 +378,8 @@ describe('装备与切换', () => {
     W.recoil = 1;
     W.reset();
     expect(W.current).toBe(0);
-    expect(W.slots).toEqual({ peaGun: [0], gun: [-1], demo: [-1], grenade: [-1], shield: [-1] });
+    const nut = WEAPONS.findIndex((w) => w.id === 'wallnut');
+    expect(W.slots).toEqual({ peaGun: [0], gun: [-1], demo: [-1], grenade: [-1], shield: [nut] });
     // 重开后手上是常驻的豌豆，占位符指向 1 号枪槽
     expect(W.activeSlot).toEqual({ role: 'peaGun', pos: 0 });
     expect(W.charge).toBe(0);
@@ -1123,6 +1124,22 @@ describe('辅助瞄准 findAimTarget', () => {
     await H.aimAt(game, chest.x, chest.y, chest.z);
     game.camera.updateMatrixWorld(true);
     expect(W.findAimTarget(WEAPONS[0]).zombie).toBe(a);
+    clearField();
+  });
+
+  it('爆炸类武器（aerial: "explosion"）的辅助瞄准也能吸附气球', async () => {
+    clearField();
+    const p = game.player.pos;
+    const b = spawn('balloon', p.x, p.z - 12);
+    b.root.position.y = b.airHeight; // spawnZombieAt 会把 root.y 压回 0，气球要放回空中
+    const chest = new THREE.Vector3();
+    b.getChest(chest);
+    await H.aimAt(game, chest.x, chest.y, chest.z);
+    game.camera.updateMatrixWorld(true);
+    const cob = WEAPONS.findIndex((w) => w.id === 'cob');
+    expect(W.findAimTarget(WEAPONS[cob]).zombie).toBe(b);
+    // 豌豆没有 aerial，仍然不能吸附到空中目标
+    expect(W.findAimTarget(WEAPONS[0])).toBe(null);
     clearField();
   });
 });

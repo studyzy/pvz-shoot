@@ -90,7 +90,7 @@ describe('僵尸图鉴数据', () => {
 
   it('图鉴数值行包含护甲名称，无护甲显示“无”', () => {
     const f = statLines('football');
-    expect(f.find((x) => x.label === '护甲').value).toBe('水牛角头盔 140');
+    expect(f.find((x) => x.label === '护甲').value).toBe('水牛角头盔 260');
     expect(f.find((x) => x.label === '速度').value).toBe('2.60 m/s');
     const n = statLines('normal');
     expect(n.find((x) => x.label === '护甲').value).toBe('无');

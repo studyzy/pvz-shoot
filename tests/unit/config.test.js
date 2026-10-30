@@ -106,8 +106,8 @@ describe('config / WEAPONS 数据完整性', () => {
 });
 
 describe('config / 角色槽', () => {
-  it('只有豌豆是 starter：它常驻 1 号枪槽，无限且免费', () => {
-    expect(STARTER_WEAPONS.map((w) => w.id)).toEqual(['pea']);
+  it('豌豆和坚果是 starter：分别常驻 1 号枪槽与 5 号护盾槽', () => {
+    expect(STARTER_WEAPONS.map((w) => w.id).sort()).toEqual(['pea', 'wallnut']);
     const pea = WEAPONS.find((w) => w.id === 'pea');
     expect(pea.cost).toBe(0);
     expect(pea.slot).toBe('peaGun');
@@ -190,9 +190,9 @@ describe('config / 角色槽', () => {
     }
   });
 
-  it('LOOT_WEAPONS 是"非 starter"的全集（豌豆除外，坚果在里面但地面不刷）', () => {
+  it('LOOT_WEAPONS 是"非 starter"的全集', () => {
     expect(LOOT_WEAPONS.map((w) => w.id).sort()).toEqual(
-      ['cactus', 'cherry', 'cob', 'firepea', 'gatling', 'jalapeno', 'melon', 'repeater', 'snow', 'threepeater', 'wallnut'].sort(),
+      ['cactus', 'cherry', 'cob', 'firepea', 'gatling', 'jalapeno', 'melon', 'repeater', 'snow', 'threepeater'].sort(),
     );
   });
 
@@ -238,7 +238,7 @@ describe('config / ZOMBIES', () => {
   it('橄榄球僵尸：厚甲（buffalo 材质）+ 血厚 + 速度快', () => {
     const f = ZOMBIES.football;
     expect(f.armor.material).toBe('buffalo');
-    expect(f.armor.hp).toBe(140);
+    expect(f.armor.hp).toBe(260);
     expect(f.hp).toBeGreaterThan(ZOMBIES.cone.hp);
     // 全场第二快（仅次于普通僵尸），比铁桶快 68%
     expect(f.speed).toBeGreaterThan(ZOMBIES.bucket.speed * 1.5);

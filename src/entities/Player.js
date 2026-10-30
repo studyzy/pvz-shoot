@@ -53,12 +53,12 @@ export class Player {
     this.recoil = Math.min(0.22, this.recoil + amount);
   }
 
-  damage(amount) {
+  damage(amount, opts) {
     if (this.dead || this.invuln > 0) return false;
     // 坚果墙免伤盾：伤害先落到盾上，玩家一点血不掉。
     // 必须在 invuln 判定**之后**（否则有盾时无敌帧逻辑就失效了），且**不重置 sinceDamage**
     // （否则「有盾」和「没盾」在回血计时上无法区分，站在盾里的玩家会永远回不了血）。
-    if (this.shield && this.shield.absorb(amount)) return false;
+    if (this.shield && this.shield.absorb(amount, opts)) return false;
     this.hp -= amount;
     this.invuln = 0.32;
     this.sinceDamage = 0;

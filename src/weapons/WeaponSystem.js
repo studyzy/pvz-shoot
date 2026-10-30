@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { WEAPONS, WEAPON_SLOTS, SLOT_KEYS, GRENADE, PEA_ID } from '../config.js';
+import { WEAPONS, WEAPON_SLOTS, SLOT_KEYS, GRENADE, PEA_ID, AIR_HIGH_GROUND } from '../config.js';
 import { toon } from '../world/materials.js';
 import { clamp, segmentSphereT, damp } from '../utils.js';
 
@@ -60,6 +60,9 @@ export class WeaponSystem {
     this.camera.add(this.root);
     this.buildViewModels();
     this.mountPea();
+    this.mountShield();
+    // 开局就把 5 号槽的坚果画进底栏；否则要等第一次拾取才会 setSlots
+    this.ctx.hud.setSlots(this.slots);
     this.equip(this.slots.peaGun[0], true);
   }
 
@@ -75,6 +78,13 @@ export class WeaponSystem {
   mountPea() {
     const idx = WEAPONS.findIndex((w) => w.id === PEA_ID);
     if (idx >= 0) this.slots.peaGun[0] = idx;
+    return idx;
+  }
+
+  // 坚果常驻 5 号护盾槽：它不进地面随机池，开局不装就等于整局拿不到
+  mountShield() {
+    const idx = WEAPONS.findIndex((w) => w.id === 'wallnut');
+    if (idx >= 0) this.slots.shield[0] = idx;
     return idx;
   }
 
@@ -789,10 +799,15 @@ export class WeaponSystem {
     // 已经在身上：补满弹药，切过去，不占新格子
     const at = this.slotIndexOf(index);
     if (at) {
-      this.ammo[index] = def.ammo;
       this.locked = false;
       this.equipSlot(at);
-      this.ctx.hud.showBanner(def.name + ' 补满 · ' + def.ammo + ' 发', 1.4);
+      if (def.maxCharges) {
+        // 充能制（坚果）不靠捡来补颗数，避免「丢下再捡」白刷充能
+        this.ctx.hud.showBanner(def.name + ' 已装备', 1.2);
+      } else {
+        this.ammo[index] = def.ammo;
+        this.ctx.hud.showBanner(def.name + ' 补满 · ' + def.ammo + ' 发', 1.4);
+      }
       this.ctx.sfx.pickup();
       return true;
     }
@@ -846,7 +861,8 @@ export class WeaponSystem {
     // 同一把武器同时只占一个槽：先把它从旧槽摘掉
     this.takeOut(index);
     this.slots[role][pos] = index;
-    this.ammo[index] = def.ammo;
+    // 充能制武器没有弹匣，不要把 ammo 写成 undefined
+    if (def.ammo !== undefined) this.ammo[index] = def.ammo;
     this.locked = false;
     this.ctx.hud.setSlots(this.slots);
     this.equip(index, true);
@@ -859,9 +875,9 @@ export class WeaponSystem {
     if (!arr || at.pos < 0 || at.pos >= arr.length) return false;
     const idx = arr[at.pos];
     if (idx < 0) return false;
-    // 豌豆是承重墙：阳光见底时唯一不花钱的枪，不许丢
-    if (at.role === 'peaGun') return false;
+    // 豌豆/坚果是常驻 starter：丢了整局就没了（坚果不在掉落池里），不许丢
     const def = WEAPONS[idx];
+    if (def.starter) return false;
     const wasActive = this.activeSlot && this.activeSlot.role === at.role && this.activeSlot.pos === at.pos;
     this.eject(idx);
     this.ctx.hud.setSlots(this.slots);
@@ -1215,7 +1231,9 @@ export class WeaponSystem {
     tmpOrigin.copy(this.camera.position);
     let best = null;
     let bestScore = Infinity;
-    const aerial = typeof def.aerial === 'number' ? def.aerial : 0;
+    // aerial 既可能是数字倍率（仙人掌 1 / 火豌豆 0.25），也可能是 'explosion' 字符串；
+    // 后者同样能打空中目标，不能按 0 处理，否则玉米炮/辣椒的辅助瞄准不会吸附气球。
+    const aerial = typeof def.aerial === 'number' ? def.aerial : def.aerial ? 1 : 0;
     for (let i = 0; i < this.ctx.zombies.zombies.length; i++) {
       const z = this.ctx.zombies.zombies[i];
       if (!z.alive || z.dying || z.spawnT < 0.5) continue;
@@ -1239,11 +1257,12 @@ export class WeaponSystem {
     return best;
   }
 
-  // 站在高处（≥1.5 米）且水平 3 米内：任何武器都能打到头顶的气球。与 ProjectileSystem 同一口径。
+  // 站在高处（落地且脚底 ≥0.9 米）且水平 3 米内：任何武器都能打到头顶的气球。与 ProjectileSystem 同一口径。
   canHitAirFromAbove(z) {
     const p = this.player;
     if (!p || !p.pos) return false;
-    if (p.pos.y < 1.5) return false;
+    if (p.grounded === false) return false;
+    if (p.pos.y < AIR_HIGH_GROUND) return false;
     return Math.hypot(z.root.position.x - p.pos.x, z.root.position.z - p.pos.z) <= 3;
   }
 
@@ -1272,6 +1291,7 @@ export class WeaponSystem {
     }
     this.slots = this.makeSlots();
     this.mountPea();
+    this.mountShield();
     this.activeSlot = null;
     this.charge = 0;
     for (let i = 0; i < WEAPONS.length; i++) {

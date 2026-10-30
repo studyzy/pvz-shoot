@@ -309,6 +309,9 @@ export class Game {
   }
 
   resetRun() {
+    // 先清 HUD 再重建武器槽：weapons.reset() 会把豌豆/坚果写回槽位并刷新底栏，
+    // 顺序反了会把刚装好的 5 号槽重新抹成空。
+    this.hud.reset();
     this.player.reset(this.map.spawn);
     this.weapons.reset();
     this.zombies.reset();
@@ -320,7 +323,6 @@ export class Game {
     this.stats = { score: 0, kills: 0, wave: 0 };
     this.sun = TUNING.startSun;
     this.shakeAmp = 0;
-    this.hud.reset();
     this.hud.setSun(this.sun, true);
     this.hud.setHealth(this.player.hp, this.player.maxHp);
   }
@@ -427,7 +429,7 @@ export class Game {
 
   onZombieAttack(z) {
     if (this.state !== 'playing') return;
-    this.player.damage(z.def.damage);
+    this.player.damage(z.def.damage, { airborne: !!z.airborne });
     if (z.type === 'boss') this.shake(0.35);
   }
 
@@ -466,6 +468,7 @@ export class Game {
     this.particles.update(dt);
 
     this.hud.setHealth(this.player.hp, this.player.maxHp);
+    this.hud.setShield(this.wallNuts.hp, this.wallNuts.maxHp, this.wallNuts.active);
     if (this.zombies.boss) {
       this.hud.setBossHp(this.zombies.boss.hp / this.zombies.boss.maxHp);
     }

@@ -99,7 +99,9 @@ export class Zombie {
 
     const shadow = new THREE.Mesh(new THREE.PlaneGeometry(1.5, 1.5), shadowMaterial());
     shadow.rotation.x = -Math.PI / 2;
-    shadow.position.y = 0.025;
+    // root 在空中时影子要落回地面，而不是跟着飞；气球再缩小一圈，作为「它在天上」的线索
+    shadow.position.y = -this.airHeight + 0.025;
+    if (this.airborne) shadow.scale.setScalar(0.6);
     shadow.renderOrder = 1;
     this.shadow = shadow;
     this.root.add(shadow);
@@ -606,10 +608,10 @@ export class Zombie {
     const dz = player.pos.z - this.root.position.z;
     const dist = Math.hypot(dx, dz);
     const attackRange = 1.15 + this.scaleFactor * 0.55;
-    // 空中单位（气球）要靠俯冲咬人：必须落到玩家头顶附近才能出手（垂直 ≤ 1.6 米）。
-    // 玩家跳起来（+1.04 米）就能躲开这一口 —— 这是气球唯一的弱点窗口。
+    // 空中单位（气球）从头顶俯冲：玩家在脚下（垂直差 ≥ 1.6 米）才咬得到。
+    // 跳起来（+1.04 米）或站上高台会把垂直差压到 1.6 米以内，这一口就落空 —— 这是气球唯一的弱点窗口。
     const dy = Math.abs(player.pos.y - this.root.position.y);
-    const inReach = !this.airborne || dy <= 1.6;
+    const inReach = !this.airborne || dy >= 1.6;
 
     const targetRot = Math.atan2(dx, dz);
     this.rotY = turnToward(this.rotY, targetRot, dt * 6);

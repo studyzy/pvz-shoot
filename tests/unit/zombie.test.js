@@ -91,7 +91,7 @@ vi.mock('three', async (importOriginal) => {
 });
 
 // 僵尸的所有行为都在 Zombie.update / hit / startDeath 里，数值口径来自 config.js：
-// normal hp62 speed2.05 radius0.46 scale1；cone 130/1.95/0.48/1.02；bucket 270/1.55/0.52/1.08；
+// normal hp62 speed2.05 radius0.46 scale1；cone 130/1.95/0.48/1.02；bucket 140（+金属甲 200）/1.55/0.52/1.08；
 // boss 1450/1.3/0.9/**2.3**（巨型骷髅，骷髅模型 2.166 × SKELETON_SCALE 0.9 × 2.3 ≈ 4.48 米）。
 const DT = 1 / 60;
 
@@ -212,7 +212,7 @@ describe('Zombie · 属性与模型骨架', () => {
     expect(g1.radius).toBe(0.48);
 
     const g2 = PD.spawnZombieAt(game, 'bucket', -6, 0, { hpMul: 2.7, speedMul: 1.45 });
-    expect(g2.maxHp).toBe(729); // 270 * 2.7
+    expect(g2.maxHp).toBe(378); // 140 * 2.7
     expect(g2.speed).toBeCloseTo(1.55 * 1.45, 10);
 
     // 四舍五入而不是截断：1450 × 1.45 = 2102.5 -> 2103

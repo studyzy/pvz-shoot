@@ -268,6 +268,22 @@ describe('HUD', () => {
       expect(hud.hpFill.style.width).toBe('100%');
     });
 
+    it('setShield 按比例写宽度、低于 25% 变红、收起变暗、0 隐藏', () => {
+      hud.setShield(0, 400, false);
+      expect($('shieldRow').classList.contains('hidden')).toBe(true);
+      hud.setShield(400, 400, true);
+      expect($('shieldRow').classList.contains('hidden')).toBe(false);
+      expect($('shieldFill').style.width).toBe('100%');
+      expect($('shieldText').textContent).toBe('400');
+      hud.setShield(200, 400, true);
+      expect($('shieldRow').classList.contains('mid')).toBe(true);
+      hud.setShield(100, 400, true);
+      expect($('shieldFill').style.width).toBe('25%');
+      expect($('shieldRow').classList.contains('low')).toBe(true);
+      hud.setShield(100, 400, false);
+      expect($('shieldRow').classList.contains('idle')).toBe(true);
+    });
+
     it('setSun 相同值不重写；增长时加 pulse，减少不加', () => {
       hud.setSun(70);
       expect(hud.sunValue.textContent).toBe('70');
@@ -545,7 +561,7 @@ describe('HUD', () => {
       hud.reset();
 
       // reset() 先清缓存再写回初始值，所以缓存停在初始值上（不是 -1 哨兵）
-      expect(hud.cache).toEqual({ hp: 100, sun: -1, score: 0, kills: 0, wave: 1, ammo: -1 });
+      expect(hud.cache).toEqual({ hp: 100, sun: -1, score: 0, kills: 0, wave: 1, ammo: -1, shield: '0:0' });
       expect(hud.slotState).toEqual({ peaGun: [-1], gun: [-1], demo: [-1], grenade: [-1], shield: [-1] });
       expect(hud.activeSlotIndex).toBe(null);
       expect(hud.slotDock.classList.contains('hidden')).toBe(true);

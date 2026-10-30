@@ -106,10 +106,16 @@ describe('坚果墙 · 免伤盾基础', () => {
   it('C3：空中单位攻击时护盾不生效', () => {
     const w = game.wallNuts;
     w.raise();
-    w.airborneAttacker = true;
-    expect(w.absorb(30)).toBe(false);
-    w.airborneAttacker = false;
+    expect(w.absorb(30, { airborne: true })).toBe(false);
     expect(w.absorb(30)).toBe(true);
+  });
+
+  it('破盾后给 0.35 秒软弱无敌，防止同帧被连击打穿', () => {
+    const w = game.wallNuts;
+    w.raise();
+    game.player.invuln = 0;
+    w.absorb(w.maxHp);
+    expect(game.player.invuln).toBeCloseTo(0.35, 5);
   });
 
   it('盾壳颜色随血量变化（满血绿、低血清空 active）', () => {
@@ -177,6 +183,9 @@ describe('坚果墙 · 接入 Player', () => {
     const w = game.wallNuts;
     w.raise();
     w.absorb(w.maxHp);
+    // 破盾自带 0.35 秒软弱无敌，先跳过它再测正常扣血
+    expect(game.player.invuln).toBeCloseTo(0.35, 5);
+    game.player.invuln = 0;
     const before = game.player.hp;
     expect(game.player.damage(20)).toBe(true);
     expect(game.player.hp).toBe(before - 20);

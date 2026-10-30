@@ -237,7 +237,8 @@ export const WEAPONS = [
     name: '坚果墙',
     short: '坚果',
     desc: '免伤护盾',
-    starter: false,
+    // 开局常驻 5 号护盾槽：坚果不进地面随机池，否则一关只出一次、还容易永远拿不到
+    starter: true,
     model: 'wallnut',
     // 护盾不是弹匣制：靠 maxCharges/recharge 充能，所以不带 ammo
     cost: 25,
@@ -354,21 +355,24 @@ export const ZOMBIES = {
     radius: 0.48,
   },
   bucket: {
-    hp: 270,
+    // 铁桶是「桶才是本体」：甲 200 + 身 140，合计耐久和旧版 270 血基本持平
+    // （旧版把桶算进 270 里，护甲层不能直接叠在旧血上，否则 TTK 会从 2.7 秒涨到 4.5 秒）
+    hp: 140,
     speed: 1.55,
     damage: 15,
     score: 350,
     scale: 1.08,
     acc: 'bucket',
     // 金属桶：吸伤 70%，对燃烧免疫，还吃不到穿透（仙人掌穿不过它）
-    armor: { material: 'metal', hp: 240 },
+    armor: { material: 'metal', hp: 200 },
     radius: 0.52,
   },
   // 橄榄球僵尸：快（2.6 m/s，全场第二）、厚甲（buffalo 材质，吸收 50%，怕火）
   // 模型是 AIGC 橄榄球僵尸（无头盔），头顶的头盔仍由 buildHat 程序化补上。
   football: {
-    hp: 190,
-    armor: { material: 'buffalo', hp: 140 },
+    // 护甲是主体：甲 260 + 身 150。豌豆要打穿整层头盔，火豌豆 2 倍破甲才明显更快
+    hp: 150,
+    armor: { material: 'buffalo', hp: 260 },
     speed: 2.6,
     damage: 16,
     score: 450,
@@ -427,6 +431,10 @@ export const ARMOR_MATERIALS = {
 // 气球同屏配额：占同屏上限的比例（14 只时 = 2 只）。
 // 理由不是「保底」而是「阳光税」：每只气球正常情况下要花 22~40 阳光解决，堆太多会把整波预算吃光。
 export const AIR_QUOTA_RATIO = 0.2;
+
+// 站在这个高度以上的可站立平台（雪地矮墙 0.92、沙城 1.5 箱子）时，任何武器都能打到气球。
+// 必须 grounded：跳跃（最高 1.04）不算，否则「跳起来平射」会让对空白名单失效。
+export const AIR_HIGH_GROUND = 0.9;
 
 export const SKELETON_MAX_ALIVE = 3;
 

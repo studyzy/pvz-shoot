@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { segmentSphereT } from '../utils.js';
-import { TUNING } from '../config.js';
+import { TUNING, AIR_HIGH_GROUND } from '../config.js';
 import { sweepWalls, bounceVel } from './HitWalls.js';
 
 const PEA_RADIUS = 0.13;
@@ -119,11 +119,12 @@ export class ProjectileSystem {
     p.mesh.scale.setScalar(def.burn ? 1.2 : def.pierce ? 1.05 : def.slow ? 1.15 : 1);
   }
 
-  // 站在高处往下打：玩家脚底 ≥ 1.5 米（雪地矮墙 0.92 不够，得站砖台/箱子顶），且水平 3 米内。
+  // 站在高处往下打：玩家落地（跳跃不算）且脚底 ≥ 0.9 米（雪地矮墙 0.92、沙城 1.5 箱子），水平 3 米内。
   canHitAirFromAbove(z) {
     const p = this.ctx.player;
     if (!p || !p.pos) return false;
-    if (p.pos.y < 1.5) return false;
+    if (p.grounded === false) return false;
+    if (p.pos.y < AIR_HIGH_GROUND) return false;
     return Math.hypot(z.root.position.x - p.pos.x, z.root.position.z - p.pos.z) <= 3;
   }
 

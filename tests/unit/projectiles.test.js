@@ -1183,7 +1183,7 @@ describe('ProjectileSystem · 空中目标', () => {
     expect(b.hp).toBe(43);
   });
 
-  it('站在高处（≥1.5 米、水平 3 米内）时普通豌豆也能打到气球', () => {
+  it('站在高处（≥0.9 米、水平 3 米内）时普通豌豆也能打到气球', () => {
     ctx.player.pos.set(0, 1.6, 2);
     const b = placeBalloon(0, 0);
     // 玩家站高处，直接平射（不经过 canHitAirFromAbove 的倍率，仍是打法上的钥匙）
@@ -1193,14 +1193,18 @@ describe('ProjectileSystem · 空中目标', () => {
     expect(b.hits).toBe(1);
   });
 
-  it('canHitAirFromAbove：高度不足或距离太远都返回 false', () => {
+  it('canHitAirFromAbove：高度不足、距离太远、跳跃中都返回 false', () => {
     const b = placeBalloon(0, 0);
-    ctx.player.pos.set(0, 0.9, 1);
+    ctx.player.pos.set(0, 0.8, 1);
     expect(P.canHitAirFromAbove(b)).toBe(false); // 高度不够
     ctx.player.pos.set(0, 1.6, 10);
     expect(P.canHitAirFromAbove(b)).toBe(false); // 水平太远
+    ctx.player.grounded = false;
     ctx.player.pos.set(0, 1.6, 2);
+    expect(P.canHitAirFromAbove(b)).toBe(false); // 跳跃不算站高处
+    ctx.player.grounded = true;
     expect(P.canHitAirFromAbove(b)).toBe(true);
+    ctx.player.grounded = undefined;
   });
 
   it('0.25 倍率对火豌豆生效、对仙人掌不生效', () => {

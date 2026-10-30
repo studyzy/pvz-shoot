@@ -378,7 +378,10 @@ describe('3. 暂停 / 恢复 / 回菜单', () => {
     expect(game.zombies.zombies.length).toBe(0);
     expect(game.zombies.queue.length).toBe(0);
     expect(game.zombies.state).toBe('idle');
-    expect(game.weapons.slots).toEqual({ peaGun: [0], gun: [-1], demo: [-1], grenade: [-1], shield: [-1] });
+    expect(game.weapons.slots).toEqual({
+      peaGun: [0], gun: [-1], demo: [-1], grenade: [-1],
+      shield: [WEAPONS.findIndex((w) => w.id === 'wallnut')],
+    });
   });
 
   it('pauseMapBtn 也能回到主菜单', () => {
@@ -1625,6 +1628,19 @@ describe('14. 武器角色槽端到端', () => {
     expect(W.slots.peaGun).toEqual([0]);
   });
 
+  it('坚果是常驻槽，Backspace 丢不掉', () => {
+    game.start();
+    const W = game.weapons;
+    const nut = WEAPONS.findIndex((w) => w.id === 'wallnut');
+    key('Digit5');
+    game.update(1 / 60);
+    expect(W.current).toBe(nut);
+    key('Backspace');
+    game.update(1 / 60);
+    expect(W.slots.shield).toEqual([nut]);
+    expect(W.current).toBe(nut);
+  });
+
   it('12345 走真实按键切到对应角色槽', () => {
     game.start();
     giveSun(999);
@@ -1645,14 +1661,17 @@ describe('14. 武器角色槽端到端', () => {
     expect(game.hud.slotButtons[2].classList.contains('active')).toBe(true);
   });
 
-  it('重开一局会清空所有槽位', () => {
+  it('重开一局只保留豌豆和坚果两个常驻槽', () => {
     game.start();
     giveSun(999);
     game.weapons.pickup(5);
     game.weapons.pickup(8);
     game.start();
-    // 重开清空所有临时槽，但豌豆常驻槽保留
-    expect(game.weapons.slots).toEqual({ peaGun: [0], gun: [-1], demo: [-1], grenade: [-1], shield: [-1] });
-    expect(game.hud.slotDock.classList.contains('hidden')).toBe(true);
+    // 重开清空捡来的枪，但豌豆/坚果常驻槽保留
+    expect(game.weapons.slots).toEqual({
+      peaGun: [0], gun: [-1], demo: [-1], grenade: [-1],
+      shield: [WEAPONS.findIndex((w) => w.id === 'wallnut')],
+    });
+    expect(game.hud.slotDock.classList.contains('hidden')).toBe(false);
   });
 });

@@ -35,7 +35,6 @@ export class WallNuts {
     this.active = false;
     this.hp = 0;
     this.maxHp = WALLNUT.shieldHp;
-    this.breakTimer = 0;
     this.flashT = 0;
     this.buildShell();
   }
@@ -82,7 +81,6 @@ export class WallNuts {
     if (this.active && this.hp > 0) return false;
     this.active = true;
     this.hp = this.maxHp;
-    this.breakTimer = 0;
     this.shell.visible = true;
     this.applyColor();
     if (this.ctx.sfx && this.ctx.sfx.shieldUp) this.ctx.sfx.shieldUp();
@@ -109,7 +107,6 @@ export class WallNuts {
   clear() {
     this.active = false;
     this.hp = 0;
-    this.breakTimer = 0;
     if (this.shell) this.shell.visible = false;
   }
 
@@ -118,10 +115,10 @@ export class WallNuts {
    * 注意调用位置必须在 Player.damage 的 invuln 判定之后、扣血之前，
    * 并且**不重置 sinceDamage**（否则「有盾」和「没盾」在回血计时上无法区分）。
    */
-  absorb(amount) {
+  absorb(amount, opts) {
     if (!this.active || this.hp <= 0) return false;
-    // C3：空中单位从头顶俯冲，护盾不挡
-    if (this.airborneAttacker) return false;
+    // C3：空中单位从头顶俯冲，护盾不挡。必须在调用参数里带，不能挂实例字段（多只僵尸同帧会串）
+    if (opts && opts.airborne) return false;
     this.hp -= amount;
     this.flashT = 0.12;
     if (this.hp <= 0) {
@@ -134,7 +131,8 @@ export class WallNuts {
 
   breakShield() {
     this.active = false;
-    this.breakTimer = BREAK_INVULN;
+    // 破盾本身不掉血，但给 0.35 秒软弱无敌，防止盾碎的同一帧被连击打穿
+    if (this.player) this.player.invuln = Math.max(this.player.invuln || 0, BREAK_INVULN);
     this.shell.visible = false;
     const p = this.player.pos;
     this.ctx.particles.burst({
@@ -160,7 +158,6 @@ export class WallNuts {
   }
 
   update(dt) {
-    if (this.breakTimer > 0) this.breakTimer -= dt;
     if (!this.active) return;
     this.flashT = Math.max(0, this.flashT - dt);
     const p = this.player.pos;

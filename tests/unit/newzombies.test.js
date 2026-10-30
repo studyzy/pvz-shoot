@@ -99,21 +99,21 @@ describe('材质护甲层', () => {
 
   it('橄榄球：护甲满值时吸收 50%，护甲自己扣血', () => {
     const z = makeZombie('football');
-    expect(z.armorMax).toBe(140);
-    expect(z.armorHp).toBe(140);
+    expect(z.armorMax).toBe(260);
+    expect(z.armorHp).toBe(260);
     z.hit(100, false, false, { type: 'pea' });
     // 护甲吸收一半：血掉 50，护甲掉 100
     expect(z.hp).toBe(z.maxHp - 50);
-    expect(z.armorHp).toBe(40);
+    expect(z.armorHp).toBe(160);
   });
 
   it('护甲打穿：armorBroken=true、配件隐藏、播碎裂粒子与音效', () => {
     const ctx = makeCtx();
     const z = makeZombie('football', ctx);
     expect(z.hat.visible).toBe(true);
-    // 打两下打穿 140 点护甲
-    z.hit(80, false, false, { type: 'pea' });
-    z.hit(80, false, false, { type: 'pea' });
+    // 打两下打穿 260 点护甲
+    z.hit(140, false, false, { type: 'pea' });
+    z.hit(140, false, false, { type: 'pea' });
     expect(z.armorHp).toBe(0);
     expect(z.armorBroken).toBe(true);
     expect(z.hat.visible).toBe(false);
@@ -135,8 +135,8 @@ describe('材质护甲层', () => {
     pea.hit(20, false, false, { type: 'pea' });
     fire.hit(20, false, false, { type: 'pea', armorBreak: true });
     // 普通弹：20 -> 护甲 -20；火豌豆：20*2 -> 护甲 -40
-    expect(pea.armorHp).toBe(120);
-    expect(fire.armorHp).toBe(100);
+    expect(pea.armorHp).toBe(240);
+    expect(fire.armorHp).toBe(220);
   });
 
   it('金属桶对燃烧免疫：燃烧跳伤只打血、不打护甲', () => {
@@ -151,7 +151,7 @@ describe('材质护甲层', () => {
     const z = makeZombie('football');
     const armorBefore = z.armorHp;
     z.hit(10, false, false, { type: 'burn' });
-    expect(z.armorHp).toBe(armorBefore - 10);
+    expect(z.armorHp).toBe(armorBefore - 10); // 260 -> 250
   });
 
   it('穿透弹被金属挡住（仙人掌穿不过铁桶），但仍造成非穿透部分的伤害', () => {
@@ -228,6 +228,9 @@ describe('空中单位（气球）', () => {
     const head = new THREE.Vector3();
     z.getHead(head);
     expect(head.y).toBeCloseTo(2.2 + z.headY * z.scaleFactor, 5);
+    // 影子挂在 root 下，root 升到 2.2 米后影子必须落回地面并缩小
+    expect(z.shadow.position.y).toBeCloseTo(0.025 - 2.2, 5);
+    expect(z.shadow.scale.x).toBeCloseTo(0.6, 5);
   });
 
   it('空中单位不吃地面碰撞体（它在飞）', () => {
@@ -238,23 +241,22 @@ describe('空中单位（气球）', () => {
     expect(Math.hypot(z.root.position.x - collider.x, z.root.position.z - collider.z)).toBeLessThan(1);
   });
 
-  it('垂直够不着玩家时不出手（跳起来能躲）', () => {
+  it('玩家在脚下时俯冲撕咬：垂直差 2.2 ≥ 1.6', () => {
     const ctx = makeCtx();
     const z = makeZombie('balloon', ctx);
     z.root.position.set(0, 2.2, 0);
-    // 水平贴脸，但玩家在地面 -> 垂直差 2.2 > 1.6，够不着
+    z.attackTimer = 0.01;
     z.update(1 / 60, { pos: new THREE.Vector3(0, 0, 1) }, []);
-    // 多跑几帧确保攻击计时器不会被推进
-    for (let i = 0; i < 90; i++) z.update(1 / 60, { pos: new THREE.Vector3(0, 0, 1) }, []);
-    expect(ctx.onAttack).not.toHaveBeenCalled();
+    expect(ctx.onAttack).toHaveBeenCalled();
   });
 
-  it('玩家跳起来（脚底 y≈1.0）时够得着：垂直差 1.2 ≤ 1.6', () => {
+  it('玩家跳起来（脚底 y≈1.0）后撕咬落空：垂直差 1.2 < 1.6', () => {
     const ctx = makeCtx();
     const z = makeZombie('balloon', ctx);
+    z.root.position.set(0, 2.2, 0);
     z.attackTimer = 0.01;
-    z.update(1 / 60, { pos: new THREE.Vector3(0, 1.0, 1) }, []);
-    expect(ctx.onAttack).toHaveBeenCalled();
+    for (let i = 0; i < 90; i++) z.update(1 / 60, { pos: new THREE.Vector3(0, 1.0, 1) }, []);
+    expect(ctx.onAttack).not.toHaveBeenCalled();
   });
 
   it('死亡播气球「啵」的音效', () => {
