@@ -68,7 +68,7 @@ export const zombieModel = {
 // 新模型（targetHeight 那一批）的槽按需挂上来，与老四套同一套接口。
 for (const [id, mod] of Object.entries(MODELS)) {
   if (zombieModel[id]) continue;
-  zombieModel[id] = { ready: false, failed: false, scene: null, clips: [], scale: mod.scale || 1 };
+  zombieModel[id] = { ready: false, failed: false, scene: null, clips: [], scale: mod.scale || 1, box: null };
 }
 
 // 按名字取动画：glb 里可能带 CharacterArmature| 前缀，统一去掉再比
@@ -109,6 +109,14 @@ export function fitToHeight(scene, targetHeight) {
   return s;
 }
 
+// 按包围盒推命中球的模型（巨人）要在加载后量一次尺寸（已归一化、脚底在 0）：
+// 写死一组固定高度会让命中球只覆盖模型的一小截（上半身打不掉血）。见 Zombie 的 hitForModel。
+function measureRaw(slot, scene) {
+  scene.updateMatrixWorld(true);
+  const box = new THREE.Box3().setFromObject(scene);
+  slot.box = { min: box.min, max: box.max, size: box.getSize(new THREE.Vector3()) };
+}
+
 // 加载一个模型进它的槽。新模型在加载完成后算归一化缩放。
 function loadSlot(loader, id, mod, onDone) {
   const slot = zombieModel[id];
@@ -117,6 +125,8 @@ function loadSlot(loader, id, mod, onDone) {
     (gltf) => {
       const scene = prepare(gltf.scene);
       slot.scale = mod.targetHeight ? fitToHeight(scene, mod.targetHeight) : mod.scale;
+      // 归一化过的模型才量包围盒（老四套的命中球口径是手写标定过的，别动）
+      if (mod.targetHeight) measureRaw(slot, scene);
       slot.scene = scene;
       slot.clips = gltf.animations || [];
       slot.ready = true;

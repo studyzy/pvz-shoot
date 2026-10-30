@@ -4,6 +4,7 @@ import { describe, it, expect, beforeAll } from 'vitest';
 import * as THREE from 'three';
 
 let NightForest;
+let FLASH;
 let map;
 
 beforeAll(async () => {
@@ -188,5 +189,125 @@ describe('夜之森林 · 投影开关', () => {
     map.root.traverse((o) => {
       if (o.isLight) expect(o.castShadow, o.type + ' 不该投影').toBe(false);
     });
+  });
+});
+
+// TECH-flashlight.md：夜之森林"太黑"的根治手段是跟相机走的 SpotLight。
+// 这一段把方案里每条"别踩"的约束都钉成断言：不挂 scene、跟着准星、不投影、按图开关。
+describe('夜之森林 · 手电（TECH-flashlight.md）', () => {
+  let camera;
+  let scene;
+  let map;
+
+  beforeAll(async () => {
+    const { NightForest } = await import('../../src/world/NightForest.js');
+    ({ FLASH } = await import('../../src/world/NightForest.js'));
+    scene = new THREE.Scene();
+    camera = new THREE.PerspectiveCamera(73, 1, 0.05, 240);
+    map = new NightForest(scene, camera);
+  });
+
+  it('有且仅有一盏 spot：挂在相机上（不是 root、更不是 scene）', () => {
+    const spots = [];
+    map.root.traverse((o) => {
+      if (o.isSpotLight) spots.push(o);
+    });
+    expect(spots.length, '手电不能再在 root 里塞一盏（切图残留）').toBe(0);
+    const onCamera = [];
+    camera.traverse((o) => {
+      if (o.isSpotLight) onCamera.push(o);
+    });
+    expect(onCamera.length).toBe(1);
+    expect(onCamera[0]).toBe(map.flash);
+    expect(map.flash.parent).toBe(camera);
+    // 相机本身当然还挂在 scene 上；灯不能直接进 scene.children
+    for (const c of scene.children) expect(c.isSpotLight).toBeFalsy();
+  });
+
+  it('castShadow === false：本图靠 noShadows 省掉整个 shadow pass，灯不能把它带回来', () => {
+    expect(map.flash.castShadow).toBe(false);
+    expect(map.noShadows).toBe(true);
+  });
+
+  it('target 存在且也挂在相机上、在相机前方并略向下（光斑落在地面）', () => {
+    const target = map.flash.target;
+    expect(target).toBeTruthy();
+    expect(target).toBe(map.flashTarget);
+    expect(target.parent).toBe(camera);
+    // 相机默认朝 -Z：target 的 z 必须为负、y 必须为负，否则光打在远处而不是脚下
+    expect(target.position.z).toBeLessThan(0);
+    expect(target.position.y).toBeLessThan(0);
+    expect(target.position).toEqual(new THREE.Vector3(...FLASH.target));
+  });
+
+  it('参数与实测曲线一致：暖白 110 / 40 米 / 36° / penumbra 0.5 / decay 1', () => {
+    const f = map.flash;
+    expect(f.color.getHex()).toBe(0xffe8b0);
+    expect(f.intensity).toBe(110);
+    expect(f.distance).toBe(40);
+    expect(f.angle).toBeCloseTo(Math.PI / 5, 10);
+    expect(f.penumbra).toBe(0.5);
+    expect(f.decay).toBe(1);
+    // 灯位置贴着相机（眼睛略下），不挂在别处
+    expect(f.position).toEqual(new THREE.Vector3(...FLASH.pos));
+    // 灯本身就是相机的直接子节点，不再套一层（否则 getWorldPosition 要额外烧 CPU，本轮不引入）
+    expect(f.parent).toBe(camera);
+  });
+
+  it('activate 点亮手电；setFlash(false) 能关掉（其它地图靠它关灯）', () => {
+    map.setFlash(false);
+    expect(map.flash.visible).toBe(false);
+    map.activate(scene, camera);
+    expect(map.flash.visible).toBe(true);
+    map.setFlash(false);
+    expect(map.flash.visible).toBe(false);
+  });
+
+  it('没相机时构造不报错、也不建灯；activate 再给相机也能补上（单测/图鉴场景）', async () => {
+    const { NightForest } = await import('../../src/world/NightForest.js');
+    const bare = new NightForest(new THREE.Scene());
+    expect(bare.flash).toBeUndefined();
+    expect(bare.attachFlash(null)).toBeNull();
+    expect(() => bare.activate(new THREE.Scene())).not.toThrow();
+    expect(bare.flash).toBeUndefined();
+
+    const late = new THREE.PerspectiveCamera();
+    bare.activate(new THREE.Scene(), late);
+    expect(bare.flash).toBeTruthy();
+    expect(bare.flash.parent).toBe(late);
+    expect(bare.flash.visible).toBe(true);
+  });
+
+  it('反复 attach / activate 不会堆出第二盏灯', async () => {
+    const { NightForest } = await import('../../src/world/NightForest.js');
+    const cam = new THREE.PerspectiveCamera();
+    const m = new NightForest(new THREE.Scene(), cam);
+    const first = m.flash;
+    m.attachFlash(cam);
+    m.activate(new THREE.Scene(), cam);
+    m.activate(new THREE.Scene(), cam);
+    let spots = 0;
+    cam.traverse((o) => {
+      if (o.isSpotLight) spots++;
+    });
+    expect(spots).toBe(1);
+    expect(m.flash).toBe(first);
+  });
+
+  it('切图不残留：其它三张地图没有手电，map.setFlash 只有森林有', async () => {
+    const { Arena } = await import('../../src/world/Arena.js');
+    const { IceWorld } = await import('../../src/world/IceWorld.js');
+    const { DustYard } = await import('../../src/world/DustYard.js');
+    const { createMaps } = await import('../../src/world/maps.js');
+    const s = new THREE.Scene();
+    const cam = new THREE.PerspectiveCamera();
+    const all = createMaps(s, cam);
+    const withFlash = all.filter((m) => typeof m.setFlash === 'function');
+    expect(withFlash.map((m) => m.id)).toEqual(['forest']);
+    for (const cls of [Arena, IceWorld, DustYard]) {
+      const m = new cls(new THREE.Scene());
+      expect(m.setFlash).toBeUndefined();
+      expect(m.flash).toBeUndefined();
+    }
   });
 });

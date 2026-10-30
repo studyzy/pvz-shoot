@@ -101,7 +101,7 @@ export class Game {
     this.models = zombieModel;
     this.hud = new HUD();
     this.particles = new Particles(this.scene);
-    this.maps = createMaps(this.scene);
+    this.maps = createMaps(this.scene, this.camera);
     this.player = new Player(this.sfx);
     this.sunOrbs = new SunOrbs(this.scene);
     this.pickups = new WeaponPickups(ctx);
@@ -319,7 +319,13 @@ export class Game {
     // 夜之森林整图关实时投影：省掉一遍 1024 PCFSoft shadow pass，
     // 夜景本来就靠雾和自发光撑氛围。其它地图照旧开着。
     this.renderer.shadowMap.enabled = !map.noShadows;
-    map.activate(this.scene);
+    // 手电是挂相机的（全局存在），不会被 root.visible 关掉：activate 里点亮它、
+    // 同时把其它地图的手电关掉。TECH-flashlight.md §4 的"按地图开关"就落在这里。
+    for (let i = 0; i < this.maps.length; i++) {
+      const m = this.maps[i];
+      if (m.setFlash) m.setFlash(m === map);
+    }
+    map.activate(this.scene, this.camera);
     this.hud.setMapSelection(map.id);
     this.hud.setStartLabel(map.startLabel);
     if (this.pickups) this.pickups.setMap(map);

@@ -544,6 +544,8 @@ export const ZOMBIES = {
   // ══════════════════════════════════════════════════════════════════════
   gargantuar: {
     hp: 1560, speed: 1.15, damage: 30, score: 3000,
+    // 巨人：类型 scale 保持 1，命中球由模型自身的包围盒推出（Zombie.hitForModel）。
+    // 不能只放大模型、把命中球写死成小人尺寸 —— 那样上半身落在球外，打中却不掉血。
     scale: 1.0, model: 'giant', acc: null, radius: 0.85,
     boss: true, title: '巨人',
     slam: { range: 2.6, radius: 2.3, telegraph: 0.85, recover: 1.4 },

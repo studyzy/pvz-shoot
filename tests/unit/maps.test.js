@@ -129,6 +129,24 @@ describe('地图注册表 maps.js', () => {
     });
   });
 
+  // TECH-flashlight.md §4：夜之森林的手电要跟相机走，所以 create 签名多收一个 camera。
+  // 其它地图允许忽略它（现在的签名是 create(scene)），加不加参数都不该炸。
+  it('createMaps(scene, camera)：相机透传给工厂，只有森林会把它存下来', () => {
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(73, 1, 0.05, 240);
+    const maps = createMaps(scene, camera);
+    const forest = maps.find((m) => m.id === 'forest');
+    expect(forest.camera).toBe(camera);
+    expect(forest.flash.parent).toBe(camera);
+    for (const m of maps) {
+      if (m.id === 'forest') continue;
+      expect(m.camera).toBeUndefined();
+      expect(m.root.visible).toBe(false);
+    }
+    // 不传相机也必须能建出来（图鉴 / 单测只关心几何）
+    expect(() => createMaps(new THREE.Scene())).not.toThrow();
+  });
+
   it('未知地图 id 回落到第一张；Game.setMap 切图后只有当前地图可见', async () => {
     const { game } = await createGame();
     expect(game.maps.length).toBe(4);
@@ -288,6 +306,12 @@ describe.each(MAP_IDS)('地图契约：%s', (id) => {
       if (o.isLight) lights++;
     });
     expect(lights).toBeGreaterThanOrEqual(2);
+    // 手电这类"跟相机走"的灯只能挂在相机上（TECH-flashlight.md §4）：
+    // root 里的灯会随 root.visible 一起关，但相机是全局的，挂 root 就没法跟准星；
+    // 反过来挂 scene 会残留到别的图。所以契约是：root 里不许有 spot，spot 只能在相机侧。
+    target.root.traverse((o) => {
+      expect(o.isSpotLight, o.type + ' 不该挂在 root 里').toBeFalsy();
+    });
   });
 
   it('menuCamera：相机在场地附近、y>0、随 t 转动，且看向场地中心', () => {

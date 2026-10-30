@@ -1002,6 +1002,165 @@ async function phasePerf(ctx) {
   };
 }
 
+// 场景：夜之森林手电（TECH-flashlight.md §5 验收清单）
+//
+// 这个场景只有真浏览器能跑：亮度和"过曝"是像素级的，jsdom 里没有 WebGL 也没有截图。
+// 四条断言：① 开灯后脚下地面明显变亮 ② 关灯能回到原样（=灯是唯一变量）
+// ③ 手里植物没有过曝发白 ④ 切到白天地图不残留灯、draw call 没有失控。
+async function phaseFlashlight(ctx) {
+  const { page } = ctx;
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await ensurePlaying(page);
+
+  // 切到森林：只有这里应该有手电（setMap 只在 menu 状态生效，所以先退回菜单再切）
+  await page.evaluate(() => window.__game.backToMenu());
+  await waitUntil(page, () => window.__game.state === 'menu', 8000, '退回主菜单');
+  await page.evaluate(() => window.__game.setMap('forest'));
+  await waitUntil(page, () => window.__game.mapId === 'forest', 8000, '切到夜之森林');
+  await page.click('#startBtn');
+  await page.waitForFunction(() => window.__game.state === 'playing', null, { timeout: 10000 });
+  await page.waitForFunction(() => window.__game.mapId === 'forest', null, { timeout: 8000 });
+  await page.evaluate(() => {
+    const g = window.__game;
+    g.player.hp = 1e9;
+    g.player.maxHp = 1e9;
+  });
+
+  // 固定镜头：出生点、朝北（-Z）、略微低头看地 —— 与 TECH-flashlight.md §0 的测量口径一致
+  await page.evaluate(() => {
+    const p = window.__game.player;
+    p.pos.set(window.__game.map.spawn.x, 0, window.__game.map.spawn.z);
+    p.vel.set(0, 0, 0);
+    p.yaw = 0;
+    p.pitch = -0.25;
+    p.recoil = 0;
+  });
+  await page.waitForTimeout(250);
+
+  const lightState = await page.evaluate(() => {
+    const g = window.__game;
+    const f = g.map.flash;
+    let spots = 0;
+    g.camera.traverse((o) => {
+      if (o.isSpotLight) spots++;
+    });
+    return {
+      ok: !!f && f.visible === true && f.castShadow === false && spots === 1,
+      visible: f && f.visible,
+      castShadow: f && f.castShadow,
+      spotsOnCamera: spots,
+      intensity: f && f.intensity,
+    };
+  });
+  check(lightState.ok, '森林里应有一盏挂在相机上、不投影、可见的 spot：' + JSON.stringify(lightState));
+
+  const { createCanvas, loadImage } = await import('@napi-rs/canvas');
+
+  // 截图 → 分区灰度均值。截图是页面真实输出，JS 侧另画一遍不算数。
+  async function lumaSample() {
+    const png = await page.screenshot();
+    const img = await loadImage(png);
+    const cv = createCanvas(img.width, img.height);
+    const cx = cv.getContext('2d');
+    cx.drawImage(img, 0, 0);
+    const d = cx.getImageData(0, 0, img.width, img.height).data;
+    const W = img.width;
+    const H = img.height;
+    const L = (x, y) => {
+      const i = (y * W + x) * 4;
+      return 0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2];
+    };
+    const region = (x0, y0, x1, y1) => {
+      let s = 0;
+      let n = 0;
+      for (let y = Math.floor(y0 * H); y < y1 * H; y += 2) {
+        for (let x = Math.floor(x0 * W); x < x1 * W; x += 2) {
+          s += L(x, y);
+          n++;
+        }
+      }
+      return s / Math.max(1, n);
+    };
+    return { feet: region(0.1, 0.82, 0.9, 1), full: region(0, 0, 1, 1), data: d, W, H };
+  }
+
+  // 等渲染循环把新姿态吐到屏幕上（SwiftShader 很慢，按帧数等而不是按墙钟）
+  async function settle() {
+    await page.evaluate(
+      () =>
+        new Promise((resolve) => {
+          let n = 0;
+          const tick = () => (++n >= 3 ? resolve() : requestAnimationFrame(tick));
+          requestAnimationFrame(tick);
+        })
+    );
+  }
+
+  await settle();
+  const on = await lumaSample();
+
+  // 关灯再拍一次：两次唯一的差别就是这盏灯
+  await page.evaluate(() => window.__game.map.setFlash(false));
+  await settle();
+  const off = await lumaSample();
+  await page.evaluate(() => window.__game.map.setFlash(true));
+  await settle();
+
+  // 开灯后脚下地面必须明显变亮（实测 14.9 → 36.5，留一半余量）
+  check(
+    on.feet > off.feet * 1.5 && on.feet - off.feet > 8,
+    '手电应明显照亮脚下地面，实测 关灯=' + off.feet.toFixed(1) + ' 开灯=' + on.feet.toFixed(1)
+  );
+  // 但不能把"夜"洗成"白天"：整屏均值仍要远低于白天地图（90–140）
+  check(
+    on.full < 70,
+    '开灯后整屏均值应仍保持夜间（< 70），实测 ' + on.full.toFixed(1) + '（关灯 ' + off.full.toFixed(1) + '）'
+  );
+
+  // 手里植物过曝检查（§3.4）：武器视图模型在画面右下，统计高光像素占比
+  let whitish = 0;
+  let total = 0;
+  for (let y = Math.floor(on.H * 0.55); y < on.H; y += 2) {
+    for (let x = Math.floor(on.W * 0.55); x < Math.floor(on.W * 0.98); x += 2) {
+      const i = (y * on.W + x) * 4;
+      const l = 0.2126 * on.data[i] + 0.7152 * on.data[i + 1] + 0.0722 * on.data[i + 2];
+      if (l > 235) whitish++;
+      total++;
+    }
+  }
+  const whiteRatio = whitish / Math.max(1, total);
+  check(whiteRatio < 0.12, '手里植物疑似过曝：右下角高光像素占 ' + (whiteRatio * 100).toFixed(1) + '%（上限 12%）');
+
+  // draw call 不失控 + 切到白天地图后不留灯
+  const after = await page.evaluate(() => {
+    const g = window.__game;
+    const calls = g.renderer.info.render.calls;
+    const state = g.state;
+    g.backToMenu();
+    g.setMap('snow');
+    const forest = g.maps.find((m) => m.id === 'forest');
+    let spots = 0;
+    g.camera.traverse((o) => {
+      if (o.isSpotLight) spots++;
+    });
+    return { state, calls, forestFlashVisible: forest.flash.visible, spotsOnCamera: spots, mapId: g.mapId };
+  });
+  check(after.state === 'playing', '亮度测量期间应保持 playing，实际 ' + after.state);
+  check(after.calls < 250, '手电让 draw call 失控：' + after.calls);
+  check(after.forestFlashVisible === false, '切到雪地后森林的手电必须关掉');
+  check(after.spotsOnCamera === 1, '相机上始终只有一盏 spot，实际 ' + after.spotsOnCamera);
+
+  await shot(page, 'phase-flashlight');
+  return {
+    metrics: {
+      feet: off.feet.toFixed(1) + '→' + on.feet.toFixed(1),
+      full: off.full.toFixed(1) + '→' + on.full.toFixed(1),
+      white: (whiteRatio * 100).toFixed(1) + '%',
+      calls: after.calls,
+    },
+  };
+}
+
 // 场景 6：死亡结算与重开
 async function phaseGameOver(ctx) {
   const { page } = ctx;
@@ -1523,6 +1682,7 @@ const PHASES = [
   { name: 'skeleton', label: '骷髅模型（雪地专属 + 同屏上限）', group: 'desktop', fn: phaseSkeleton },
   { name: 'remote', label: '队友模型（Farmer 戴夫化）', group: 'desktop', fn: phaseRemote },
   { name: 'maps', label: '四张地图真实切换', group: 'desktop', fn: phaseMaps },
+  { name: 'flashlight', label: '夜之森林手电（亮度/过曝/不残留）', group: 'desktop', fn: phaseFlashlight },
   { name: 'mobile', label: '手机模拟（横屏 UI + 竖屏拦截）', group: 'mobile', fn: phaseMobile },
   { name: 'perf', label: '性能与稳定性（10s 采样）', group: 'desktop', fn: phasePerf },
   { name: 'gameover', label: '死亡结算与重开', group: 'desktop', fn: phaseGameOver },

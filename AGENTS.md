@@ -274,7 +274,8 @@ npm run duo       # build 后直接起双人服务器
 
 ### 5.9 地图与地面拾取
 
-- 每张地图是一个类实例，必须提供：`root`（所有场景物体挂在这里）、`bounds`、`colliders`、`spawn`、`pickupSpots`、`activate(scene)`、`menuCamera(camera, time)`、`update(dt)`。
+- 每张地图是一个类实例，必须提供：`root`（所有场景物体挂在这里）、`bounds`、`colliders`、`spawn`、`pickupSpots`、`activate(scene, camera)`、`menuCamera(camera, time)`、`update(dt)`。`camera` 由 `createMaps(scene, camera)` 传来，只有需要「跟视角走」的灯（夜之森林手电）才用它。
+- **跟相机的灯不能挂 `root`、更不能挂 `scene`**：`root` 里的灯不跟相机；`scene` 里的灯会残留到别的图（切图只切 `root.visible`）。正确做法是挂相机 + 地图持有引用 + **按地图开关**：`NightForest.setFlash(on)`，由 `Game.setMap` 统一开关，`activate()` 里只负责点亮自己。见 [docs/technical/TECH-flashlight.md](docs/technical/TECH-flashlight.md)。
 - 可选 `platforms`：轴对齐平顶盒体 `{x,z,w,d,h}`，玩家用它做落脚高度与侧向碰撞；`playerColliders` 存在时玩家只吃这一组圆形碰撞（雪地用空数组，把碰撞交给 `platforms`）。
 - 可选 `zombieSpawnPoints`：`[[x,z], ...]`，有则僵尸只在这些点附近刷新（雪地用于从北端基地出兵）。
 - 可选 `updateNav(player, dt)` / `flowAt(x, z, out)`：有高墙的地图用 1 米网格流场给僵尸指路；`Game.update` 每帧调用，`Zombie` 优先跟随流场。

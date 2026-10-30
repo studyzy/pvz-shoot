@@ -10,6 +10,19 @@ const WALL_H = 7.5;
 const FIREFLY_COUNT = 260;
 const TREE_ROWS = 4;
 
+// 手电参数（docs/technical/TECH-flashlight.md §3.2 的实测曲线）：
+// 110 强度时近处地面亮度 6 → ~40，再高（200 → 55）就把"夜"洗成"黄昏"。
+export const FLASH = {
+  color: 0xffe8b0, // 暖白，和冷蓝月光（0xa9c4ff）拉开冷暖对比
+  intensity: 110,
+  distance: 40, // 与雾的 far = 38 对齐：再远也被雾吃掉
+  angle: Math.PI / 5, // 36°，比俯仰极限宽，扫视时边缘不卡顿
+  penumbra: 0.5,
+  decay: 1.0, // 物理衰减是 2；这里要"看得远"，用 1
+  pos: [0, -0.1, 0], // 相机子节点：灯就在眼睛位置略下方
+  target: [0, -0.35, -3], // target 必须下移，光斑才会落在脚下（0，-1 只照远处）
+};
+
 // 夜之森林：90 × 90 米的奇幻夜间森林。
 // 动线是「中央月光空地 + 四片族群领地 + 四条主径」，每片领地住一个族群：
 //   A 菌菇林（史莱姆）  B 哥布林营地（哥布林/小恶魔）
@@ -17,8 +30,10 @@ const TREE_ROWS = 4;
 // 所有可站立平台都必须 ≤ 0.6 米且不挂 colliders —— 僵尸不会跳，站高处就是无敌点。
 // 树干登记成圆柱挡板，否则豌豆会直接穿过树。
 export class NightForest {
-  constructor(scene) {
+  constructor(scene, camera = null) {
     this.scene = scene;
+    // 相机会在 activate(camera) 时补上（createMaps 已经传了，这里留个兜底给单测/图鉴）
+    this.camera = camera;
     this.id = 'forest';
     this.name = '夜之森林';
     this.root = new THREE.Group();
@@ -70,6 +85,7 @@ export class NightForest {
     this.matGlowAmber = toon(0xffd98a, { emissive: 0xb07a20, emissiveIntensity: 0.9 });
 
     this.build();
+    this.attachFlash(camera);
     this.nav = new FlowField(HALF_X, HALF_Z, 1);
     this.nav.blockPlatforms(this.platforms);
   }
@@ -136,17 +152,53 @@ export class NightForest {
     return this.nav.flowAt(x, z, out);
   }
 
-  activate(scene) {
+  activate(scene, camera = null) {
     scene.background = nightSkyTexture();
     // 夜里可视距离短：近 14 米清晰、38 米完全没入黑暗，走廊感靠这个撑起来。
     scene.fog = new THREE.Fog(0x0a1226, 14, 38);
     this.root.visible = true;
+    this.attachFlash(camera || this.camera);
+    this.setFlash(true);
   }
 
   menuCamera(camera, time) {
     const a = time * 0.045;
     camera.position.set(Math.cos(a) * 40, 26 + Math.sin(time * 0.2) * 0.4, Math.sin(a) * 40);
     camera.lookAt(0, 1.5, 0);
+  }
+
+  // ── 手电（TECH-flashlight.md）：跟相机走的 SpotLight，不投影 ──
+  // 挂 scene 会残留到别的图（切图靠 root.visible）；挂 root 又不会跟相机。
+  // 所以挂相机、由本图持有引用，用 setFlash() 按地图开关。
+  attachFlash(camera) {
+    if (!camera) return null;
+    if (this.flash && this.flash.parent === camera) return this.flash;
+    const flash = new THREE.SpotLight(
+      FLASH.color,
+      FLASH.intensity,
+      FLASH.distance,
+      FLASH.angle,
+      FLASH.penumbra,
+      FLASH.decay
+    );
+    // 承重墙：本图不开投影（noShadows），灯也不能把 shadow pass 带回来
+    flash.castShadow = false;
+    flash.position.set(...FLASH.pos);
+    flash.visible = false;
+    // 照射方向由 target 的世界坐标决定：只挂灯不挂 target，灯会一直朝世界的 -Z 打
+    const target = new THREE.Object3D();
+    target.position.set(...FLASH.target);
+    flash.target = target;
+    camera.add(flash);
+    camera.add(target);
+    this.flash = flash;
+    this.flashTarget = target;
+    this.camera = camera;
+    return flash;
+  }
+
+  setFlash(on) {
+    if (this.flash) this.flash.visible = !!on;
   }
 
   build() {

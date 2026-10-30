@@ -68,7 +68,7 @@ function headCrownLocal(zombie, headBone) {
   return local;
 }
 
-// 各模型的命中球（世界米：模型已按 MODELS[x].scale 拉过，再乘类型的 scaleFactor）。
+// 各模型的命中球（世界米：已按 MODELS[x].scale / targetHeight 归一化，再乘类型的 scaleFactor）。
 // chest/head 是球心高度，radius 是半径倍率：骷髅骨架细取 0.8；普通僵尸用的炼金模型 Q 版身宽，取 0.85。
 // 头部球半径必须仍小于身体球，否则爆头会退化成“打哪儿都爆头”。
 const HIT = {
@@ -95,10 +95,30 @@ const HIT = {
   rat: { chest: 0.14, head: 0.2, radius: 0.8 },
   bat: { chest: 0.28, head: 0.38, radius: 0.8 },
 
-  giant: { chest: 0.95, head: 1.5, radius: 1 },
   'mushroom-king': { chest: 0.9, head: 1.4, radius: 0.9 },
   dragon: { chest: 0.85, head: 1.35, radius: 0.9 },
 };
+
+// giant 不进 HIT：它按**模型加载后的真实包围盒**推（见 hitForModel），
+// 写死一组固定高度会把命中球压到模型的下半截：枪往上打看着打中，实际落在球外不掉血。
+function hitForModel(id, src) {
+  const hit = HIT[id];
+  if (hit) return hit;
+  // 未就绪（没有 box）时给普通人形兜底，模型就绪后由 Zombie.syncHitSpheres 重算
+  const box = src && src.box;
+  if (box && box.size.y > 1e-6) {
+    return {
+      // 胸口取躯干高度（约九成身高）：大块头长腿短躯干，取中点会把胸口球放到腰以下，
+      // 枪往上打看着中、实际落在球外。头部球卡在头顶略下。
+      chest: box.min.y + box.size.y * 0.9,
+      head: box.min.y + box.size.y * 0.97,
+      // 半径倍率以普通人形的 0.92 米身宽为 1：更宽的模型给更大的球，夹在合理区间
+      radius: Math.max(0.75, Math.min(1.8, box.size.x / 0.92)),
+    };
+  }
+  const fallback = HIT.zombie;
+  return { chest: fallback.chest, head: fallback.head, radius: fallback.radius };
+}
 
 let shadowMatShared = null;
 function shadowMaterial() {
@@ -250,13 +270,13 @@ export class Zombie {
     this.ctx = ctx;
     this.map = ctx.map || null;
     this.wave = wave;
+    // 先定模型 id：syncHitSpheres 要按它取模型槽（buildRig 之后会再赋同样的值）
+    this.modelId = MODELS[this.def.model] ? this.def.model : 'zombie';
     this.scaleFactor = this.def.scale;
     // 命中球高度：两套模型体块比例不同，按各自的模型单位给（调用方再乘 scaleFactor）。
-    // 命中球按模型查表（见 HIT）：僵尸 1.194、骷髅 2.166、炼金僵尸 1.077 高，口径各不相同。
-    const hit = HIT[this.def.model] || HIT.zombie;
-    this.chestY = hit.chest;
-    this.headY = hit.head;
-    this.hitRadiusScale = hit.radius;
+    // 命中球按模型查表（见 HIT）：僵尸 1.194、骷髅 2.166、炼金僵尸 1.077 高，口径各不相同；
+    // 表里没有的模型（巨人）按加载后的包围盒推，模型就绪后再由 syncHitSpheres 重算一次。
+    this.syncHitSpheres();
     this.maxHp = Math.round(this.def.hp * hpMul);
     this.hp = this.maxHp;
     this.speed = this.def.speed * speedMul;
@@ -347,6 +367,16 @@ export class Zombie {
     if (this.modelId === 'zombie') return zombieModel;
     // 其余模型各自压在自己的槽里（skeleton/alchemist/football + 奇幻单位）
     return zombieModel[this.modelId] || zombieModel;
+  }
+
+  // 命中球高度/半径倍率。固定口径的模型查 HIT；HIT 里没有的模型（giant）
+  // 用加载后量好的包围盒推：胸口≈九成身高、头部≈头顶、半径按身宽。
+  // 存的是倍率不是世界半径：调用方一律 0.46 × scaleFactor × hitRadiusScale。
+  syncHitSpheres() {
+    const hit = hitForModel(this.def.model, this.modelSource());
+    this.chestY = hit.chest;
+    this.headY = hit.head;
+    this.hitRadiusScale = hit.radius;
   }
 
   buildRig() {

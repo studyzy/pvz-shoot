@@ -38,15 +38,16 @@ export const MAPS = [
     tag: 'NIGHT FOREST',
     desc: '奇幻夜间大森林：哥布林、史莱姆、亡灵与野兽各族出没',
     startLabel: '进入夜之森林',
-    create: (scene) => new NightForest(scene),
+    // 夜之森林要相机引用：手电是相机的子节点，跟视角走（TECH-flashlight.md §4）
+    create: (scene, camera) => new NightForest(scene, camera),
   },
 ];
 
 export const DEFAULT_MAP = 'backyard';
 
-export function createMaps(scene) {
+export function createMaps(scene, camera = null) {
   return MAPS.map((m) => {
-    const map = m.create(scene);
+    const map = m.create(scene, camera);
     map.meta = m;
     map.startLabel = m.startLabel;
     return map;

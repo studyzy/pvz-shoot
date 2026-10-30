@@ -53,11 +53,42 @@ describe('ZombieModel.initZombieModel', () => {
     expect(mesh.castShadow).toBe(true);
     expect(mesh.receiveShadow).toBe(false);
 
+    // 归一化表以外（没有 targetHeight）的老模型不量包围盒
+    expect(mod.zombieModel.box).toBeUndefined();
+
     // 只加载一次：再次调用不应替换 scene
     const before = mod.zombieModel.scene;
     mod.initZombieModel();
     expect(mod.zombieModel.scene).toBe(before);
 
+    vi.doUnmock('three/examples/jsm/loaders/GLTFLoader.js');
+    vi.resetModules();
+  });
+
+  it('targetHeight 模型加载后量出包围盒（巨人命中球靠它推）', async () => {
+    const THREE = await import('three');
+    const gltfScene = new THREE.Group();
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(2, 4, 1), new THREE.MeshBasicMaterial());
+    gltfScene.add(mesh);
+    mesh.position.y = 4;
+
+    vi.resetModules();
+    vi.doMock('three/examples/jsm/loaders/GLTFLoader.js', () => ({
+      GLTFLoader: class {
+        load(url, onLoad) {
+          onLoad({ scene: gltfScene, animations: [] });
+        }
+      },
+    }));
+    const mod = await import('../../src/entities/ZombieModel.js');
+    mod.initZombieModel();
+    const slot = mod.zombieModel.giant;
+    expect(slot.ready).toBe(true);
+    // 盒子 2×4×1 初始放在 y=4。量包围盒时它已按 1.85 归一化并被 fitToHeight 贴到地面，
+    // 所以尺寸是 2×4×1 的等比缩小（比例才是巨人命中球真正用到的）
+    expect(slot.box.size.y / slot.box.size.x).toBeCloseTo(2, 6);
+    expect(slot.box.min.y).toBeCloseTo(0, 6);
+    expect(slot.box.max.y).toBeCloseTo(slot.box.size.y, 6);
     vi.doUnmock('three/examples/jsm/loaders/GLTFLoader.js');
     vi.resetModules();
   });

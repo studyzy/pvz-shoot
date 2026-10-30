@@ -98,7 +98,7 @@ vi.mock('../../src/entities/ZombieModel.js', async (importOriginal) => {
     duck: ['Idle', 'Walk', 'Punch', 'Death', 'HitReact', 'Duck'],
     dragon: ['Dragon_Flying', 'Dragon_Attack', 'Dragon_Death', 'Dragon_Hit'],
   };
-  const slotFor = (fam) => ({ ready: true, failed: false, scene, clips: clipsFor(...FAM_CLIPS[fam]) });
+  const slotFor = (fam, box = null) => ({ ready: true, failed: false, scene, clips: clipsFor(...FAM_CLIPS[fam]), box });
   return {
     ...actual,
     zombieModel: {
@@ -112,7 +112,14 @@ vi.mock('../../src/entities/ZombieModel.js', async (importOriginal) => {
       football: { ready: true, failed: false, scene, clips },
       goblin: slotFor('humanoid'),
       demon3: slotFor('humanoid'),
-      giant: slotFor('humanoid'),
+      // 真实 giant.glb 加载后量得的包围盒（归一化到 1.85、脚底贴地）：高 1.85、宽 1.406。
+      // 命中球按它推（HIT 表里没有 giant）。
+      giant: slotFor('humanoid', {
+        min: new THREE.Vector3(-0.703, 0, -0.43),
+        max: new THREE.Vector3(0.703, 1.85, 0.43),
+        center: new THREE.Vector3(0, 0.925, 0),
+        size: new THREE.Vector3(1.406, 1.85, 0.86),
+      }),
       bones: slotFor('humanoid'),
       'mushroom-king': slotFor('duck'),
       slime: slotFor('slime'),
@@ -152,6 +159,7 @@ let THREE;
 let ZOMBIES;
 let ZombieManager;
 let Zombie;
+let zombieModel;
 let PD;
 
 async function boot() {
@@ -160,6 +168,7 @@ async function boot() {
   THREE = await import('three');
   ({ ZOMBIES } = await import('../../src/config.js'));
   ({ Zombie } = await import('../../src/entities/Zombie.js'));
+  ({ zombieModel } = await import('../../src/entities/ZombieModel.js'));
   const { game } = await g.readyGame();
   game.start();
   return game;
@@ -1014,6 +1023,43 @@ describe('奇幻单位：命中球与动画', () => {
       expect(z.def.boss).toBe(true);
       expect(typeof z.def.title).toBe('string');
       expect(z.maxHp).toBeGreaterThan(1500);
+      z.dispose();
+    }
+  });
+
+  it('巨人：命中球按模型真实包围盒推，跟着放大（回归：打上半身不掉血）', async () => {
+    await boot();
+    const z = makeZombie('gargantuar');
+    // 命中球按模型包围盒比例换算：胸口 ≈ 九成身高、头部 ≈ 头顶略下，半径按身宽放大，
+    // 而不是写死人形口径（巨人是长腿短躯干，取中线会把胸口球放到膝盖附近）
+    const box = zombieModel.giant.box;
+    const sy = box.size.y;
+    const dbg = 'chest=' + z.chestY + ' head=' + z.headY + ' r=' + z.hitRadiusScale;
+    expect(z.chestY, dbg).toBeCloseTo(box.min.y + sy * 0.9, 5);
+    expect(z.headY).toBeCloseTo(box.min.y + sy * 0.97, 5);
+    expect(z.headY).toBeGreaterThan(z.chestY);
+    // 头球半径必须仍比胸球小（否则打哪儿都爆头）
+    expect(0.36 * z.hitRadiusScale).toBeLessThan(0.46 * z.hitRadiusScale);
+    // 命中球跟着模型走：比旧写死的 0.95 / 1.5 高出一截
+    expect(z.chestY).toBeGreaterThan(0.95);
+    z.dispose();
+  });
+
+  it('巨人模型未就绪时命中球退回普通人形，就绪后 syncHitSpheres 重算', async () => {
+    await boot();
+    const z = makeZombie('gargantuar');
+    const src = zombieModel.giant;
+    const saved = src.box;
+    try {
+      src.box = null;
+      z.syncHitSpheres();
+      expect(z.chestY).toBe(1.02);
+      expect(z.headY).toBe(1.52);
+      src.box = saved;
+      z.syncHitSpheres();
+      expect(z.chestY).toBeCloseTo(saved.min.y + saved.size.y * 0.9, 5);
+    } finally {
+      src.box = saved;
       z.dispose();
     }
   });
