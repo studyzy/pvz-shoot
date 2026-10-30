@@ -178,6 +178,33 @@ export class WallNuts {
   }
 }
 
+// host 侧给 guest 代理用的盾：只要 hp/active/absorb 三个语义，不建壳、不播音效。
+// guest 的盾血由 host 裁决后经 pstate 回传，避免两边各扣一套。
+export class RemoteShield {
+  constructor(maxHp) {
+    this.maxHp = maxHp;
+    this.hp = maxHp;
+    this.active = false;
+  }
+
+  absorb(amount, opts) {
+    if (!this.active || this.hp <= 0) return false;
+    // 空中单位穿透护盾，和 WallNuts.absorb 同一条规则
+    if (opts && opts.airborne) return false;
+    this.hp -= amount;
+    if (this.hp <= 0) {
+      this.hp = 0;
+      this.active = false;
+    }
+    return true;
+  }
+
+  reset() {
+    this.active = false;
+    this.hp = this.maxHp;
+  }
+}
+
 export const WALLNUT_DEF = WALLNUT;
 export const WALLNUT_FRAG_HEALTHY = FRAG_HEALTHY;
 export { BREAK_INVULN, FLASH_RATIO };

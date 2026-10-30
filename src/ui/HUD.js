@@ -44,6 +44,8 @@ export class HUD {
     this.duoBtn = document.getElementById('duoBtn');
     this.duoShare = document.getElementById('duoShare');
     this.duoStatusEl = document.getElementById('duoStatus');
+    this.duoOverScreen = document.getElementById('duoOverScreen');
+    this.duoOverStatus = document.getElementById('duoOverStatus');
     this.duoShareUrl = '';
     this.ammoChip = document.getElementById('ammoChip');
     this.ammoNow = document.getElementById('ammoNow');
@@ -128,6 +130,10 @@ export class HUD {
     if (restart) restart.addEventListener('click', () => { if (this.onRestart) this.onRestart(); });
     if (again) again.addEventListener('click', () => { if (this.onStart) this.onStart(); });
     if (pause) pause.addEventListener('click', () => { if (this.onPause) this.onPause(); });
+    const duoAgain = document.getElementById('duoAgainBtn');
+    if (duoAgain) duoAgain.addEventListener('click', () => { if (this.onDuoRematch) this.onDuoRematch(); });
+    const duoLeave = document.getElementById('duoLeaveBtn');
+    if (duoLeave) duoLeave.addEventListener('click', () => { if (this.onDuoLeave) this.onDuoLeave(); });
     const mapBtn = document.getElementById('mapBtn');
     if (mapBtn) mapBtn.addEventListener('click', () => { if (this.onChangeMap) this.onChangeMap(); });
     const pauseMapBtn = document.getElementById('pauseMapBtn');
@@ -216,6 +222,37 @@ export class HUD {
     this.startScreen.classList.add('hidden');
     this.pauseScreen.classList.add('hidden');
     this.overScreen.classList.add('hidden');
+    if (this.duoOverScreen) this.duoOverScreen.classList.add('hidden');
+  }
+
+  // 双人结算：比单人多一栏队友战功与胜负判定。
+  showDuoResult({ scores, kills, seat, wave, peerName, reason }) {
+    if (!this.duoOverScreen) return;
+    const my = scores && scores[seat] !== undefined ? scores[seat] : 0;
+    const other = scores && scores[1 - seat] !== undefined ? scores[1 - seat] : 0;
+    const mk = kills && kills[seat] !== undefined ? kills[seat] : 0;
+    const ok = kills && kills[1 - seat] !== undefined ? kills[1 - seat] : 0;
+    const title = document.getElementById('duoOverTitle');
+    if (title) title.textContent = reason === 'WIPE' ? '两人都倒下了' : '对局结束';
+    document.getElementById('duoMyScore').textContent = formatNum(my);
+    document.getElementById('duoPeerScore').textContent = formatNum(other);
+    document.getElementById('duoWave').textContent = String(Math.max(1, wave || 1));
+    const detail = document.getElementById('duoOverDetail');
+    if (detail) {
+      const verdict = my > other ? '你赢了这场战功对决' : my < other ? (peerName || '队友') + ' 赢了这场对决' : '平局';
+      detail.textContent = verdict + ' · 击杀 ' + mk + ' : ' + ok;
+    }
+    this.setDuoResultStatus('');
+    this.hideScreens();
+    this.showHud(false);
+    this.duoOverScreen.classList.remove('hidden');
+    this.bossBar.classList.add('hidden');
+  }
+
+  setDuoResultStatus(text) {
+    if (!this.duoOverStatus) return;
+    this.duoOverStatus.textContent = text || '';
+    this.duoOverStatus.classList.toggle('hidden', !text);
   }
 
   showPause() {

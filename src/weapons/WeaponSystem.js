@@ -792,6 +792,12 @@ export class WeaponSystem {
   // 拾取：按 def.slot 找到该武器的角色槽，同槽满了就替换，旧枪掉在脚边。
   // 返回值语义：true = 已经被拿走（拾取物该消失）；false = 暂时没拿走（拾取物留在地上）。
   // 植物栏里的植物（starter）也能捡进槽位：那是"加一个编排"，不改变它免费的植物栏身份。
+  // 共享补给：guest 先本地判断能不能拿，再向 host 发 claim，避免拿走一件自己装不上的枪。
+  canAccept(index) {
+    const def = WEAPONS[index];
+    return !!(def && def.slot && def.slot !== 'peaGun');
+  }
+
   pickup(index) {
     const def = WEAPONS[index];
     if (!def || !def.slot) return false;

@@ -7,6 +7,8 @@ export class SkySun {
   constructor(ctx) {
     this.ctx = ctx;
     this.elapsed = 0;
+    // 双人 22 s、单人 30 s（Game.resetRun 按模式写入）
+    this.interval = SUN_SKY.interval;
   }
 
   reset() {
@@ -18,8 +20,8 @@ export class SkySun {
     if (!map || !map.bounds) return;
     // 累加而非减法：避免浮点累积误差让计时永远差一点点
     this.elapsed += dt;
-    if (this.elapsed < SUN_SKY.interval) return;
-    this.elapsed -= SUN_SKY.interval;
+    if (this.elapsed < this.interval) return;
+    this.elapsed -= this.interval;
     if (this.elapsed < 0) this.elapsed = 0;
 
     const b = map.bounds;

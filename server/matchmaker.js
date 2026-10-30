@@ -17,6 +17,7 @@ export class Matchmaker {
     this.maxMatches = opts.maxMatches === undefined ? 8 : opts.maxMatches;
     this.waitTtlMs = opts.waitTtlMs === undefined ? 10 * 60 * 1000 : opts.waitTtlMs;
     this.reconnectGraceMs = opts.reconnectGraceMs === undefined ? 45 * 1000 : opts.reconnectGraceMs;
+    this.rematchWaitMs = opts.rematchWaitMs === undefined ? 30 * 1000 : opts.rematchWaitMs;
     this.buildId = opts.buildId || null;
     this.accessCode = opts.accessCode || null;
     this.now = opts.now || (() => Date.now());
@@ -47,6 +48,9 @@ export class Matchmaker {
         break;
       case MSG.MAP:
         this.onMap(conn, d);
+        break;
+      case MSG.REMATCH:
+        this.onRematch(conn);
         break;
       case MSG.PING:
         conn.send(MSG.PONG, { t: d.t, now: this.now() });
@@ -136,6 +140,10 @@ export class Matchmaker {
       seats: [],
       waitTimer: null,
       startedAt: 0,
+      // 再来一局：双方都点才重开，交换座位抵消房主 0 延迟优势
+      rematch: [false, false],
+      rematchTimer: null,
+      round: 0,
     };
     this.matches.set(match.id, match);
     this.byJoin.set(joinToken, match);
@@ -283,6 +291,55 @@ export class Matchmaker {
     other.conn.send(MSG.RELAY, { payload });
   }
 
+  onRematch(conn) {
+    const seat = conn.seat;
+    if (!seat || !seat.match || seat.match.state !== 'playing') return;
+    const match = seat.match;
+    if (match.seats.length !== 2) return;
+    match.rematch[seat.index] = true;
+    if (match.rematch[0] && match.rematch[1]) {
+      this.startRematch(match);
+      return;
+    }
+    if (!match.rematchTimer) {
+      match.rematchTimer = setTimeout(() => {
+        match.rematchTimer = null;
+        if (match.state === 'playing') this.end(match, ERR.REMATCH_TIMEOUT);
+      }, this.rematchWaitMs);
+    }
+    this.log('rematch-wait', match.id, seat.name);
+  }
+
+  startRematch(match) {
+    if (match.state !== 'playing') return;
+    clearTimeout(match.rematchTimer);
+    match.rematchTimer = null;
+    match.rematch[0] = false;
+    match.rematch[1] = false;
+    match.round = (match.round || 0) + 1;
+    // 交换座位：seat 0/1 互换，房主权威也一起换手
+    const a = match.seats[0];
+    const b = match.seats[1];
+    a.index = 1;
+    b.index = 0;
+    match.seats = [b, a];
+    match.seed = Math.floor(this.rand() * 0x7fffffff);
+    match.startedAt = this.now();
+    for (const seat of match.seats) {
+      if (seat.connected && seat.conn) {
+        seat.conn.send(MSG.START, {
+          mapId: match.mapId,
+          seed: match.seed,
+          t0: match.startedAt,
+          seat: seat.index,
+          rematch: true,
+          round: match.round,
+        });
+      }
+    }
+    this.log('rematch', match.id, 'round', match.round);
+  }
+
   onMap(conn, d) {
     const seat = conn.seat;
     if (!seat || seat.index !== 0) return;
@@ -333,6 +390,8 @@ export class Matchmaker {
     match.state = 'ended';
     clearTimeout(match.waitTimer);
     match.waitTimer = null;
+    clearTimeout(match.rematchTimer);
+    match.rematchTimer = null;
     this.byJoin.delete(match.joinToken);
     for (const seat of match.seats) {
       clearTimeout(seat.graceTimer);
@@ -356,6 +415,8 @@ export class Matchmaker {
     match.state = 'ended';
     clearTimeout(match.waitTimer);
     match.waitTimer = null;
+    clearTimeout(match.rematchTimer);
+    match.rematchTimer = null;
     this.byJoin.delete(match.joinToken);
     for (const seat of match.seats) {
       clearTimeout(seat.graceTimer);
@@ -379,6 +440,7 @@ export class Matchmaker {
   dispose() {
     for (const match of this.matches.values()) {
       clearTimeout(match.waitTimer);
+      clearTimeout(match.rematchTimer);
       for (const seat of match.seats) clearTimeout(seat.graceTimer);
     }
     this.matches.clear();

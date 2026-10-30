@@ -1010,6 +1010,20 @@ h2 {
   flex-wrap: wrap;
 }
 
+.duo-over-detail {
+  font-size: 12.5px;
+  line-height: 1.65;
+  text-align: center;
+  color: rgba(230, 255, 205, .78);
+  max-width: 34ch;
+}
+.duo-over-status {
+  font-size: 12px;
+  letter-spacing: .5px;
+  color: var(--gold);
+  text-align: center;
+}
+
 .orientation-gate {
   position: absolute;
   inset: 0;

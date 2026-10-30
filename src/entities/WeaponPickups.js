@@ -173,6 +173,31 @@ export class WeaponPickups {
     this.items = [];
     this.spawnTimer = 0;
     this.finished = true;
+    // 双人共享补给：host 权威刷/捡/丢，guest 只镜像 host 的列表并发 claim 请求。
+    // shared = true 只在 guest 侧；host 用 onChange 广播，guest 用 onClaim/onDrop 上报。
+    this.shared = false;
+    this.onChange = null;
+    this.onClaim = null;
+    this.onDrop = null;
+    this.onLocalPickup = null;
+    this.nextId = 1;
+    // 空投光柱（全队唯一，一次只有一根）
+    this.beamT = 0;
+    this.beam = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.55, 0.75, 14, 12, 1, true),
+      new THREE.MeshBasicMaterial({
+        color: 0xffc21f,
+        transparent: true,
+        opacity: 0.32,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+        toneMapped: false,
+      })
+    );
+    this.beam.position.y = 7;
+    this.beam.visible = false;
+    this.scene.add(this.beam);
     this.ringGeo = new THREE.TorusGeometry(0.62, 0.05, 6, 24);
     // 地面会刷出的武器：不含坚果（开局常驻 5 号槽）与初始豌豆（常驻 1 号槽）。
     // 樱桃/玉米炮/火豌豆虽然也在植物栏，但它们同样是战利品池里的正常成员。
@@ -216,6 +241,7 @@ export class WeaponPickups {
       holder,
       label,
       index: -1,
+      air: false,
       active: false,
       // used：本关这个点位已经出过道具，不再刷新
       used: false,
@@ -224,6 +250,131 @@ export class WeaponPickups {
       // dropped：玩家丢下的（没有点位，捡走就永久消失）
       dropped: false,
     };
+  }
+
+  setShared(v) {
+    this.shared = !!v;
+    if (this.shared) {
+      // 切到 guest：本地随机刷出的道具作废，等 host 的列表
+      for (let i = 0; i < this.items.length; i++) {
+        this.items[i].active = false;
+        this.items[i].group.visible = false;
+      }
+      this.finished = true;
+    }
+  }
+
+  // 把视觉部分（光环/发光/名称牌/小模型）刷成某把武器
+  paint(item, index) {
+    const mats = weaponMaterials(index);
+    item.ring.material = mats.ring;
+    item.glow.material = mats.glow;
+    item.label.material = mats.label;
+    item.holder.clear();
+    item.holder.add(makeMini(WEAPONS[index]).clone(true));
+  }
+
+  // 空投：提前 5 秒在落点竖一根光柱；真正落地时再 spawnAir。
+  beamAt(x, z, dur = 5) {
+    this.beam.position.set(x, 7, z);
+    this.beam.visible = true;
+    this.beamT = dur;
+  }
+
+  // 空投补给：和普通补给同一条 claim 管线，只是带 air 标记（+40 阳光 / +200 分）
+  spawnAir(index, x, z) {
+    const item = this.items.find((it) => !it.active) || this.items[0];
+    if (!item) return false;
+    item.spot = null;
+    item.dropped = true;
+    item.air = true;
+    item.index = index;
+    item.active = true;
+    item.id = this.nextId++;
+    this.paint(item, index);
+    item.group.position.set(x, 0, z);
+    item.group.visible = true;
+    item.phase = rand(0, TAU);
+    item.pickCooldown = 0.8;
+    this.notify();
+    return true;
+  }
+
+  // host：挑一个还没出过道具的点位给空投
+  pickAirSpot() {
+    const open = this.items.filter((it) => it.spot && !it.used);
+    if (!open.length) return null;
+    return open[rand(0, open.length - 1) | 0].spot;
+  }
+
+  byId(id) {
+    return this.items.find((it) => it.active && it.id === id) || null;
+  }
+
+  removeById(id) {
+    const item = this.byId(id);
+    if (!item) return false;
+    item.active = false;
+    item.group.visible = false;
+    item.dropped = false;
+    item.air = false;
+    return true;
+  }
+
+  netList() {
+    const out = [];
+    for (let i = 0; i < this.items.length; i++) {
+      const it = this.items[i];
+      if (!it.active) continue;
+      out.push({
+        id: it.id,
+        i: it.index,
+        x: Math.round(it.group.position.x * 100) / 100,
+        z: Math.round(it.group.position.z * 100) / 100,
+        a: it.air ? 1 : 0,
+      });
+    }
+    return out;
+  }
+
+  // guest 侧：用 host 的列表重排本地池。id 是 host 分配的稳定标识。
+  applyNetList(list) {
+    const live = new Map();
+    for (let i = 0; i < list.length; i++) {
+      const e = list[i];
+      if (e && Number.isFinite(e.id) && Number.isFinite(e.i)) live.set(e.id, e);
+    }
+    for (let i = 0; i < this.items.length; i++) {
+      const it = this.items[i];
+      if (it.active && !live.has(it.id)) {
+        it.active = false;
+        it.group.visible = false;
+      }
+    }
+    const seen = new Set();
+    for (const [id, e] of live) {
+      if (seen.has(id)) continue;
+      seen.add(id);
+      let item = this.items.find((it) => it.active && it.id === id);
+      if (!item) item = this.items.find((it) => !it.active);
+      if (!item) return;
+      const changed = !item.active || item.id !== id || item.index !== e.i;
+      item.id = id;
+      item.index = e.i;
+      item.air = !!e.a;
+      item.active = true;
+      item.dropped = false;
+      item.spot = null;
+      item.pickCooldown = 0;
+      item.claimT = 0;
+      if (changed) this.paint(item, e.i);
+      item.group.position.set(e.x, 0, e.z);
+      item.group.visible = true;
+    }
+  }
+
+  notify() {
+    if (this.onChange) this.onChange(this.netList());
   }
 
   // 玩家从武器槽里丢下一把枪：在脚边生成一个可再捡起的拾取物。
@@ -240,17 +391,19 @@ export class WeaponPickups {
     item.dropped = true;
     item.index = index;
     item.active = true;
-    const mats = weaponMaterials(index);
-    item.ring.material = mats.ring;
-    item.glow.material = mats.glow;
-    item.label.material = mats.label;
-    item.holder.clear();
-    item.holder.add(makeMini(WEAPONS[index]).clone(true));
+    item.id = this.nextId++;
+    this.paint(item, index);
     item.group.position.set(x, 0, z);
     item.group.visible = true;
     // 刚丢下的枪立刻可捡会形成"丢→捡"循环，给 1 秒的冷却
     item.phase = rand(0, TAU);
     item.pickCooldown = 1.0;
+    // guest 丢枪要让 host 在权威世界里也丢一把，再广播新的列表
+    if (this.shared) {
+      if (this.onDrop) this.onDrop(index, x, z);
+    } else {
+      this.notify();
+    }
     return true;
   }
 
@@ -267,15 +420,12 @@ export class WeaponPickups {
     item.used = true;
     item.index = this.lootIndices[rand(0, this.lootIndices.length - 1) | 0];
     item.active = true;
-    const mats = weaponMaterials(item.index);
-    item.ring.material = mats.ring;
-    item.glow.material = mats.glow;
-    item.label.material = mats.label;
-    item.holder.clear();
-    item.holder.add(makeMini(WEAPONS[item.index]).clone(true));
+    item.id = this.nextId++;
+    this.paint(item, item.index);
     item.group.position.set(item.spot[0], 0, item.spot[1]);
     item.phase = rand(0, TAU);
     item.group.visible = true;
+    this.notify();
     return true;
   }
 
@@ -297,6 +447,11 @@ export class WeaponPickups {
   beginLevel() {
     this.spawnTimer = rand(SPAWN_MIN, SPAWN_MAX);
     this.finished = false;
+    // guest 不本地刷：等 host 的共享列表
+    if (this.shared) {
+      this.finished = true;
+      return;
+    }
     this.spawnRandom();
   }
 
@@ -313,6 +468,11 @@ export class WeaponPickups {
 
   update(dt, player) {
     this.time += dt;
+    if (this.beamT > 0) {
+      this.beamT = Math.max(0, this.beamT - dt);
+      this.beam.visible = this.beamT > 0;
+      this.beam.rotation.y += dt * 0.8;
+    }
     for (let i = 0; i < this.items.length; i++) {
       const item = this.items[i];
       if (!item.active) continue;
@@ -330,32 +490,44 @@ export class WeaponPickups {
       const dist2 = dx * dx + dz * dz;
       item.group.visible = dist2 < 30 * 30;
 
+      if (item.air) {
+        item.holder.position.y = 1.0 + bob * 2;
+        item.label.position.y = 2.2;
+      }
+
       if (item.pickCooldown > 0) item.pickCooldown = Math.max(0, item.pickCooldown - dt);
+      if (item.claimT > 0) item.claimT = Math.max(0, item.claimT - dt);
       // 槽位带角色后不再有"等玩家选替换哪一格"的中间态，pickup 是同步完成的
-      if (!player.dead && !(item.pickCooldown > 0)) {
-        if (dist2 < PICK_RADIUS * PICK_RADIUS) {
-          const def = WEAPONS[item.index];
-          if (this.ctx.weapons.pickup(item.index)) {
-            this.ctx.particles.burst({
-              pos: new THREE.Vector3(item.group.position.x, 0.8, item.group.position.z),
-              color: [def.color, 0xffffff],
-              count: 14,
-              speed: 3.2,
-              size: 0.09,
-              life: 0.5,
-              gravity: 1.5,
-              up: 1.4,
-            });
-            item.active = false;
-            item.group.visible = false;
-            // 点位上出的道具捡走即消失，本关不再补刷；丢下的枪捡走也永久消失
-            item.dropped = false;
+      if (!player.dead && !(item.pickCooldown > 0) && dist2 < PICK_RADIUS * PICK_RADIUS) {
+        if (this.shared) {
+          // guest：只上报 claim，等 host 裁决后由 evt 移除；0.4 s 节流防刷屏
+          if (item.claimT <= 0 && this.onClaim && this.ctx.weapons.canAccept(item.index)) {
+            item.claimT = 0.4;
+            this.onClaim(item.id);
           }
+        } else if (this.ctx.weapons.pickup(item.index)) {
+          const def = WEAPONS[item.index];
+          this.ctx.particles.burst({
+            pos: new THREE.Vector3(item.group.position.x, 0.8, item.group.position.z),
+            color: [def.color, 0xffffff],
+            count: 14,
+            speed: 3.2,
+            size: 0.09,
+            life: 0.5,
+            gravity: 1.5,
+            up: 1.4,
+          });
+          item.active = false;
+          item.group.visible = false;
+          // 点位上出的道具捡走即消失，本关不再补刷；丢下的枪捡走也永久消失
+          item.dropped = false;
+          if (this.onLocalPickup) this.onLocalPickup(item, item.index);
+          this.notify();
         }
       }
     }
     // 开局刷出的道具被捡走后，按节拍补刷到其它还没用过的空点位；点位用尽后整关不再出新道具
-    if (!this.finished && this.map) {
+    if (!this.shared && !this.finished && this.map) {
       this.spawnTimer -= dt;
       if (this.spawnTimer <= 0) {
         this.spawnTimer = rand(SPAWN_MIN, SPAWN_MAX);

@@ -18,6 +18,7 @@ export const MSG = Object.freeze({
   QUEUE: 'queue',
   PEER: 'peer',
   START: 'start',
+  REMATCH: 'rematch',
   MAP: 'map',
   RELAY: 'relay',
   PING: 'ping',
@@ -42,6 +43,7 @@ export const ERR = Object.freeze({
   DUPLICATE: 'DUPLICATE',
   JOIN_EXPIRED: 'JOIN_EXPIRED',
   HOST_RESET: 'HOST_RESET',
+  REMATCH_TIMEOUT: 'REMATCH_TIMEOUT',
 });
 
 export function isControlType(type) {

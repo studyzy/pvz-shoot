@@ -12,9 +12,9 @@ export class SunOrbs {
   constructor(scene) {
     this.scene = scene;
     this.orbs = [];
-    const geo = new THREE.SphereGeometry(0.17, 10, 8);
-    const mat = new THREE.MeshBasicMaterial({ color: 0xffd83f, toneMapped: false });
-    const glowMat = new THREE.SpriteMaterial({
+    this.geo = new THREE.SphereGeometry(0.17, 10, 8);
+    this.mat = new THREE.MeshBasicMaterial({ color: 0xffd83f, toneMapped: false });
+    this.glowMat = new THREE.SpriteMaterial({
       map: glowTexture(),
       transparent: true,
       blending: THREE.AdditiveBlending,
@@ -22,16 +22,22 @@ export class SunOrbs {
       opacity: 0.9,
       toneMapped: false,
     });
+    this.ensureCapacity(POOL);
+    this.onCollect = null;
+    this.nextId = 1;
+    this.claimT = 0;
+  }
 
-    for (let i = 0; i < POOL; i++) {
+  // 双人击杀密度 ×1.5，池子 40（单人 28）。只增不减，切换模式不会回收已建对象。
+  ensureCapacity(n) {
+    while (this.orbs.length < n) {
       const group = new THREE.Group();
-      const core = new THREE.Mesh(geo, mat);
-      group.add(core);
-      const glow = new THREE.Sprite(glowMat);
+      group.add(new THREE.Mesh(this.geo, this.mat));
+      const glow = new THREE.Sprite(this.glowMat);
       glow.scale.set(1.25, 1.25, 1);
       group.add(glow);
       group.visible = false;
-      scene.add(group);
+      this.scene.add(group);
       this.orbs.push({
         group,
         active: false,
@@ -43,7 +49,6 @@ export class SunOrbs {
         sky: false,
       });
     }
-    this.onCollect = null;
   }
 
   spawn(pos, count) {
@@ -51,6 +56,7 @@ export class SunOrbs {
       const orb = this.orbs.find((o) => !o.active);
       if (!orb) return;
       orb.active = true;
+      orb.id = this.nextId++;
       orb.age = 0;
       orb.magnet = false;
       orb.pos.set(pos.x + rand(-0.4, 0.4), pos.y + rand(0.9, 1.5), pos.z + rand(-0.4, 0.4));
@@ -66,6 +72,7 @@ export class SunOrbs {
     const orb = this.orbs.find((o) => !o.active);
     if (!orb) return null;
     orb.active = true;
+    orb.id = this.nextId++;
     orb.age = 0;
     orb.magnet = false;
     orb.sky = true;
@@ -141,6 +148,87 @@ export class SunOrbs {
         o.group.visible = false;
       }
     }
+  }
+
+  // host → guest：活着的阳光球（id 稳定，guest 只做展示）
+  serialize() {
+    const out = [];
+    for (let i = 0; i < this.orbs.length; i++) {
+      const o = this.orbs[i];
+      if (!o.active) continue;
+      out.push({
+        id: o.id,
+        x: Math.round(o.pos.x * 10) / 10,
+        y: Math.round(o.pos.y * 10) / 10,
+        z: Math.round(o.pos.z * 10) / 10,
+        s: o.sky ? 1 : 0,
+      });
+    }
+    return out;
+  }
+
+  // guest：按 host 列表重建可见球，不跑物理、不计时
+  applyNet(list) {
+    const live = new Map();
+    for (let i = 0; i < list.length; i++) {
+      const e = list[i];
+      if (e && Number.isFinite(e.id)) live.set(e.id, e);
+    }
+    for (let i = 0; i < this.orbs.length; i++) {
+      const o = this.orbs[i];
+      if (o.active && !live.has(o.id)) {
+        o.active = false;
+        o.group.visible = false;
+        o.sky = false;
+      }
+    }
+    for (const [id, e] of live) {
+      let o = this.orbs.find((x) => x.active && x.id === id);
+      if (!o) o = this.orbs.find((x) => !x.active);
+      if (!o) return;
+      o.active = true;
+      o.id = id;
+      o.sky = !!e.s;
+      o.pos.set(e.x, e.y, e.z);
+      o.phase += 0.016;
+      o.group.position.set(e.x, e.y + Math.sin(o.phase) * 0.09, e.z);
+      o.group.visible = true;
+    }
+  }
+
+  // guest：只做可见性与 claim；0.3 s 节流，等 host 的 pstate 把球撤掉
+  updateRemote(dt, player, onClaim) {
+    this.claimT = Math.max(0, this.claimT - dt);
+    let best = null;
+    let bestD = 1.35;
+    for (let i = 0; i < this.orbs.length; i++) {
+      const o = this.orbs[i];
+      if (!o.active || o.sky) continue;
+      const d = Math.hypot(player.pos.x - o.pos.x, player.pos.z - o.pos.z);
+      if (d < bestD) {
+        bestD = d;
+        best = o;
+      }
+      o.phase += dt * 2.6;
+      o.group.rotation.y += dt * 1.6;
+    }
+    if (!best || this.claimT > 0 || !onClaim) return;
+    this.claimT = 0.3;
+    onClaim(best.id);
+  }
+
+  // host：按 id 收掉一颗（guest claim 裁决用）
+  collectById(id) {
+    for (let i = 0; i < this.orbs.length; i++) {
+      const o = this.orbs[i];
+      if (o.active && o.id === id) {
+        o.active = false;
+        o.sky = false;
+        o.group.visible = false;
+        return o;
+      }
+    }
+    return null;
   }
 
   clear() {
