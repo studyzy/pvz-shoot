@@ -806,8 +806,8 @@ async function phaseMobile(ctx) {
     }
     await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
     check(jumped > 0.05, '点跳跃按钮后玩家应离地（pos.y > 0.05），实际 y=' + jumped.toFixed(3));
-    // 落回地面，避免影响后续
-    await waitUntil(page, () => window.__game.player.pos.y < 0.05, 5000, '玩家落地');
+    // 落回地面，避免影响后续。软渲染一帧几百毫秒，跳跃滞空只有几帧但墙钟可能超过 5 秒
+    await waitUntil(page, () => window.__game.player.pos.y < 0.05 || window.__game.player.grounded, 15000, '玩家落地');
 
     // 真实触摸左侧摇杆区域 → 玩家移动
     const beforeJoy = await page.evaluate(() => {
@@ -989,7 +989,8 @@ async function phasePerf(ctx) {
   // 帧数下限按墙钟换算，不写死绝对帧数：CI 的 SwiftShader 软渲染约 3 帧/秒，
   // 本地约 6 帧/秒，写死 30 帧等于在测"测试机够不够快"。真正要保证的是
   // "采样窗口覆盖了足够多的渲染帧，峰值 draw call 有意义"，所以按 ≥2 帧/秒兜底。
-  const minFrames = Math.max(8, Math.floor(perf.windowSec * 2));
+  // 每帧 ~500ms 起步的软渲染撑不满 2 帧/秒，门槛按 ~1.5 帧/秒兜底（再低也只多跑一会儿）
+  const minFrames = Math.max(8, Math.floor(perf.windowSec * 1.5));
   check(perf.frames >= minFrames, '10 秒内帧数过少（' + perf.frames + ' < ' + minFrames + '），采样不足以代表峰值');
   check(perf.maxCalls <= 350, 'draw call 峰值超过 350：' + perf.maxCalls);
   check(perf.maxTris <= 300000, '三角面峰值超过 300000：' + perf.maxTris);
