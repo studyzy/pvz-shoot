@@ -205,13 +205,19 @@ async function ensureZombieTypes(page, want) {
   }, want);
 
   try {
+    // 刷怪速度只取决于帧数：CI 软渲染一帧可能要几百毫秒，25 秒不够刷齐 14 只里的 boss，
+    // 所以给足 60 秒（本地 4 秒就跑完），超时才报失败，并把已刷出的类型带进消息里。
     await waitUntil(
       page,
       (types) => types.every((k) => window.__e2eSeen && window.__e2eSeen[k]),
-      25000,
+      60000,
       '刷出僵尸类型：' + want.join('/'),
       want
-    );
+    ).catch(async (err) => {
+      const seen = await page.evaluate(() => Object.keys(window.__e2eSeen || {}));
+      const dbg = await page.evaluate(() => ({ alive: window.__game.zombies.zombies.length, queue: window.__game.zombies.queue.slice(0, 6) }));
+      throw new PhaseError(err.message + '（已刷出：' + (seen.join('/') || '无') + '；场上 ' + dbg.alive + ' 只，队首 ' + dbg.queue.join('/') + '）');
+    });
     // 等每种类型至少一只完成出生动画（spawnT >= 0.5 才吃伤害/参与瞄准）
     await waitUntil(
       page,
@@ -392,6 +398,26 @@ async function phaseStartup(ctx) {
 // 材质克隆、SkeletonUtils 骨骼克隆、AnimationMixer 驱动骨骼、配件 buildHat 都只有真浏览器才跑得通。
 async function phaseGlb(ctx) {
   const { page } = ctx;
+  // 两个 glb 都是异步加载的：Boss 用骷髅模型，没就绪时 spawnOne 会把它留在队首不刷，
+  // 于是"刷出全部类型"永远等不到 boss。CI 的 SwiftShader 起得慢，这个窗口会被拉长，
+  // 所以先明确等两个模型都就绪，别让断言去猜。
+  const modelsReady = await page
+    .waitForFunction(
+      () => window.__game.models && window.__game.models.ready && window.__game.models.skeleton.ready,
+      null,
+      { timeout: 60000, polling: 100 }
+    )
+    .then(() => true)
+    .catch(() => false);
+  if (!modelsReady) {
+    const dbg = await page.evaluate(() => ({
+      zombieReady: !!(window.__game.models && window.__game.models.ready),
+      zombieFailed: !!(window.__game.models && window.__game.models.failed),
+      skReady: !!(window.__game.models && window.__game.models.skeleton.ready),
+      skFailed: !!(window.__game.models && window.__game.models.skeleton.failed),
+    }));
+    throw new PhaseError('两个 glb 60 秒内没加载完：' + JSON.stringify(dbg));
+  }
   await ensureZombieTypes(page, ['normal', 'cone', 'bucket', 'boss']);
 
   const info = await page.evaluate(() => {
@@ -1119,10 +1145,10 @@ async function phaseSkeleton(ctx) {
   await page.waitForFunction(
     () => window.__game.models && window.__game.models.skeleton.ready,
     null,
-    { timeout: 20000 }
+    { timeout: 60000 }
   ).catch(() => {});
   const skReady = await page.evaluate(() => !!(window.__game.models && window.__game.models.skeleton.ready));
-  check(skReady, '骷髅 glb 20 秒内没加载完');
+  check(skReady, '骷髅 glb 60 秒内没加载完');
 
   await page.evaluate(() => {
     const g = window.__game;
@@ -1146,7 +1172,7 @@ async function phaseSkeleton(ctx) {
   await waitUntil(
     page,
     () => window.__game.zombies.zombies.some((z) => z.type === 'skeleton'),
-    25000,
+    60000,
     '刷出骷髅'
   ).catch(async (err) => {
     const dbg = await page.evaluate(() => {
