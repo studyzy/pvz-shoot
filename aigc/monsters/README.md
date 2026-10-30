@@ -3,7 +3,9 @@
 40 个低模野怪，全部来自 [Poly Pizza](https://poly.pizza)，原始作者 **Quaternius**，许可 **CC0 1.0**（可商用、可修改、无需署名）。
 下载于 2026-10-30。均为 **GLB** 单文件：几何 + 材质 + 骨骼动画内嵌，Three.js 用 `GLTFLoader.load()` 直接读。
 
-> `aigc/` 已在 `.gitignore` 里，这些文件不会进仓库。
+> `aigc/` 下只有素材库目录（monsters/plants/weapons/props）进仓库，根目录的自备 FBX 仍被 .gitignore 忽略。
+
+预览图 `preview.jpg` 按表格顺序（人形 → 史莱姆 → 亡灵 → 野兽，每类按下面的表序）拼成，8 列 5 行；单张缩略图在 `previews/` 下。
 
 ## 用法速记
 

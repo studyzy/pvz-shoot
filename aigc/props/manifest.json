@@ -1,0 +1,86 @@
+[
+  {
+    "file": "props/barrel.glb",
+    "name": "木桶",
+    "title": "Barrel",
+    "tris": 1384,
+    "skinned": false,
+    "joints": 0,
+    "clips": [],
+    "author": "Quaternius",
+    "licence": "CC0 1.0",
+    "source": "https://poly.pizza/m/ONdghDBByN"
+  },
+  {
+    "file": "props/crate.glb",
+    "name": "木箱",
+    "title": "Crate",
+    "tris": 784,
+    "skinned": false,
+    "joints": 0,
+    "clips": [],
+    "author": "Quaternius",
+    "licence": "CC0 1.0",
+    "source": "https://poly.pizza/m/3VGWnZPXmG"
+  },
+  {
+    "file": "props/damaged-grave.glb",
+    "name": "破损墓碑",
+    "title": "Damaged Grave",
+    "tris": 416,
+    "skinned": false,
+    "joints": 0,
+    "clips": [],
+    "author": "Kay Lousberg",
+    "licence": "CC0 1.0",
+    "source": "https://poly.pizza/m/KWtVNrHXVR"
+  },
+  {
+    "file": "props/exploding-barrel.glb",
+    "name": "炸药桶",
+    "title": "Exploding Barrel",
+    "tris": 516,
+    "skinned": false,
+    "joints": 0,
+    "clips": [],
+    "author": "Quaternius",
+    "licence": "CC0 1.0",
+    "source": "https://poly.pizza/m/1orHe0kCc1"
+  },
+  {
+    "file": "props/fence.glb",
+    "name": "木栅栏",
+    "title": "Fence",
+    "tris": 188,
+    "skinned": false,
+    "joints": 0,
+    "clips": [],
+    "author": "Quaternius",
+    "licence": "CC0 1.0",
+    "source": "https://poly.pizza/m/e02PFKKhbr"
+  },
+  {
+    "file": "props/gravestone.glb",
+    "name": "墓碑（骷髅）",
+    "title": "Gravestone",
+    "tris": 190,
+    "skinned": false,
+    "joints": 0,
+    "clips": [],
+    "author": "Kay Lousberg",
+    "licence": "CC0 1.0",
+    "source": "https://poly.pizza/m/lrEHKjTy29"
+  },
+  {
+    "file": "props/gravestone-round.glb",
+    "name": "墓碑（十字）",
+    "title": "Gravestone",
+    "tris": 271,
+    "skinned": false,
+    "joints": 0,
+    "clips": [],
+    "author": "Kay Lousberg",
+    "licence": "CC0 1.0",
+    "source": "https://poly.pizza/m/ErfdU1GJSD"
+  }
+]

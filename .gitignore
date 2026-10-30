@@ -5,8 +5,12 @@ dist/
 .idea/
 generated-images/
 aigc/*
-# 只有野怪素材库进仓库，其余（自备 FBX 等）留在本地
+# 只有素材库目录进仓库，其余（自备 FBX 等）留在本地
+!aigc/README.md
 !aigc/monsters/
+!aigc/plants/
+!aigc/weapons/
+!aigc/props/
 .codebuddy/
 coverage/
 
