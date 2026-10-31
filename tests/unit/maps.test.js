@@ -1,6 +1,7 @@
 // src/world 的契约测试：三张地图跑同一套断言（AGENTS.md 5.9 + 地图专项），外加 FlowField 连通性与 materials 缓存。
 // 新增地图只要在 MAPS 里挂一行，这里的契约会自动覆盖到它。
 import { describe, it, expect, vi, beforeAll } from 'vitest';
+import { PLAYER_PERCH } from '../../src/config.js';
 
 vi.mock('three', async (importOriginal) => {
   const actual = await importOriginal();
@@ -376,7 +377,8 @@ describe('雪地 IceWorld 专项', () => {
     expect(low.length).toBe(2);
     expect(low.map((p) => p.x).sort()).toEqual([-14.6, 14.6]);
     for (const p of low) {
-      expect(p.w).toBe(1);
+      // 1.3 米宽：跳跃能踩上去，但不会一跳就跑过整面墙
+      expect(p.w).toBe(1.3);
       expect(p.d).toBe(28);
       // 可跳：低于跳跃能上去的阈值（约 1.3 米），高于平地
       expect(p.h).toBeGreaterThan(0.8);
@@ -444,6 +446,8 @@ describe('雪地 IceWorld 专项', () => {
         expect(map.nav.blocked[cz * map.nav.cols + cx], `平台 (${p.x}, ${p.z}) 中心格未标障`).toBe(1);
       }
     }
+    // 玩家站得上去的台（≥ PLAYER_PERCH）必须封住流场，否则僵尸会跟着走上矮墙把人逼下来
+    expect(PLAYER_PERCH).toBeLessThan(0.92); // 雪地矮墙顶面
     // 矮台（< 0.6）不挡僵尸：低矮矮墙的格子仍可通行
     const low = map.platforms.filter((p) => p.h <= OBSTACLE_H);
     expect(low.length).toBeGreaterThan(0);

@@ -31,7 +31,8 @@ describe('config / TUNING', () => {
     expect(TUNING.playerSpeed).toBe(5.4);
     expect(TUNING.playerHeight).toBe(1.66);
     expect(TUNING.gravity).toBe(21);
-    expect(TUNING.jumpSpeed).toBe(6.6);
+    // 跳跃最高 7.2²/(2×21) ≈ 1.234 米：矮墙 0.92 / 木箱 0.9~1.2 能上，基地墙 2.2 上不去。
+    expect(TUNING.jumpSpeed).toBe(7.2);
     expect(TUNING.maxHealth).toBe(100);
     expect(TUNING.headshotMul).toBe(3);
     expect(TUNING.startSun).toBe(60);

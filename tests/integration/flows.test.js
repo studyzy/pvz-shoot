@@ -1104,7 +1104,8 @@ describe('10. 平台 / 跳跃', () => {
     expect(wall.h).toBeCloseTo(0.92, 2);
 
     const p = game.player.pos;
-    p.x = wall.x - wall.w / 2 - 0.8;
+    // 离墙 1.6 米起跳：弧顶正好落在 1.3 米宽的墙顶上（贴墙跑跳会直接跨过去）
+    p.x = wall.x - wall.w / 2 - 1.6;
     p.z = 0;
     p.y = 0;
     game.player.yaw = 0;
@@ -1117,10 +1118,14 @@ describe('10. 平台 / 跳跃', () => {
     game.controls.keys.add('KeyW');
     let topped = -1;
     for (let i = 0; i < 150; i++) {
-      if (game.player.grounded) game.controls.jumpQueued = true;
+      // 只在脚下没有平台时起跳：站上墙顶后别再跳，否则会从墙的另一面下去
+      if (game.player.grounded && game.player.pos.y < 0.01) game.controls.jumpQueued = true;
       step(game, 1);
-      if (topped < 0 && game.player.pos.y >= wall.h - 0.02) topped = game.player.pos.y;
-      if (topped >= 0 && game.player.pos.x > wall.x + wall.w / 2 + 0.3) break;
+      game.controls.jumpQueued = false; // 起跳后清掉，别每帧连跳
+      if (topped < 0 && game.player.grounded && game.player.pos.y >= wall.h - 0.02) {
+        topped = game.player.pos.y;
+        break;
+      }
     }
     expect(topped).toBeGreaterThan(0);
     expect(topped).toBeCloseTo(wall.h, 1);
@@ -1130,6 +1135,7 @@ describe('10. 平台 / 跳跃', () => {
     game.controls.keys.add('KeyW');
     step(game, 120);
     game.controls.keys.delete('KeyW');
+    step(game, 120); // 停下来等落地：边走边落会正好走进 14.6 米外侧、紧贴墙脚的下一处碰撞
     expect(game.player.pos.x).toBeGreaterThan(wall.x + wall.w / 2);
     expect(game.player.pos.y).toBeCloseTo(0, 1);
     expect(game.player.grounded).toBe(true);
@@ -1148,9 +1154,14 @@ describe('10. 平台 / 跳跃', () => {
     await aimAt(game, pillar.x + 4, 1.66, pillar.z);
     game.controls.keys.add('KeyW');
     game.controls.jumpQueued = true;
-    step(game, 60);
+    let peak = 0;
+    for (let i = 0; i < 60; i++) {
+      step(game, 1);
+      peak = Math.max(peak, game.player.pos.y);
+    }
     game.controls.keys.delete('KeyW');
-    expect(game.player.pos.y).toBeLessThan(1);
+    // 从没站上过柱子：全程脚都没高过柱子顶面，峰值也不超过一次跳跃的最高点
+    expect(peak).toBeLessThan(TUNING.jumpSpeed ** 2 / (TUNING.gravity * 2) + 0.01);
   });
 
   it('沙城 0.4 米观景台：走过去自动踏步上去', async () => {

@@ -4,7 +4,9 @@ export const TUNING = {
   playerHeight: 1.66,
   playerRadius: 0.42,
   gravity: 21,
-  jumpSpeed: 6.6,
+  // 跳跃最高 7.2²/(2×21) ≈ 1.234 米：矮墙（雪地 0.92）、木箱（沙城 0.9 / 0.95 / 1.2）能上，
+  // 基地墙 2.2 与田字柱 3.6 仍上不去。CS 1.6 的净升高是 268²/(2×800) ≈ 44.9u ≈ 1.14 米。
+  jumpSpeed: 7.2,
   maxHealth: 100,
   regenDelay: 7,
   regenRate: 9,
@@ -596,6 +598,9 @@ export const AIR_QUOTA_RATIO = 0.2;
 // 站在这个高度以上的可站立平台（雪地矮墙 0.92、沙城 1.5 箱子）时，任何武器都能打到气球。
 // 必须 grounded：跳跃（最高 1.04）不算，否则「跳起来平射」会让对空白名单失效。
 export const AIR_HIGH_GROUND = 0.9;
+// 玩家站上去就不该被僵尸跟上的高度：流场由此封住平台所在格，防止「站矮墙无敌」。
+// 必须低于跳跃能上的最高平台（雪地矮墙 0.92），否则僵尸会沿安全区走上矮墙把人逼下来。
+export const PLAYER_PERCH = 0.6;
 
 export const SKELETON_MAX_ALIVE = 3;
 

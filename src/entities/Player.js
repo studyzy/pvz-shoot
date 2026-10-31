@@ -3,6 +3,11 @@ import { TUNING } from '../config.js';
 import { clamp, damp } from '../utils.js';
 
 const STEP_HEIGHT = 0.42;
+// 空中水平加速度：与地面同量级，起跳不会吃掉水平速度（CS 里跑跳保留速度）。
+const AIR_ACCEL = 12;
+// 上升期容错：自然上升轨迹能到的高度还够得着平台顶面时，贴上侧面直接抬上去（CS 的「跳上箱子」）。
+// 用自然轨迹峰值判定而不是「前 N% 上升段」：后者等于让玩家凭空多跳 0.42 米，1.42 米的箱子会被误判成能上。
+const RISE_MARGIN = 0.02;
 
 export class Player {
   constructor(sfx) {
@@ -145,7 +150,8 @@ export class Player {
     const wishX = fx * iz + rx * ix;
     const wishZ = fz * iz + rz * ix;
 
-    const accel = this.grounded ? 15 : 4.5;
+    // 空中不再额外减速：原来空中的 4.5 会吃掉起跳瞬间的水平速度，跑跳距离只剩 3.4 米。
+    const accel = this.grounded ? 15 : AIR_ACCEL;
     // speedMul：坚果罩内的重甲惩罚（≥ 1 是常态，护盾生效时 < 1）
     const walkSpeed = TUNING.playerSpeed * this.speedMul;
     const targetX = wishX * walkSpeed;
@@ -164,6 +170,10 @@ export class Player {
     this.pos.x = clamp(this.pos.x, -halfX, halfX);
     this.pos.z = clamp(this.pos.z, -halfZ, halfZ);
 
+    // playerColliders 是可选覆盖表：显式给了就只吃这一组（雪地/沙城把玩家碰撞交给 platforms，
+// 只留空表给僵尸用），没给就回落到 colliders（后院/森林）。
+    // 注意顺序：`[]` 是真值，所以"有没有这张表"要看它存不存在，不能看真假——
+    // 森林漏写这一行以外的东西时曾经拿到空表，表现为整片树林都能直接穿过去。
     const colliders = (terrain && (terrain.playerColliders || terrain.colliders)) || [];
     for (let i = 0; i < colliders.length; i++) {
       const c = colliders[i];
@@ -177,17 +187,34 @@ export class Player {
         this.pos.z += dz * push;
       }
     }
-    if (platforms) this.pushOutOfPlatforms(platforms);
-
+    // 起跳要排在平台解算之前**判定**：否则贴着矮台走时「先迈台阶」会把 jumpQueued 白白吃掉。
+    // 但消费顺序保持原样（非平台分支先消费），消费语义不被这次改动影响。
+    const jumpHeld = !!controls.jumpQueued;
     if (platforms) {
       const stepSupport = this.supportHeight(platforms, this.pos.x, this.pos.z, this.pos.y + STEP_HEIGHT);
-      if (this.grounded && stepSupport > this.pos.y && stepSupport - this.pos.y <= STEP_HEIGHT + 0.01) {
+      // 落地那一帧贴着矮台也要自动迈上去：沙城的 0.9 木箱紧挨 1.2 箱子，必须能两级走上去。
+      if ((this.grounded || this.vy <= 0) && stepSupport > this.pos.y && stepSupport - this.pos.y <= STEP_HEIGHT + 0.01) {
         this.pos.y = stepSupport;
+        this.vy = 0;
+        this.grounded = true;
+      } else {
+        this.pushOutOfPlatforms(platforms);
       }
-      if (controls.consumeJump() && this.grounded) {
+      if ((jumpHeld || controls.consumeJump()) && this.grounded) {
         this.vy = TUNING.jumpSpeed;
         this.grounded = false;
         jumped = true;
+      }
+      // 上升段贴着平台侧面：直接把脚抬到顶面（CS 的「跳上箱子」手感）。
+      // 少了这一步，人会被 pushOutOfPlatforms 一直挡在墙外，看起来就是「跳不上去」。
+      if (!this.grounded && this.vy > 0) {
+        const riseTo = this.pos.y + (this.vy * this.vy) / (2 * TUNING.gravity);
+        const top = this.supportHeight(platforms, this.pos.x, this.pos.z, riseTo + RISE_MARGIN);
+        if (top > this.pos.y) {
+          this.pos.y = top;
+          this.vy = 0;
+          this.grounded = true;
+        }
       }
       const support = this.supportHeight(platforms, this.pos.x, this.pos.z, this.pos.y);
       this.vy -= TUNING.gravity * dt;

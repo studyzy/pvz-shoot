@@ -42,6 +42,7 @@ describe('夜之森林 · 基本契约', () => {
   it('不声明 playerColliders：玩家必须回落到 colliders，树才挡得住人', () => {
     expect(map.playerColliders, '森林不能声明 playerColliders=[]').toBeUndefined();
     expect(map.colliders.length).toBeGreaterThan(50);
+    // 树干碰撞体确实在 colliders 里（内圈树逐棵登记）
     const trees = map.treeSpots.filter((s) => !s[2]);
     expect(trees.length).toBeGreaterThan(50);
     for (const [x, z] of trees) {

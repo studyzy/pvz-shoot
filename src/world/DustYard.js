@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { toon, sandTexture, desertSkyTexture } from './materials.js';
 import { rand, TAU } from '../utils.js';
 import { FlowField } from './FlowField.js';
+import { PLAYER_PERCH } from '../config.js';
 
 const HALF_X = 26.5;
 const HALF_Z = 26.5;
@@ -54,7 +55,7 @@ export class DustYard {
 
     this.build();
     this.nav = new FlowField(HALF_X, HALF_Z, 1);
-    this.nav.blockPlatforms(this.platforms);
+    this.nav.blockPlatforms(this.platforms, PLAYER_PERCH);
   }
 
   addCollider(x, z, r) {

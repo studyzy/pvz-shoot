@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { toon, snowTexture, snowSkyTexture, iceWallTexture } from './materials.js';
 import { rand, TAU } from '../utils.js';
 import { FlowField } from './FlowField.js';
+import { PLAYER_PERCH } from '../config.js';
 
 const SNOW_COUNT = 380;
 const HALF_X = 17.6;
@@ -37,7 +38,7 @@ export class IceWorld {
     this.time = 0;
     this.build();
     this.nav = new FlowField(HALF_X, HALF_Z, 1);
-    this.nav.blockPlatforms(this.platforms);
+    this.nav.blockPlatforms(this.platforms, PLAYER_PERCH);
   }
 
   updateNav(player, dt) {
@@ -199,7 +200,9 @@ export class IceWorld {
     const sides = [-14.6, 14.6];
     for (let i = 0; i < sides.length; i++) {
       const x = sides[i];
-      const w = 1;
+      // 1.3 米宽：跳跃能上（顶面 0.92），但跑跳不会直接跨过去落到对面。
+      // 1 米宽时一跳 3.4~3.6 米，人在弧顶就飞过整面墙了。
+      const w = 1.3;
       const d = 28;
       const body = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), bodyMat);
       body.position.set(x, h / 2, 0);
