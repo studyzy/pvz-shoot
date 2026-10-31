@@ -1,0 +1,65 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<script type="importmap">
+{ "imports": {
+  "three": "/node_modules/three/build/three.module.js",
+  "three/addons/": "/node_modules/three/examples/jsm/"
+}}
+</script>
+<style>html,body{margin:0;background:#6a86a8;overflow:hidden}canvas{display:block}</style>
+</head><body>
+<script type="module">
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+
+const params = new URLSearchParams(location.search);
+const model = params.get('model') || 'slime.glb';
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(innerWidth, innerHeight);
+renderer.setPixelRatio(1);
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.NeutralToneMapping;
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x6a86a8);
+const hemi = new THREE.HemisphereLight(0xcfe5ff, 0x5a6a48, 1.0);
+scene.add(hemi);
+const dir = new THREE.DirectionalLight(0xfff2d8, 2.2);
+dir.position.set(4, 8, 5);
+scene.add(dir);
+const dir2 = new THREE.DirectionalLight(0x8899bb, 0.7);
+dir2.position.set(-5, 3, -4);
+scene.add(dir2);
+
+const camera = new THREE.PerspectiveCamera(50, innerWidth / innerHeight, 0.01, 200);
+new GLTFLoader().load('/public/models/' + model, (gltf) => {
+  const root = gltf.scene;
+  root.traverse((n) => { if (n.isMesh) { n.frustumCulled = false; } });
+  const box = new THREE.Box3().setFromObject(root);
+  const size = box.getSize(new THREE.Vector3());
+  const center = box.getCenter(new THREE.Vector3());
+  const h = Math.max(size.y, 0.3);
+  root.position.sub(center);
+  scene.add(root);
+  const d = h * 1.9;
+  camera.position.set(d * 0.75, h * 0.62, d * 0.8);
+  camera.lookAt(0, 0, 0);
+  let mixer = null;
+  if (gltf.animations.length) {
+    mixer = new THREE.AnimationMixer(root);
+    mixer.clipAction(gltf.animations.find(c => /walk|run/i.test(c.name)) || gltf.animations[0]).play();
+  }
+  const clock = new THREE.Clock();
+  let t = 0;
+  renderer.setAnimationLoop(() => {
+    const dt = clock.getDelta();
+    t += dt;
+    if (mixer) mixer.update(dt);
+    if (t > 0.9 && !window.__ready) { window.__ready = true; }
+    renderer.render(scene, camera);
+  });
+}, undefined, (err) => { window.__err = String(err); window.__ready = true; });
+window.__game0 = 1;
+</script></body></html>

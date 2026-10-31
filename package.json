@@ -21,6 +21,9 @@
     "ws": "^8.22.0"
   },
   "devDependencies": {
+    "@gltf-transform/cli": "^4.5.1",
+    "@gltf-transform/core": "^4.5.1",
+    "@gltf-transform/extensions": "^4.5.1",
     "@napi-rs/canvas": "^0.1.80",
     "@vitest/coverage-v8": "4.1.12",
     "jsdom": "^29.1.1",

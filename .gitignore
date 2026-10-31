@@ -11,6 +11,7 @@ aigc/*
 !aigc/plants/
 !aigc/weapons/
 !aigc/props/
+!aigc/textures/
 .codebuddy/
 coverage/
 

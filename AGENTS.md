@@ -73,6 +73,8 @@ npm run duo       # build 后直接起双人服务器
 | `src/net/DuoSession.js` | 双人会话状态机：自动配对消息 → `Game.startDuo` / `applyRemoteState` / `pause` / `endDuo` |
 | `server/matchmaker.js` | waiting FIFO、多场并发、座位、重连窗口、中继、结束清理 |
 | `server/index.js` / `static.js` | HTTP 静态托管 + `/ws` 升级 + 心跳 + `/api/health` |
+| `tools/bake-texture.mjs` | 白模贴图烘焙：盒式投影 UV + 把 PNG 以 baseColorTexture 内嵌进 glb（蒙皮/动画保留，含上游 skeleton 修复）；用法见 [docs/ZOMBIE-MODELS.md](docs/ZOMBIE-MODELS.md) |
+| `tools/preview-glb.mjs` | glb 预览截图：本地 HTTP + Chromium 渲染单个模型出 jpg，烘焙后人工目检用 |
 | `server/README.md` | 服务器启动、环境变量、systemd/Caddy 部署 |
 | `docs/design/DESIGN-duo-online.md` | 双人玩法设计稿（M0/M1 已实现，M2 僵尸同步未开始） |
 | `docs/GAMEPLAY.md` | 玩家向完整数值文档；**改数值后同步更新** |
@@ -168,6 +170,8 @@ npm run duo       # build 后直接起双人服务器
 - **挂骨骼的配件必须抵掉骨骼链里"多出来"的缩放，且只抵掉它**：`CharacterArmature` 带 100 倍缩放，直接把帽子 `add` 到 `Head` 上几何体会被放大成十米宽的巨物。做法是 `hat.scale = 应得世界缩放 / headBone.getWorldScale()` + 反解四元数（见 `buildHat`），其中**应得世界缩放 = `MODELS[id].scale × scaleFactor`**（配件几何按模型本地单位给，本来就该吃模型缩放和 root 缩放）。曾经直接写成 `1 / getWorldScale()`，把模型缩放也除掉了 —— 交通锥/铁桶只剩身体 1/1.55 大、大半截陷进脑袋里，Boss 木棒同理缩水。
 - **护肩这类不跟头动的配件挂 `this.body`，不挂头部骨骼**：挂在头上的护肩会跟着头部抖动，看起来像在耸肩。
 - 每个僵尸是 **2 个蒙皮 mesh**（身体 + 眼球）+ 1 个材质（外加一块 blob 阴影），一只僵尸约 2 个 draw call。E2E 实测 14 只同屏：139 draw call / 13.5 万三角面。
+
+- **奇幻单位的白模贴图**（slime/spider/rat/ghost 系/bat/两 Boss）是 ImageGen 生成后用 `tools/bake-texture.mjs` 烘进 glb 的：源 PNG 在 `aigc/textures/`，重烘焙一律从 `aigc/monsters/` 原始白模出发；ImageGen 的「AI生成」水印必须清零后再烘（会投影到模型身上）。详见 [docs/ZOMBIE-MODELS.md](docs/ZOMBIE-MODELS.md) 附节。
 
 ### 5.3 glb 规格与压缩
 

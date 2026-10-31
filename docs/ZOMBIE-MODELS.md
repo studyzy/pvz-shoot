@@ -319,3 +319,28 @@ Blender 4.2 headless（同 alchemist，`bpy==4.2.23` + 本地 `libSM/libICE`）�
 - **头盔是程序化的**（模型本身没头盔）：`buildHat` 的 helmet 分支挂在 `Head` 骨骼、本地 Y 1.76；模型自带白色护肩和红球衣，**不要再补护肩**。
 - 模型未就绪时 `spawnOne` 会改刷别的类型、它留在队首（`zombieModel.football` 槽）。
 - 同屏最多 14 只、单只 1 万面/1 draw call；橄榄球每波数量有限，性能预算与炼金模型同量级。
+
+## 附：奇幻单位白模贴图烘焙（2026-10-31）
+
+### 背景
+
+夜之森林接入的 40 个 Quaternius 野怪（aigc/monsters，CC0）原本就是**平色块白模**——Quaternius 原版无贴图，不是转制丢失。上线 10 个后观感单薄，用 CodeBuddy 文生图生成贴图烘焙进 glb：
+
+`slime / pink-slime / green-blob / spider / rat / ghost / ghost-skull / bat / dragon-evolved / mushroom-king`（farmer.glb 也是白模，但它是队友戴夫化模型、材质颜色被代码重刷，保持原样）。
+
+### 管线（可复现）
+
+1. **生成贴图**：ImageGen 1024²，提示词统一为无缝平铺手绘卡通（seamless tileable hand-painted cartoon game texture...），按模型换主题（甲壳/毛发/凝胶/雾布/鳞片/菌盖）。源 PNG 存 `aigc/textures/<model>.png`。
+2. **烘焙**：`node tools/bake-texture.mjs aigc/monsters/<分类>/<model>.glb public/models/<model>.glb --tex aigc/textures/<model>.png --mats <材质名> --tile <N> [--rough <0-1>]`
+   - 脚本做**盒式投影 UV**（逐三角去索引展开、按面法线主轴投影、连续无抖动），并把 PNG 作为 baseColorTexture 内嵌进 glb；蒙皮（JOINTS_0/WEIGHTS_0）与动画原样保留，眼睛等未列材质不上贴图。
+   - **多材质组必须一条命令带齐**（如 mushroom-king 的 cap + hide 两组 --tex/--mats），分两次跑会互相覆盖。
+   - mushroom-king 的实际部位与材质名不符（诊断色版实测）：`MushroomKing_Secondary` = 伞盖/棘刺/锤头蘑菇（斑点贴图），`MushroomKing_Main,Orc_Main` = 皮肤。FBX 转制的材质命名不可信，分配前先做纯色诊断预览。
+3. **参数口径**：小怪贴图 512²、Boss（dragon-evolved / mushroom-king）1024²；tile 2.5～5、rough 0.2（凝胶亮面）～0.9（毛皮）。
+4. **验证**：`npx gltf-transform validate`（须 0 error）+ `node tools/preview-glb.mjs <model>.glb` 出预览图人工目检（`aigc/textures/previews/`）。游戏内由 GLTFLoader 自动读内嵌贴图，材质克隆/白闪/冰冻染色（Zombie.applyFlash/applyTint）对带 map 材质同样生效，src/ 无需改动。
+
+### 踩过的坑
+
+- **ImageGen 贴图右下角必有「AI生成」水印**（有的变体半透明），盒式投影会把水印烘到模型身上成白斑，目检不可靠——需像素扫描（右下角亮像素簇）+ 从水印上方取干净块羽化覆盖，清零后再烘。
+- **上游 SKIN_SKELETON_INVALID**：aigc 部分模型（pink-slime/green-blob 等）skins[*].skeleton 不指向关节公共根，validate 报 error。bake-texture.mjs 已内置修复（重指关节最低公共祖先），重烘不丢。
+- 盒式投影在投影轴切换处有贴图接缝，有机材质（毛发/凝胶）下不明显；逐面随机偏移会让图案碎裂，**默认关**（--jitter 可开）。
+- 体积：贴图版 glb 比白模大 0.5～4 MB/个，启动全量加载（initZombieModel）约多 14 MB。后续如需再压，把内嵌 PNG 转 WebP/KTX2（三页应用均读 glb 内嵌，改管线即可，无需动 src/）。
