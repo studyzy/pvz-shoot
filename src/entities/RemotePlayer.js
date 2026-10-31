@@ -256,6 +256,13 @@ function shadowMaterial() {
   return shadowMat;
 }
 
+// 玩家的 yaw 是「相机绕 Y 的旋转」，相机 default 看 -Z，所以 yaw=0 面朝 -Z；
+// 而 Farmer 模型和 root 一样面朝 +Z。直接写 rotation.y = yaw 会让队友背对着自己，
+// 必须转 π 补上这半个圈（模型正面 +Z → root.rotation.y 时朝向 (sin, cos)）。
+export function yawToRotation(yaw) {
+  return (Number(yaw) || 0) + Math.PI;
+}
+
 // 远端玩家：现在只做视觉与动画，位置/朝向由网络层或调试代码写入。
 export class RemotePlayer {
   constructor({ scene, env = null, name = '队友', x = 0, z = 0, y = 0, yaw = 0 } = {}) {
@@ -264,7 +271,7 @@ export class RemotePlayer {
     this.name = name;
     this.root = new THREE.Group();
     this.root.position.set(x, y, z);
-    this.root.rotation.y = yaw;
+    this.root.rotation.y = yawToRotation(yaw);
     this.ready = false;
     this.disposed = false;
     this.target = null;
@@ -401,15 +408,16 @@ export class RemotePlayer {
   }
 
   setTransform(x, z, yaw, y = 0) {
+    const rot = yawToRotation(yaw);
     this.root.position.set(x, y, z);
-    this.root.rotation.y = yaw;
-    this.target = { x, y, z, yaw };
+    this.root.rotation.y = rot;
+    this.target = { x, y, z, yaw, rot };
   }
 
   // 20 Hz 网络状态不要直接 snap：存目标，在 update 里按 ~100ms 平滑过去。
   // 超过 3 米视为传送（重连/换图），直接吸附，避免拖影。
   setTarget(x, z, yaw, y = 0) {
-    this.target = { x, y, z, yaw };
+    this.target = { x, y, z, yaw, rot: yawToRotation(yaw) };
   }
 
   setMoving(moving, speed = 0) {
@@ -439,11 +447,11 @@ export class RemotePlayer {
       const p = this.root.position;
       const t = this.target;
       const dist = Math.hypot(t.x - p.x, t.z - p.z);
-      let dYaw = t.yaw - this.root.rotation.y;
+      let dYaw = t.rot - this.root.rotation.y;
       dYaw = Math.atan2(Math.sin(dYaw), Math.cos(dYaw));
       if (dist > 3) {
         p.set(t.x, t.y, t.z);
-        this.root.rotation.y = t.yaw;
+        this.root.rotation.y = t.rot;
       } else if (dist > 0.0005 || Math.abs(t.y - p.y) > 0.0005 || Math.abs(dYaw) > 0.0005) {
         const a = 1 - Math.exp(-dt * 16);
         p.x += (t.x - p.x) * a;

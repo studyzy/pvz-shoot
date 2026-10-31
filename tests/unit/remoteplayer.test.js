@@ -274,7 +274,8 @@ describe('RemotePlayer', () => {
 
     r.setTransform(3, 4, 5, 6);
     expect(r.root.position.toArray()).toEqual([3, 6, 4]);
-    expect(r.root.rotation.y).toBe(5);
+    // yaw 是相机口径（0 = 面朝 -Z），模型面朝 +Z，rotation.y 要补 π
+    expect(r.root.rotation.y).toBeCloseTo(5 + Math.PI);
 
     r.setDead();
     expect(r.current).toBe('die');
@@ -293,6 +294,30 @@ describe('RemotePlayer', () => {
     expect(r.owned).toHaveLength(0);
 
     expect(() => r.dispose()).not.toThrow();
+  });
+
+  // 回归：玩家 A 面对队友 B 时，B 屏幕上看到的 A 必须是正脸（模型面朝 +Z，yaw 0 = 面朝 -Z）。
+  it('setTarget/setTransform 收到的 yaw 是相机口径：A 面对 B 时，A 的模型正面朝 B', () => {
+    const facing = (r) => new THREE.Vector3(0, 0, 1).applyQuaternion(r.root.quaternion);
+    // A 在原点看向 -Z（yaw = 0），B 站在 A 正前方的 (0, -5)
+    const a = new RemotePlayer({ scene: new THREE.Scene(), x: 0, z: 0, yaw: 0 });
+    expect(facing(a).z).toBeCloseTo(-1, 5);
+    a.setTarget(0, 0, Math.PI, 0);
+    for (let i = 0; i < 60; i++) a.update(1 / 60); // 平滑转过去后应收敛到正脸
+    expect(facing(a).z).toBeCloseTo(1, 5);
+    // yaw=π/2 朝 -X（与 Player 一致：yaw 增大向右转）
+    a.setTransform(0, 0, Math.PI / 2, 0);
+    expect(facing(a).x).toBeCloseTo(-1, 5);
+    // yaw=-π/2 朝 +X
+    a.setTransform(0, 0, -Math.PI / 2, 0);
+    expect(facing(a).x).toBeCloseTo(1, 5);
+
+    // 与 Player.applyCamera 同一口径：yaw=0 朝 -Z、yaw 增大向 -X 转
+    const b = new RemotePlayer({ scene: new THREE.Scene(), x: 0, z: -5, yaw: Math.PI });
+    const toA = new THREE.Vector3(0, 0, 1);
+    expect(facing(b).dot(toA)).toBeCloseTo(1, 5);
+    a.dispose();
+    b.dispose();
   });
 
   it('setTarget 平滑过去，超过 3 米直接吸附', () => {

@@ -387,6 +387,7 @@ export class Game {
     const map = this.map;
     const x = opts.x !== undefined ? opts.x : map.spawn.x + 2.6;
     const z = opts.z !== undefined ? opts.z : map.spawn.z - 1.4;
+    // yaw 是相机口径（面朝 -Z 为 0）；看向位于 (px,pz) 的玩家 = atan2(-(px-x), -(pz-z))
     const yaw = opts.yaw !== undefined ? opts.yaw : Math.atan2(this.player.pos.x - x, this.player.pos.z - z);
     const r = new RemotePlayer({
       scene: this.scene,
