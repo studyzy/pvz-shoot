@@ -247,7 +247,7 @@ export class Controls {
     window.addEventListener('keydown', (e) => {
       if (e.code === 'Space') e.preventDefault();
       if (!this.enabled) return;
-      if (e.code === 'Space') this.jumpQueued = true;
+      if (e.code === 'Space' && !e.repeat) this.jumpQueued = true;
       if (e.code.indexOf('Digit') === 0) {
         const n = parseInt(e.code.slice(5), 10);
         // 1-5 = 五个角色槽（豌豆 / 枪② / 大杀器 / 手雷 / 护盾）。

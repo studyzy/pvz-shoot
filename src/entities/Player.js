@@ -187,9 +187,8 @@ export class Player {
         this.pos.z += dz * push;
       }
     }
-    // 起跳要排在平台解算之前**判定**：否则贴着矮台走时「先迈台阶」会把 jumpQueued 白白吃掉。
-    // 但消费顺序保持原样（非平台分支先消费），消费语义不被这次改动影响。
-    const jumpHeld = !!controls.jumpQueued;
+    // 平台解算前消费一次跳跃请求，避免落地后重复起跳。
+    const jumpRequested = controls.consumeJump();
     if (platforms) {
       const stepSupport = this.supportHeight(platforms, this.pos.x, this.pos.z, this.pos.y + STEP_HEIGHT);
       // 落地那一帧贴着矮台也要自动迈上去：沙城的 0.9 木箱紧挨 1.2 箱子，必须能两级走上去。
@@ -200,7 +199,7 @@ export class Player {
       } else {
         this.pushOutOfPlatforms(platforms);
       }
-      if ((jumpHeld || controls.consumeJump()) && this.grounded) {
+      if (jumpRequested && this.grounded) {
         this.vy = TUNING.jumpSpeed;
         this.grounded = false;
         jumped = true;
@@ -228,7 +227,7 @@ export class Player {
         this.grounded = false;
       }
     } else {
-      if (controls.consumeJump() && this.grounded) {
+      if (jumpRequested && this.grounded) {
         this.vy = TUNING.jumpSpeed;
         this.grounded = false;
         jumped = true;

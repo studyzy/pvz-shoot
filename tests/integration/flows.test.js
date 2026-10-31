@@ -1094,6 +1094,54 @@ describe('9. 武器切换', () => {
 });
 
 describe('10. 平台 / 跳跃', () => {
+  it.each(['backyard', 'snow', 'dust', 'forest'])('%s：空格按一次只跳一次，落地后不会自动再跳', (mapId) => {
+    game.selectMap(mapId);
+    game.start();
+    game.zombies.reset();
+    key('Space');
+    window.dispatchEvent(new window.KeyboardEvent('keyup', { code: 'Space', bubbles: true }));
+
+    let jumps = 0;
+    for (let i = 0; i < 120; i++) {
+      step(game, 1);
+      if (game.player.lastInput.jump) jumps++;
+    }
+
+    expect(jumps).toBe(1);
+    expect(game.controls.jumpQueued).toBe(false);
+    expect(game.player.grounded).toBe(true);
+    expect(game.player.pos.y).toBe(0);
+
+    key('Space');
+    step(game, 1);
+    expect(game.player.lastInput.jump).toBe(true);
+    expect(game.controls.jumpQueued).toBe(false);
+    expect(game.player.grounded).toBe(false);
+  });
+
+  it('雪地：空中按空格不会留到落地后自动起跳', () => {
+    game.selectMap('snow');
+    game.start();
+    game.zombies.reset();
+    key('Space');
+    window.dispatchEvent(new window.KeyboardEvent('keyup', { code: 'Space', bubbles: true }));
+    step(game, 1);
+    expect(game.player.grounded).toBe(false);
+
+    key('Space');
+    window.dispatchEvent(new window.KeyboardEvent('keyup', { code: 'Space', bubbles: true }));
+    let jumps = 0;
+    for (let i = 0; i < 120; i++) {
+      step(game, 1);
+      if (game.player.lastInput.jump) jumps++;
+    }
+
+    expect(jumps).toBe(0);
+    expect(game.controls.jumpQueued).toBe(false);
+    expect(game.player.grounded).toBe(true);
+    expect(game.player.pos.y).toBe(0);
+  });
+
   it('雪地：矮墙旁跳跃能站上去（y≈0.92），走出边缘落回地面', async () => {
     game.selectMap('snow');
     game.start();

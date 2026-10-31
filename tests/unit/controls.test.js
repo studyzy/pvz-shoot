@@ -131,6 +131,23 @@ describe('Controls', () => {
       expect(c.consumeJump()).toBe(false);
     });
 
+    it('长按 Space 的重复 keydown 不再次入队，松开再按才跳', () => {
+      const c = make();
+      keydown('Space');
+      expect(c.consumeJump()).toBe(true);
+
+      for (let i = 0; i < 5; i++) {
+        const ev = keydown('Space', { repeat: true });
+        expect(ev.defaultPrevented).toBe(true);
+        expect(c.consumeJump()).toBe(false);
+      }
+
+      keyup('Space');
+      keydown('Space');
+      expect(c.consumeJump()).toBe(true);
+      expect(c.consumeJump()).toBe(false);
+    });
+
     it('Digit1-5 切五个角色槽（植物栏已取消，只有这一套键）', () => {
       const c = make();
       // SLOT_KEYS 的顺序：豌豆 / 枪② / 大杀器 / 手雷 / 护盾
