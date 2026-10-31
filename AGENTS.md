@@ -59,6 +59,7 @@ npm run duo       # build 后直接起双人服务器
 | `src/entities/SunOrbs.js` | 阳光球池、弹跳、磁吸、拾取 |
 | `src/entities/WeaponPickups.js` | 地面植物拾取物池：开局在随机点位刷 1 个、发光/名称牌、靠近自动拾取；一关内每个点位只出一次，不无限刷新 |
 | `src/weapons/WeaponSystem.js` | 手持植物视图模型、瞄准辅助、开火、切枪、**角色槽（peaGun/gun/demo/grenade/shield）**、手雷蓄力、后坐/摇摆、命中判定入口 |
+| `src/weapons/WeaponModels.js` | 按植物 id 缓存 `public/models/weapons/*.glb`；手持与地面拾取共享静态模板，加载失败保留程序占位；不可 dispose 共享几何/材质 |
 | `src/weapons/ProjectileSystem.js` | 豌豆池、樱桃抛物线、爆炸、爆头判定 |
 | `src/fx/Particles.js` | InstancedMesh 粒子池、爆炸球壳/冲击环、临时点光源 |
 | `src/audio/Sfx.js` | WebAudio 音效：开火/命中/僵尸吼叫走 CC0 采样（`SAMPLES` 表驱动），UI 提示音仍用 `tone()` / `noise()` 合成 |
@@ -74,6 +75,7 @@ npm run duo       # build 后直接起双人服务器
 | `server/matchmaker.js` | waiting FIFO、多场并发、座位、重连窗口、中继、结束清理 |
 | `server/index.js` / `static.js` | HTTP 静态托管 + `/ws` 升级 + 心跳 + `/api/health` |
 | `tools/bake-texture.mjs` | 白模贴图烘焙：盒式投影 UV + 把 PNG 以 baseColorTexture 内嵌进 glb（蒙皮/动画保留，含上游 skeleton 修复）；用法见 [docs/ZOMBIE-MODELS.md](docs/ZOMBIE-MODELS.md) |
+| `tools/build-weapon-models.mjs` | 离线原创植物曲面建模，生成 12 款独立 GLB；Y-up、朝 -Z、保留武器本地坐标，来源见 `public/models/weapons/PROVENANCE.txt` |
 | `tools/preview-glb.mjs` | glb 预览截图：本地 HTTP + Chromium 渲染单个模型出 jpg，烘焙后人工目检用 |
 | `server/README.md` | 服务器启动、环境变量、systemd/Caddy 部署 |
 | `docs/design/DESIGN-duo-online.md` | 双人玩法设计稿（M0/M1 已实现，M2 僵尸同步未开始） |

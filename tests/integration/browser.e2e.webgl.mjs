@@ -1680,11 +1680,121 @@ async function phaseRemote(ctx) {
   return { metrics: { ...info, shot: file } };
 }
 
+// 逐把验真实 GLB，而不是只验证加载器替身或占位模型。
+async function phaseWeapons(ctx) {
+  const { createCanvas, loadImage } = await import('@napi-rs/canvas');
+  const views = [
+    { width: 1440, height: 860, touch: false },
+    { width: 844, height: 390, touch: true },
+    { width: 1024, height: 768, touch: true },
+  ];
+  let checked = 0;
+  let maxCalls = 0;
+  for (const view of views) {
+    const context = await ctx.browser.newContext({
+      viewport: { width: view.width, height: view.height },
+      isMobile: view.touch, hasTouch: view.touch,
+    });
+    try {
+      const { page, consoleErrors } = await openPage(context, ctx.url);
+      await waitUntil(page, () => window.__game.weapons.models.every((m) => m.loaded), 30000, '12 款植物 GLB 加载完成');
+      await ensurePlaying(page);
+      const ids = await page.evaluate(() => {
+        const g = window.__game;
+        g.running = false;
+        g.zombies.reset();
+        g.zombies.queue = [];
+        for (const item of g.pickups.items) item.group.visible = false;
+        g.player.yaw = 0;
+        g.player.pitch = 0;
+        g.player.applyCamera(g.camera);
+        g.weapons.root.visible = true;
+        return g.weapons.models.map((m) => m.visual.children[0].name);
+      });
+      check(ids.length === 12 && new Set(ids).size === 12, '真实植物 GLB 的 id 应覆盖 12 款：' + ids.join('/'));
+      for (let index = 0; index < ids.length; index++) {
+        const info = await page.evaluate((i) => {
+          const g = window.__game;
+          g.weapons.pickup(i);
+          g.weapons.equip(i, true);
+          // pickup 会把上一把丢在脚边；拍单把手持造型时隐藏这些测试副产物。
+          for (const item of g.pickups.items) item.group.visible = false;
+          const m = g.weapons.models[i];
+          m.group.position.copy(m.basePos);
+          m.group.rotation.copy(m.baseRot);
+          m.group.scale.setScalar(m.baseScale);
+          g.renderer.render(g.scene, g.camera);
+          // 直接读当前真实 WebGL 帧，排除 HUD 动画及截图合成上一帧的干扰。
+          return { loaded: m.loaded, visible: m.group.visible, calls: g.renderer.info.render.calls, png: g.renderer.domElement.toDataURL('image/png') };
+        }, index);
+        check(info.loaded && info.visible, ids[index] + ' 必须实际显示新 GLB');
+        maxCalls = Math.max(maxCalls, info.calls);
+        // render() 完成后再等浏览器合成，否则 screenshot 可能仍读到上一帧的相机姿势。
+        await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+        await shot(page, 'weapon-' + ids[index] + '-' + view.width + 'x' + view.height);
+        const hidden = await page.evaluate(() => {
+          const g = window.__game;
+          g.weapons.root.visible = false;
+          g.renderer.render(g.scene, g.camera);
+          return g.renderer.domElement.toDataURL('image/png');
+        });
+        const a = await loadImage(info.png);
+        const b = await loadImage(hidden);
+        const canvas = createCanvas(a.width, a.height);
+        const painter = canvas.getContext('2d');
+        painter.drawImage(a, 0, 0);
+        const pixels = painter.getImageData(0, 0, a.width, a.height).data;
+        painter.drawImage(b, 0, 0);
+        const background = painter.getImageData(0, 0, a.width, a.height).data;
+        let changed = 0;
+        let center = 0;
+        for (let y = 0; y < a.height; y += 2) {
+          for (let x = 0; x < a.width; x += 2) {
+            const p = (y * a.width + x) * 4;
+            const delta = Math.max(...[0, 1, 2].map((k) => Math.abs(pixels[p + k] - background[p + k])));
+            if (delta <= 12) continue;
+            changed++;
+            if (Math.abs(x / a.width - 0.5) < 0.055 && Math.abs(y / a.height - 0.5) < 0.055) center++;
+          }
+        }
+        check(changed > a.width * a.height * 0.0005, ids[index] + ' 植物在 ' + view.width + ' 视口不可见/太小');
+        check(center === 0, ids[index] + ' 挡住准星中央区域（差异采样点 ' + center + '）');
+        await page.evaluate(() => {
+          const g = window.__game;
+          g.weapons.root.visible = true;
+          g.renderer.render(g.scene, g.camera);
+        });
+        checked++;
+      }
+      await page.evaluate(async () => {
+        const g = window.__game;
+        const item = g.pickups.items[0];
+        item.group.position.set(g.player.pos.x + 2, 0, g.player.pos.z - 4);
+        item.group.visible = true;
+        g.pickups.paint(item, 3);
+        await item.visualReady;
+        g.renderer.render(g.scene, g.camera);
+      });
+      check(await page.evaluate(() => window.__game.pickups.items[0].holder.children[0].children[0].name === 'cob'), '地面拾取必须复用玉米 GLB');
+      await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+      await shot(page, 'weapon-pickup-' + view.width + 'x' + view.height);
+      check(consoleErrors.length === 0, '武器页控制台错误：' + consoleErrors.join('\n'));
+      const errors = await drainErrors(page);
+      check(errors.length === 0, '武器页未处理错误：' + errors.join('\n'));
+    } finally {
+      await context.close();
+    }
+  }
+  check(maxCalls < 350, '武器 GLB 使绘制调用超过预算：' + maxCalls);
+  return { metrics: { checked, maxCalls, screenshots: ARTIFACTS } };
+}
+
 // ---------------------------------------------------------------- 主流程
 
 const PHASES = [
   { name: 'startup', label: '桌面真实开局（指针锁/键鼠/击杀）', group: 'desktop', fn: phaseStartup },
   { name: 'glb', label: '真实 glb 与材质/配件', group: 'desktop', fn: phaseGlb },
+  { name: 'weapons', label: '12 款植物 GLB（桌面/手机/iPad/拾取）', group: 'desktop', fn: phaseWeapons },
   { name: 'skeleton', label: '骷髅模型（雪地专属 + 同屏上限）', group: 'desktop', fn: phaseSkeleton },
   { name: 'remote', label: '队友模型（Farmer 戴夫化）', group: 'desktop', fn: phaseRemote },
   { name: 'maps', label: '四张地图真实切换', group: 'desktop', fn: phaseMaps },

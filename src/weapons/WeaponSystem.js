@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { WEAPONS, WEAPON_SLOTS, SLOT_KEYS, GRENADE, PEA_ID, AIR_HIGH_GROUND } from '../config.js';
 import { toon } from '../world/materials.js';
 import { clamp, segmentSphereT, damp } from '../utils.js';
+import { loadWeaponModel } from './WeaponModels.js';
 
 const tmpFwd = new THREE.Vector3();
 const tmpOrigin = new THREE.Vector3();
@@ -105,6 +106,27 @@ export class WeaponSystem {
       const def = WEAPONS[i];
       const build = builders[def.model] || builders.shooter;
       const item = build(def);
+      item.visual = new THREE.Group();
+      for (const child of [...item.group.children]) {
+        if (child !== item.muzzle) item.visual.add(child);
+      }
+      item.group.add(item.visual);
+      item.loaded = false;
+      item.ready = loadWeaponModel(def.id).then((template) => {
+        if (!template) return;
+        const geometries = new Set();
+        const materials = new Set();
+        item.visual.traverse((node) => {
+          if (!node.isMesh) return;
+          geometries.add(node.geometry);
+          if (node.material !== outlineMat) materials.add(node.material);
+        });
+        item.visual.clear();
+        for (const geometry of geometries) geometry.dispose();
+        for (const material of materials) material.dispose();
+        item.visual.add(template.clone(true));
+        item.loaded = true;
+      });
       item.group.visible = false;
       this.root.add(item.group);
       this.models.push(item);

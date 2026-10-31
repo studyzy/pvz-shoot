@@ -1,0 +1,12 @@
+Original plant weapon assets authored for pvz-shoot.
+
+Files: pea.glb, snow.glb, cherry.glb, cob.glb, repeater.glb, threepeater.glb, gatling.glb, cactus.glb, melon.glb, jalapeno.glb, wallnut.glb, firepea.glb.
+Source: tools/build-weapon-models.mjs, deterministic original parametric surface authoring.
+These are original stylized plant meshes; no EA models, ripped game data or downloaded third-party geometry were used.
+Geometry: hollow swept/lathed heads, curved stems, closed thin curved leaves, original fruit surfaces and faceted accents.
+Materials: embedded linear vertex-painted PBR colors, no external images, no AI image watermarks, no outline meshes.
+Coordinates: Y-up, forward -Z, local origin, no baked camera transform; material groups merged offline.
+Rebuild: node tools/build-weapon-models.mjs [output-directory]
+
+No separate CC0 dedication or third-party license is claimed.
+Redistribution and use remain subject to the repository owner's licensing decisions; this provenance file does not grant a new license.

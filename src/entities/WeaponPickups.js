@@ -3,6 +3,7 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import { WEAPONS, PEA_ID } from '../config.js';
 import { toon, glowTexture } from '../world/materials.js';
 import { rand, TAU } from '../utils.js';
+import { loadWeaponModel } from '../weapons/WeaponModels.js';
 
 const MAX_SPOTS = 10;
 const PICK_RADIUS = 1.45;
@@ -271,7 +272,21 @@ export class WeaponPickups {
     item.glow.material = mats.glow;
     item.label.material = mats.label;
     item.holder.clear();
-    item.holder.add(makeMini(WEAPONS[index]).clone(true));
+    const visual = new THREE.Group();
+    visual.add(makeMini(WEAPONS[index]).clone(true));
+    item.holder.add(visual);
+    item.visualReady = loadWeaponModel(WEAPONS[index].id).then((template) => {
+      // 已重新 paint 的 holder 不能再接收旧请求的模型。
+      if (!template || visual.parent !== item.holder) return;
+      const model = template.clone(true);
+      const box = new THREE.Box3().setFromObject(model);
+      const size = box.getSize(new THREE.Vector3());
+      const scale = 0.9 / Math.max(size.x, size.y, size.z);
+      model.scale.multiplyScalar(scale);
+      model.position.set(-(box.min.x + box.max.x) * scale / 2, -box.min.y * scale, -(box.min.z + box.max.z) * scale / 2);
+      visual.clear();
+      visual.add(model);
+    });
   }
 
   // 空投：提前 5 秒在落点竖一根光柱；真正落地时再 spawnAir。

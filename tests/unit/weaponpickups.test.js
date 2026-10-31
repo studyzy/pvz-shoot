@@ -5,6 +5,8 @@ import * as THREE from 'three';
 import { WeaponPickups } from '../../src/entities/WeaponPickups.js';
 import { WEAPONS, PEA_ID } from '../../src/config.js';
 
+vi.mock('../../src/weapons/WeaponModels.js', () => ({ loadWeaponModel: () => Promise.resolve(null) }));
+
 function makeCtx() {
   return {
     scene: new THREE.Scene(),

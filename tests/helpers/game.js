@@ -48,6 +48,7 @@ export async function realGltfLoader() {
   // 解析是异步的：先让出一次事件循环，createGame() 里 "load() 后立刻 initZombieModel 之后" 的
   // 等待循环才等得到 ready。
   GLTFLoader.prototype.load = function (url, onLoad) {
+    if (url.includes('/models/weapons/')) return buildStubWeaponScene(url).then((scene) => onLoad({ scene }));
     return new Promise((resolve) => {
       setTimeout(() => {
         new GLTFLoader().parse(ab, '', (g) => { onLoad(g); resolve('real'); }, (e) => { throw e; });
@@ -64,9 +65,18 @@ export async function stubGltfLoader() {
   if (GLTFLoader.prototype.__testStubbed) return;
   GLTFLoader.prototype.__testStubbed = true;
   GLTFLoader.prototype.load = async function (url, onLoad) {
-    onLoad({ scene: await buildStubZombieScene(), animations: [], cameras: [], asset: {} });
+    const scene = url.includes('/models/weapons/') ? await buildStubWeaponScene(url) : await buildStubZombieScene();
+    onLoad({ scene, animations: [], cameras: [], asset: {} });
     return 'stub';
   };
+}
+
+async function buildStubWeaponScene(url) {
+  const THREE = await import('three');
+  const root = new THREE.Group();
+  root.name = url.split('/').pop().replace('.glb', '');
+  root.add(new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.5, 0.6), new THREE.MeshStandardMaterial({ color: 0x75ba34 })));
+  return root;
 }
 
 async function buildStubZombieScene() {

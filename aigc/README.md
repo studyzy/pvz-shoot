@@ -1,6 +1,6 @@
 # pvz-shoot 免费 3D 素材库
 
-82 个低模，用于「植物大战僵尸 + 第一人称射击」题材。全部 **CC0 1.0**（可商用、可修改、无需署名），来源 [Poly Pizza](https://poly.pizza)，原始作者以 Quaternius 为主，另有 Kay Lousberg、Polygonal Mind、CreativeTrio。
+原有 82 个低模用于「植物大战僵尸 + 第一人称射击」题材，来源 [Poly Pizza](https://poly.pizza)，原始作者以 Quaternius 为主，另有 Kay Lousberg、Polygonal Mind、CreativeTrio。另在 `map-kits/` 储备了 12 套 Kenney 地图素材，共 **1,189 个实际 GLB 模型**。上述下载资源均为 **CC0 1.0**（可商用、可修改、无需署名）。
 
 | 目录 | 数量 | 内容 | 说明 |
 | --- | --- | --- | --- |
@@ -8,8 +8,11 @@
 | [plants/](plants/README.md) | 16 | 向日葵人、胡萝卜人、土豆人、食人鱼头、仙人掌怪、各种蔬菜 | 4 个带动画 |
 | [weapons/](weapons/README.md) | 19 | 步枪、霰弹、手枪、火箭筒、榴弹、手雷、大炮、射线枪 | 全静态 |
 | [props/](props/README.md) | 7 | 墓碑、木栅栏、木箱、木桶、炸药桶 | 全静态 |
+| `map-kits/` | 1189 | 森林、墓地、郊区、工厂、街道、奇幻城镇、地牢、洞穴、家具、雪地、空间站、海岛 | 12 套 Kenney CC0 原包；本地暂存，不进 Git/游戏 |
 
-每个目录下都有四样东西：`README.md`（逐件说明 + 来源表）、`manifest.json`（机器可读）、`preview.jpg`（预览拼图，按表格顺序从左到右、从上到下）、`previews/`（单张缩略图）。
+`map-kits/manifest.json` 列出逐包来源、实际版本、SHA-256、模型路径与依赖；各包保留 `original.zip` 和原始 `License.txt`。共约 103.4 MiB（含原包与解压 GLB），模型数不重复计算 ZIP 中的 OBJ/FBX。正式接地图时只将选中的资源复制到 `public/models/`，再校准比例、碰撞和性能。
+
+原有四类目录下都有四样东西：`README.md`（逐件说明 + 来源表）、`manifest.json`（机器可读）、`preview.jpg`（预览拼图，按表格顺序从左到右、从上到下）、`previews/`（单张缩略图）。
 
 ## 按 PvZ 玩法挑素材
 
