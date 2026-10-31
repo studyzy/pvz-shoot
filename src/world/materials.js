@@ -346,23 +346,30 @@ export function forestFloorTexture() {
   const c = document.createElement('canvas');
   c.width = c.height = 256;
   const ctx = c.getContext('2d');
-  ctx.fillStyle = '#1d2f1a';
+  let seed = 0x6d6f7373;
+  const random = () => {
+    seed ^= seed << 13;
+    seed ^= seed >>> 17;
+    seed ^= seed << 5;
+    return (seed >>> 0) / 4294967296;
+  };
+  ctx.fillStyle = '#30483d';
   ctx.fillRect(0, 0, 256, 256);
   for (let i = 0; i < 900; i++) {
-    const x = Math.random() * 256;
-    const y = Math.random() * 256;
-    const r = Math.random() * 2.6 + 0.6;
-    const g = 26 + Math.random() * 40;
-    ctx.fillStyle = 'rgba(' + (g * 0.55 | 0) + ',' + (g | 0) + ',' + (g * 0.45 | 0) + ',' + (0.35 + Math.random() * 0.4).toFixed(2) + ')';
+    const x = random() * 256;
+    const y = random() * 256;
+    const r = random() * 2.6 + 0.6;
+    const g = 26 + random() * 40;
+    ctx.fillStyle = 'rgba(' + (g * 0.72 | 0) + ',' + (g | 0) + ',' + (g * 0.78 | 0) + ',' + (0.35 + random() * 0.4).toFixed(2) + ')';
     ctx.beginPath();
     ctx.arc(x, y, r, 0, Math.PI * 2);
     ctx.fill();
   }
   // 一点枯叶暖色，避免整片死绿
   for (let i = 0; i < 70; i++) {
-    ctx.fillStyle = 'rgba(96,74,38,0.35)';
+    ctx.fillStyle = 'rgba(116,95,65,0.28)';
     ctx.beginPath();
-    ctx.arc(Math.random() * 256, Math.random() * 256, Math.random() * 2 + 0.8, 0, Math.PI * 2);
+    ctx.arc(random() * 256, random() * 256, random() * 2 + 0.8, 0, Math.PI * 2);
     ctx.fill();
   }
   const tex = new THREE.CanvasTexture(c);
@@ -370,6 +377,30 @@ export function forestFloorTexture() {
   tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
   tex.repeat.set(26, 26);
   _forestFloor = tex;
+  return tex;
+}
+
+let _moonPatch = null;
+// 灰度alphaMap，不受色彩空间转换；多片柔边月斑替代规则蓝圆盘。
+export function moonPatchTexture() {
+  if (_moonPatch) return _moonPatch;
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = 512;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, 512, 512);
+  ctx.globalCompositeOperation = 'lighter';
+  for (const [x, y, r] of [[180, 275, 164], [295, 250, 130], [270, 335, 90], [250, 190, 75]]) {
+    const gradient = ctx.createRadialGradient(x, y, 0, x, y, r);
+    gradient.addColorStop(0, 'rgba(180,180,180,1)');
+    gradient.addColorStop(.35, 'rgba(140,140,140,.8)');
+    gradient.addColorStop(.72, 'rgba(60,60,60,.4)');
+    gradient.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = gradient;
+    ctx.fillRect(x - r, y - r, r * 2, r * 2);
+  }
+  const tex = new THREE.CanvasTexture(canvas);
+  _moonPatch = tex;
   return tex;
 }
 

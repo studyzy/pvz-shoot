@@ -241,6 +241,8 @@ export class DuoSession {
       if (this.game.applyGuestHit) this.game.applyGuestHit(msg.d);
     } else if (msg.t === 'aoe') {
       if (this.game.applyGuestAoe) this.game.applyGuestAoe(msg.d);
+    } else if (msg.t === 'nextwave') {
+      if (this.host && this.game.applyNextWaveRequest) this.game.applyNextWaveRequest();
     } else if (msg.t === 'claim') {
       if (this.game.applyGuestClaim) this.game.applyGuestClaim(msg.d);
     } else if (msg.t === 'drop') {
@@ -357,6 +359,8 @@ export class DuoSession {
         scores: g.duoStats ? g.duoStats.slice() : [0, 0],
         kills: g.duoKills ? g.duoKills.slice() : [0, 0],
         wave: g.zombies ? g.zombies.wave : 0,
+        ws: g.zombies ? g.zombies.state : 'idle',
+        wt: g.zombies ? round(g.zombies.intermission || 0, 1) : 0,
         bossHp: boss ? Math.max(0, boss.hp / boss.maxHp) : 0,
         o: g.sunOrbs ? g.sunOrbs.serialize() : [],
       })
@@ -367,7 +371,7 @@ export class DuoSession {
   getZombieAt(zid, seq) {
     for (let i = this.history.length - 1; i >= 0; i--) {
       const h = this.history[i];
-      if (h.seq > seq) continue;
+      if (h.seq !== seq) continue;
       return h.z.find((x) => x.id === zid) || null;
     }
     return null;
@@ -411,6 +415,11 @@ export class DuoSession {
   }
 
   // guest → host：请求拿一件共享补给（kind 预留给阳光球）
+  sendNextWave() {
+    if (this.host || this.state !== 'playing' || !this.net) return;
+    this.net.relay(encode('nextwave'));
+  }
+
   sendClaim(kind, id) {
     if (this.host || this.state !== 'playing' || !this.net || !id) return;
     this.net.relay(encode('claim', { kind, id, seq: this.game.lastWorldSeq || 0 }));

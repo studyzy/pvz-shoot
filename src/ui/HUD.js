@@ -35,6 +35,7 @@ export class HUD {
     this.crosshair = document.getElementById('crosshair');
     this.hitmarkerEl = document.getElementById('hitmarker');
     this.bannerEl = document.getElementById('banner');
+    this.nextWaveBtn = document.getElementById('nextWaveBtn');
     this.damageEl = document.getElementById('damageVignette');
     this.tutorialEl = document.getElementById('tutorial');
     this.joyBase = document.getElementById('joyBase');
@@ -123,6 +124,10 @@ export class HUD {
     const again = document.getElementById('againBtn');
     const pause = document.getElementById('pauseBtn');
 
+    this.nextWaveBtn.addEventListener('click', (e) => {
+      e.preventDefault(); e.stopPropagation();
+      if (this.onNextWave) this.onNextWave();
+    });
     if (start) start.addEventListener('click', () => { if (this.onStart) this.onStart(); });
     if (this.duoBtn) this.duoBtn.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); if (this.onDuo) this.onDuo(); });
     if (this.duoShare) this.duoShare.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); if (this.onDuoShare) this.onDuoShare(); });
@@ -212,6 +217,14 @@ export class HUD {
 
   showStartScreen() {
     this.startScreen.classList.remove('hidden');
+  }
+
+  setIntermission(seconds) {
+    const value = Math.max(0, Math.ceil(seconds));
+    if (value === this.intermissionValue) return;
+    this.intermissionValue = value;
+    this.nextWaveBtn.classList.toggle('hidden', value === 0);
+    this.nextWaveBtn.textContent = '准备好了 · 下一波 / Enter' + (value ? '（' + value + '秒）' : '');
   }
 
   showHud(v) {
@@ -479,6 +492,12 @@ export class HUD {
     this.waveLabel.textContent = '第 ' + n + ' 波';
   }
 
+  setBossName(name) {
+    if (this.bossName === name) return;
+    this.bossName = name;
+    this.bossBar.querySelector('.boss-name').textContent = name;
+  }
+
   setBossVisible(v) {
     this.bossBar.classList.toggle('hidden', !v);
   }
@@ -570,6 +589,7 @@ export class HUD {
     this.setShield(0, 1, false);
     this.setActiveSlot(null);
     this.setCharge(0);
+    this.setIntermission(0);
     this.setAmmo(0, 0, false);
     this.setHealth(100, 100);
     this.setScore(0);

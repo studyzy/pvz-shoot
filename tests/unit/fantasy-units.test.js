@@ -39,7 +39,8 @@ describe('奇幻单位 · 数值与模型', () => {
     for (const id of FANTASY_IDS) {
       const def = ZOMBIES[id];
       expect(typeof def.sun, `${id}.sun`).toBe('number');
-      expect(def.sun).toBeGreaterThan(0);
+      if (id === 'slimelet') expect(def.sun).toBe(0);
+      else expect(def.sun).toBeGreaterThan(0);
       expect(def.radius).toBeGreaterThan(0);
       expect(def.hp).toBeGreaterThan(0);
       expect(def.speed).toBeGreaterThan(0);
@@ -176,11 +177,11 @@ describe('森林波次', () => {
     }
   });
 
-  it('森林波次里奇幻单位真的会出现，且普通僵尸始终保底 ≥4 只', () => {
+  it('森林波次以奇幻族群为主，普通僵尸不超过非 Boss 20%', () => {
     for (let n = 5; n <= 30; n++) {
       const plan = wavePlan(n, 'forest');
       const normals = plan.filter((t) => t === 'normal').length;
-      expect(normals, `n=${n} 普通僵尸保底`).toBeGreaterThanOrEqual(4);
+      expect(normals, `n=${n} 普通僵尸占比`).toBeLessThanOrEqual(waveTotal(n) * 0.2);
       const fantasy = plan.filter((t) => FANTASY_IDS.includes(t)).length;
       if (n >= 5) expect(fantasy, `n=${n} 应该有奇幻单位`).toBeGreaterThan(0);
     }

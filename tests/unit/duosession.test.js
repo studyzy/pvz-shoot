@@ -403,7 +403,8 @@ describe('DuoSession', () => {
     expect(net.relays).toHaveLength(3);
 
     session.history = [{ seq: 1, z: [{ id: 7, t: 'normal' }] }];
-    expect(session.getZombieAt(7, 5)).toEqual({ id: 7, t: 'normal' });
+    expect(session.getZombieAt(7, 1)).toEqual({ id: 7, t: 'normal' });
+    expect(session.getZombieAt(7, 5)).toBeNull();
     expect(session.getZombieAt(8, 5)).toBeNull();
     expect(session.getZombieAt(7, 0)).toBeNull();
   });

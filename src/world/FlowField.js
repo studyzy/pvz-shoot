@@ -44,6 +44,24 @@ export class FlowField {
     }
   }
 
+  // 圆形树干/道具按格心栅格化；padding 包含僵尸身体的绕行余量。
+  blockCircles(colliders, padding = 0.65) {
+    for (const c of colliders) {
+      const r = c.r + padding;
+      const x0 = Math.max(0, Math.floor((c.x - r + this.halfX) / this.cell));
+      const x1 = Math.min(this.cols - 1, Math.floor((c.x + r + this.halfX) / this.cell));
+      const z0 = Math.max(0, Math.floor((c.z - r + this.halfZ) / this.cell));
+      const z1 = Math.min(this.rows - 1, Math.floor((c.z + r + this.halfZ) / this.cell));
+      for (let z = z0; z <= z1; z++) {
+        for (let x = x0; x <= x1; x++) {
+          const dx = (x + 0.5) * this.cell - this.halfX - c.x;
+          const dz = (z + 0.5) * this.cell - this.halfZ - c.z;
+          if (dx * dx + dz * dz <= r * r) this.blocked[z * this.cols + x] = 1;
+        }
+      }
+    }
+  }
+
   update(x, z, dt) {
     this.timer -= dt;
     const cols = this.cols;
@@ -98,6 +116,7 @@ export class FlowField {
           if (nx < 0 || nz < 0 || nx >= cols || nz >= rows) continue;
           const ni = nz * cols + nx;
           if (blocked[ni] || dist[ni] >= 0) continue;
+          if (ox && oz && (blocked[gz * cols + nx] || blocked[nz * cols + gx])) continue;
           dist[ni] = d + 1;
           queue[tail++] = ni;
         }
@@ -121,6 +140,7 @@ export class FlowField {
             if (nx < 0 || nz < 0 || nx >= cols || nz >= rows) continue;
             const ni = nz * cols + nx;
             if (blocked[ni]) continue;
+            if (ox && oz && (blocked[zz * cols + nx] || blocked[nz * cols + xx])) continue;
             if (dist[ni] >= 0 && dist[ni] < bestD) {
               bestD = dist[ni];
               bx = ox;

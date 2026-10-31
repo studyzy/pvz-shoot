@@ -1680,6 +1680,491 @@ async function phaseRemote(ctx) {
   return { metrics: { ...info, shot: file } };
 }
 
+// 月光童话战场：只控制前置位置/固定步长，技能、伤害、DOM 输入和渲染均走真实代码。
+async function phaseForestRework(ctx) {
+  const { page, browser, url } = ctx;
+  const screenshots = [];
+  const types = ['goblin', 'demon3', 'slime', 'pink-slime', 'green-blob', 'bones',
+    'ghost', 'ghost-skull', 'wolf', 'spider', 'rat', 'bat', 'gargantuar', 'mushroomKing', 'dragon'];
+  const snapshots = [];
+  const responsive = [];
+  // 停掉游戏自己的墙钟循环后按正常 update 驱动，避免 SwiftShader 把两秒落地窗口变成随机结果。
+  async function stopClock(p) {
+    await waitUntil(p, () => window.__game.state !== 'playing' || window.__game.weapons.root.visible, 10000, '游戏循环显示武器');
+    await p.evaluate(() => { window.__game.running = false; });
+    await p.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+  }
+  async function render(p) {
+    await p.evaluate(() => {
+      const g = window.__game;
+      g.player.applyCamera(g.camera);
+      g.map.update(0);
+      g.renderer.render(g.scene, g.camera);
+    });
+  }
+  async function reset(p) {
+    await p.evaluate(() => {
+      const g = window.__game;
+      g.zombies.reset();
+      g.projectiles.clear();
+      g.controls.setFiring(false);
+      g.player.pos.set(0, 0, 30);
+      g.player.vel.set(0, 0, 0);
+      g.player.yaw = 0;
+      g.player.pitch = -0.25;
+      g.player.recoil = 0;
+      g.player.invuln = 0;
+      g.weapons.equipSlot('peaGun', 0);
+      g.update(0);
+    });
+  }
+  async function spawn(p, type, distance = 4) {
+    await reset(p);
+    return p.evaluate(([t, d]) => {
+      const g = window.__game;
+      const z = g.zombies.spawnAt(t, 1, 0, 30 - d, 1, 0);
+      // 让出生动画自行完成；speedMul=0 只用于稳定瞄点，不改技能/血量。
+      for (let i = 0; i < 12; i++) z.update(0.05, g.player, g.map.colliders);
+      return { hp: z.hp, state: z.skillState, skinned: !!z.body.getObjectByProperty('isSkinnedMesh', true) };
+    }, [type, distance]);
+  }
+  async function advanceTo(p, state, seconds = 12) {
+    return p.evaluate(([want, limit]) => {
+      const g = window.__game;
+      const z = g.zombies.zombies[0];
+      let elapsed = 0;
+      while (z.skillState !== want && elapsed < limit) {
+        z.update(0.05, g.player, g.map.colliders);
+        elapsed += 0.05;
+      }
+      const cue = z.skillCue;
+      return { elapsed, state: z.skillState, air: z.airborne, y: z.root.position.y,
+        cue: !!cue && cue.visible, timer: z.skillTimer, snapshot: z.serialize(), pose: z.model.scale.y };
+    }, [state, seconds]);
+  }
+  async function pixels(p) {
+    const { createCanvas, loadImage } = await import('@napi-rs/canvas');
+    const img = await loadImage(await p.screenshot());
+    const cv = createCanvas(img.width, img.height);
+    const cx = cv.getContext('2d');
+    cx.drawImage(img, 0, 0);
+    const data = cx.getImageData(0, 0, img.width, img.height).data;
+    let feet = 0, feetN = 0, white = 0, weaponN = 0, full = 0, n = 0;
+    for (let y = 0; y < img.height; y += 2) {
+      for (let x = 0; x < img.width; x += 2) {
+        const i = (y * img.width + x) * 4;
+        const l = .2126 * data[i] + .7152 * data[i + 1] + .0722 * data[i + 2];
+        full += l; n++;
+        if (y > img.height * .82 && x > img.width * .1 && x < img.width * .55) { feet += l; feetN++; }
+        if (y > img.height * .55 && x > img.width * .55 && x < img.width * .98) {
+          weaponN++;
+          if (l > 235) white++;
+        }
+      }
+    }
+    return { feet: +(feet / feetN).toFixed(2), full: +(full / n).toFixed(2), white: +(white / weaponN).toFixed(4) };
+  }
+  async function layout(p, selectors) {
+    return p.evaluate((ss) => {
+      const inside = (r) => r.width > 0 && r.height > 0 && r.left >= -1 && r.top >= -1
+        && r.right <= innerWidth + 1 && r.bottom <= innerHeight + 1;
+      return { scroll: document.documentElement.scrollWidth > innerWidth + 1
+          || document.documentElement.scrollHeight > innerHeight + 1,
+        elements: ss.map((s) => {
+          const el = document.querySelector(s);
+          const r = el.getBoundingClientRect();
+          const top = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+          return { selector: s, inside: inside(r), clickable: el === top || el.contains(top),
+            w: r.width, h: r.height };
+        }) };
+    }, selectors);
+  }
+  let geometry, opening, light, split, perf, duck;
+  try {
+    await page.setViewportSize({ width: 1440, height: 860 });
+    await page.evaluate(() => { window.__game.backToMenu(); window.__game.setMap('forest'); });
+    await waitUntil(page, (ts) => ts.every((t) => window.__game.zombies.modelReady(t)), 60000, '森林真实 glb 就绪', types);
+    await page.click('#startBtn');
+    await waitUntil(page, () => window.__game.state === 'playing', 10000, '森林开局');
+    await stopClock(page);
+    opening = await page.evaluate(() => {
+      const g = window.__game;
+      g.zombies.reset();
+      g.zombies.startWave(1);
+      const plan = g.zombies.queue.slice().sort();
+      const distances = [];
+      while (g.zombies.queue.length) {
+        const z = g.zombies.spawnOne(g.player);
+        if (!z) break;
+        distances.push(Math.hypot(z.root.position.x - g.player.pos.x, z.root.position.z - g.player.pos.z));
+      }
+      const lateNormal = [];
+      for (const n of [10, 20, 30]) {
+        g.zombies.startWave(n);
+        const ordinary = g.zombies.queue.filter((t) => !['gargantuar', 'boss', 'mushroomKing', 'dragon'].includes(t));
+        lateNormal.push(ordinary.filter((t) => t === 'normal').length / ordinary.length);
+      }
+      return { plan, distances, lateNormal };
+    });
+    check(opening.plan.join(',') === 'goblin,goblin,goblin,slime,slime', '首波必须为3哥布林+2史莱姆：' + opening.plan);
+    check(opening.distances.length === 5 && opening.distances.every((d) => d >= 16 && d <= 22), '首波反应距离不合规：' + opening.distances);
+    check(opening.lateNormal.every((v) => v <= .2), '后期普通僵尸超过20%：' + opening.lateNormal);
+    await reset(page);
+    geometry = await page.evaluate(() => {
+      const g = window.__game, m = g.map, nav = m.nav;
+      nav.update(m.spawn.x, m.spawn.z, 1);
+      const points = [...m.pickupSpots, ...m.zombieSpawnPoints, ...m.openingSpawnPoints];
+      const unreachable = points.filter(([x, z]) => {
+        const idx = Math.floor((z + nav.halfZ) / nav.cell) * nav.cols + Math.floor((x + nav.halfX) / nav.cell);
+        return nav.blocked[idx] || nav.dist[idx] < 0;
+      });
+      const c = m.walls.find((w) => w.r && w.h > 1);
+      const pos = g.player.pos.clone().set(c.x - c.r - 2, .8, c.z);
+      const vel = pos.clone().set((c.r + 2) * 2, 0, 0);
+      const bulletWall = g.projectiles.step(pos, vel, 1, .13, 0);
+      const collider = m.colliders.find((x) => x.r > .7 && Math.abs(x.x) < 40 && Math.abs(x.z) < 40);
+      g.player.pos.set(collider.x + .1, 0, collider.z);
+      g.player.update(0, g.controls, m, []);
+      const playerBlocked = Math.hypot(g.player.pos.x - collider.x, g.player.pos.z - collider.z) > collider.r;
+      g.player.pos.set(m.spawn.x, 0, m.spawn.z);
+      const landmarks = Object.entries(m.landmarks).map(([name, group]) => {
+        let meshes = 0;
+        group.traverse((o) => { if (o.isMesh && o.visible) meshes++; });
+        return { name, meshes, parent: group.parent === m.root };
+      });
+      let colored = 0, invalid = 0;
+      g.weapons.root.traverse((o) => {
+        if (!o.isMesh || !o.userData.dayMaterial) return;
+        colored++;
+        if (!o.material.isMeshBasicMaterial || !o.material.vertexColors || !o.geometry.getAttribute('color')) invalid++;
+      });
+      return { landmarks, blocked: nav.blocked.reduce((a, b) => a + b, 0), unreachable,
+        fireflies: m.fireflies.geometry.getAttribute('position').count, spawn: m.spawn.z, bulletWall, playerBlocked, colored, invalid };
+    });
+    check(geometry.landmarks.map((x) => x.name).sort().join(',') === 'beastDen,camp,graveyard,moonheart,mushrooms', '五地标缺失：' + JSON.stringify(geometry.landmarks));
+    check(geometry.landmarks.every((x) => x.meshes >= 3 && x.parent), '地标未真实挂到地图：' + JSON.stringify(geometry.landmarks));
+    check(geometry.spawn === 30 && geometry.fireflies === 140, '出生/萤火虫不合规：' + JSON.stringify(geometry));
+    check(geometry.blocked > 0 && geometry.unreachable.length === 0, '导航阻挡或路径异常：' + JSON.stringify(geometry));
+    check(geometry.bulletWall === 1 && geometry.playerBlocked, '森林实体未挡弹/未阻止玩家穿树');
+    check(geometry.colored > 0 && geometry.invalid === 0, '森林武器未保持 Basic+vertexColors');
+    for (const { name } of geometry.landmarks) {
+      await page.evaluate((key) => {
+        const g = window.__game, p = g.player, target = g.map.landmarks[key].position;
+        // 从地标正面选真实无碰撞/无遮挡观察点，避免墓拱侧视变柱子或近树遮满截图。
+        const candidates = [14, 10, 8].flatMap((r) => [0, .3, -.3, .6, -.6, .9, -.9, 1.2, -1.2].map((a) =>
+          ({ x: target.x + Math.sin(a) * r, z: target.z + Math.cos(a) * r })));
+        const view = candidates.find((v) => {
+          if (Math.abs(v.x) > g.map.bounds.x - 2 || Math.abs(v.z) > g.map.bounds.z - 2) return false;
+          const dx = target.x - v.x, dz = target.z - v.z, length2 = dx * dx + dz * dz;
+          return g.map.colliders.every((c) => {
+            if (Math.hypot(c.x - v.x, c.z - v.z) < c.r + .65) return false;
+            if (Math.hypot(c.x - target.x, c.z - target.z) < 5) return true;
+            const t = Math.max(0, Math.min(1, ((c.x - v.x) * dx + (c.z - v.z) * dz) / length2));
+            return Math.hypot(c.x - v.x - t * dx, c.z - v.z - t * dz) > c.r + .55;
+          });
+        });
+        if (!view) throw new Error('地标无可用观察点：' + key);
+        p.pos.set(view.x, 0, view.z);
+        p.yaw = Math.atan2(-(target.x - p.pos.x), -(target.z - p.pos.z));
+        p.pitch = .02;
+        g.update(0);
+      }, name);
+      await render(page);
+      screenshots.push(await shot(page, 'forest-rework-' + name));
+    }
+    await reset(page);
+    await render(page);
+    light = await pixels(page);
+    check(light.feet > 15 && light.full < 70, '夜间脚下不可读/全图过亮：' + JSON.stringify(light));
+    check(light.white < .12, '森林武器发白比例过高：' + JSON.stringify(light));
+    screenshots.push(await shot(page, 'forest-rework-desktop'));
+
+    // 巨人：真实前摇固定中心，离开危险圈不扣血，回到圈内会受击。
+    await spawn(page, 'gargantuar', 2);
+    const telegraph = await advanceTo(page, 'telegraph');
+    check(telegraph.state === 'telegraph' && telegraph.cue && telegraph.timer <= .85, '巨人前摇/警告圈缺失');
+    snapshots.push(telegraph.snapshot);
+    await render(page);
+    screenshots.push(await shot(page, 'forest-rework-slam-warning'));
+    const slam = await page.evaluate(() => {
+      const g = window.__game, z = g.zombies.zombies[0];
+      const before = g.player.hp;
+      g.player.pos.x = 5;
+      for (let i = 0; i < 18; i++) z.update(.05, g.player, g.map.colliders);
+      const escaped = g.player.hp === before;
+      z.update(.05, g.player, g.map.colliders);
+      const recover = z.skillState;
+      g.player.pos.set(0, 0, 30);
+      for (let i = 0; i < 80 && z.skillState !== 'telegraph'; i++) z.update(.05, g.player, g.map.colliders);
+      const locked = z.skillCenter.clone();
+      for (let i = 0; i < 18; i++) z.update(.05, g.player, g.map.colliders);
+      return { escaped, recover, damage: before - g.player.hp, locked: [locked.x, locked.z] };
+    });
+    check(slam.escaped && slam.recover === 'recover' && slam.damage > 0, '巨人逃圈/恢复/攻击异常：' + JSON.stringify(slam));
+
+    await spawn(page, 'mushroomKing');
+    duck = await advanceTo(page, 'duck');
+    check(duck.state === 'duck' && duck.cue, '蘑菇王未真实蹲下');
+    snapshots.push(duck.snapshot);
+    await render(page);
+    screenshots.push(await shot(page, 'forest-rework-duck'));
+    const duckDamage = await page.evaluate(() => {
+      const g = window.__game, z = g.zombies.zombies[0], hp = z.hp;
+      z.hit(40, false, false, { type: 'pea' });
+      const reduced = hp - z.hp;
+      for (let i = 0; i < 60; i++) z.update(.05, g.player, g.map.colliders);
+      const state = z.skillState, h = z.hp;
+      z.hit(40, false, false, { type: 'pea' });
+      return { reduced, normal: h - z.hp, state, timer: z.skillTimer };
+    });
+    check(duckDamage.reduced === 10 && duckDamage.normal === 40 && duckDamage.state === 'recover'
+      && duckDamage.timer <= 1.2, '蘑菇王减伤/3秒蹲/恢复异常：' + JSON.stringify(duckDamage));
+    await spawn(page, 'dragon');
+    const dive = await advanceTo(page, 'telegraph');
+    check(dive.state === 'telegraph' && dive.cue, '巨龙缺少俯冲预警');
+    const dragon = await advanceTo(page, 'land');
+    check(dragon.state === 'land' && !dragon.air && Math.abs(dragon.y) < .01, '巨龙未真正落地：' + JSON.stringify(dragon));
+    snapshots.push(dragon.snapshot);
+    await render(page);
+    screenshots.push(await shot(page, 'forest-rework-dragon-land'));
+    const flight = await advanceTo(page, 'fly', 2.1);
+    check(flight.state === 'fly' && flight.air && flight.elapsed >= 1.9, '巨龙落地窗口不足2秒');
+
+    // 满14实体时，母体真实死亡先排队；尸体回收后补子体，绝不超限。
+    await reset(page);
+    split = await page.evaluate(() => {
+      const g = window.__game, m = g.zombies;
+      m.maxAlive = 14;
+      const parent = m.spawnAt('pink-slime', 1, 0, 26, 1, 0);
+      for (let i = 0; i < 13; i++) m.spawnAt('rat', 1, 15 + i % 4, 15 + Math.floor(i / 4), 1, 0);
+      for (let i = 0; i < 12; i++) m.update(.05, g.player, g.map.colliders);
+      const kills = g.stats.kills;
+      m.damageArea(parent.root.position.clone(), 1, 1e4, parent, 1);
+      const pending = m.pendingSplits.length;
+      let peak = m.zombies.length;
+      for (let i = 0; i < 36; i++) { m.update(.05, g.player, g.map.colliders); peak = Math.max(peak, m.zombies.length); }
+      const first = m.zombies.filter((z) => z.type === 'slimelet').length;
+      const rat = m.zombies.find((z) => z.type === 'rat' && !z.dying);
+      m.damageArea(rat.root.position.clone().setY(rat.root.position.y + .9 * rat.scaleFactor), .1, 1e4, rat, 1);
+      for (let i = 0; i < 40; i++) { m.update(.05, g.player, g.map.colliders); peak = Math.max(peak, m.zombies.length); }
+      const children = m.zombies.filter((z) => z.type === 'slimelet');
+      return { pending, first, children: children.length, peak, remaining: m.pendingSplits.length,
+        childSun: children.map((z) => z.def.sun), kills: g.stats.kills - kills };
+    });
+    check(split.pending === 2 && split.first === 1 && split.children === 2 && split.peak <= 14
+      && split.remaining === 0 && split.kills === 2 && split.childSun.every((s) => s === 0), '粉史莱姆分裂丢失或突破实体上限：' + JSON.stringify(split));
+
+    await page.evaluate(() => window.__game.map.setFlash(false));
+    await spawn(page, 'spider', 12);
+    const ambush = await page.evaluate(() => {
+      const g = window.__game, z = g.zombies.zombies[0];
+      z.update(.05, g.player, g.map.colliders);
+      const warned = z.skillState === 'ambush' && z.skillCue.visible;
+      g.player.pitch = 0;
+      g.player.applyCamera(g.camera);
+      g.map.setFlash(true);
+      g.scene.updateMatrixWorld(true);
+      z.update(.05, g.player, g.map.colliders);
+      return { warned, state: z.skillState };
+    });
+    check(ambush.warned && ambush.state === 'wake', '蜘蛛伏击无可见预警/照射未唤醒：' + JSON.stringify(ambush));
+
+    await reset(page);
+    perf = await page.evaluate(() => {
+      const g = window.__game;
+      const mix = ['gargantuar', 'mushroomKing', 'dragon', 'bat', 'goblin', 'demon3', 'slime',
+        'pink-slime', 'green-blob', 'bones', 'ghost', 'wolf', 'spider', 'rat'];
+      for (let i = 0; i < mix.length; i++) g.zombies.spawnAt(mix[i], 1, (i % 5 - 2) * 3, 18 - Math.floor(i / 5) * 4, 1, 0);
+      for (let i = 0; i < 20; i++) g.update(.05);
+      g.player.yaw = 0; g.player.pitch = -.06;
+      g.player.applyCamera(g.camera);
+      g.renderer.setPixelRatio(Math.max(1, g.renderer.getPixelRatio()));
+      g.renderer.render(g.scene, g.camera);
+      return { count: g.zombies.zombies.length, calls: g.renderer.info.render.calls,
+        triangles: g.renderer.info.render.triangles, dpr: g.renderer.getPixelRatio(),
+        weaponVisible: g.weapons.root.visible && g.weapons.models[g.weapons.current].group.visible };
+    });
+    check(perf.count === 14 && perf.calls > 0 && perf.calls <= 250 && perf.dpr >= 1 && perf.weaponVisible, '14混合怪渲染预算异常：' + JSON.stringify(perf));
+    screenshots.push(await shot(page, 'forest-rework-14-mixed'));
+    await reset(page);
+
+    // 真实清场推进休整，再用桌面 Enter 跳过（不直接设置休整最终状态）。
+    await page.evaluate(() => {
+      const g = window.__game;
+      g.zombies.startWave(1);
+      g.zombies.queue.length = 0;
+      g.update(.05);
+    });
+    check(await page.isVisible('#nextWaveBtn'), '森林休整按钮未显示');
+    const intermission = await page.evaluate(() => window.__game.zombies.intermission);
+    check(intermission > 9.9 && intermission <= 10, '森林休整不是10秒');
+    await page.evaluate(() => { window.__game.duo = { seat: 0 }; window.__game.seat = 0; });
+    await page.keyboard.press('Enter');
+    check(await page.evaluate(() => window.__game.zombies.wave === 2), 'host Enter 未提前开波');
+    await page.evaluate(() => { window.__game.duo = null; window.__game.seat = -1; });
+
+    for (const size of [{ width: 844, height: 390 }, { width: 1024, height: 768 }]) {
+      const context = await browser.newContext({ viewport: size, screen: size, isMobile: true, hasTouch: true, deviceScaleFactor: 1 });
+      const { page: p, consoleErrors } = await openPage(context, url);
+      const label = size.width === 844 ? 'phone' : 'ipad';
+      try {
+        await p.tap('[data-map="forest"]');
+        await waitUntil(p, (ts) => ts.every((t) => window.__game.zombies.modelReady(t)), 60000, label + '真实模型', types);
+        const menu = await layout(p, ['#startBtn', '[data-map="forest"]']);
+        check(!menu.scroll && menu.elements.every((e) => e.inside && e.clickable), label + '森林菜单溢出/按钮遮挡：' + JSON.stringify(menu));
+        screenshots.push(await shot(p, 'forest-rework-' + label + '-menu'));
+        await p.tap('#startBtn');
+        await waitUntil(p, () => window.__game.state === 'playing', 10000, label + '触屏开局');
+        await stopClock(p);
+        await reset(p);
+        const ui = await layout(p, ['#fireBtn', '#jumpBtn', '#joyBase', '.slot-dock']);
+        check(!ui.scroll && ui.elements.every((e) => e.inside), label + '控件溢出：' + JSON.stringify(ui));
+        check(ui.elements.slice(0, 2).every((e) => e.clickable && e.w >= 44 && e.h >= 44), label + '开火/跳跃按钮被挡');
+        const scale = await p.evaluate(() => {
+          const g = window.__game, m = g.weapons.models[g.weapons.current];
+          return { value: m.group.scale.x / m.baseScale, touch: g.controls.isTouch, locks: window.__e2e.lockCalls };
+        });
+        check(scale.touch && scale.locks === 0 && Math.abs(scale.value - .88) < .001, label + '森林触屏缩放/指针锁错误：' + JSON.stringify(scale));
+        await render(p);
+        const lighting = await pixels(p);
+        check(lighting.feet > 15 && lighting.white < .12, label + '夜景或武器不可读：' + JSON.stringify(lighting));
+        screenshots.push(await shot(p, 'forest-rework-' + label + '-game'));
+
+        await spawn(p, 'bat');
+        const before = await p.evaluate(() => window.__game.zombies.zombies[0].hp);
+        const airborne = await p.evaluate(() => window.__game.zombies.zombies[0].airborne);
+        check(airborne, label + '蝙蝠开局应在空中');
+        const land = await advanceTo(p, 'land');
+        check(land.state === 'land' && !land.air && Math.abs(land.y - .2) < .01, label + '蝙蝠未落到普通武器高度');
+        const fire = ui.elements[0];
+        const cdp = await context.newCDPSession(p);
+        const box = await p.locator('#fireBtn').boundingBox();
+        await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: box.x + fire.w / 2, y: box.y + fire.h / 2, id: 1 }] });
+        const killed = await p.evaluate(() => {
+          const g = window.__game, z = g.zombies.zombies[0];
+          const firing = g.controls.firing;
+          const kills = g.stats.kills;
+          const chest = z.getChest(g.player.eye.clone());
+          const eye = g.player.pos.clone().setY(g.player.pos.y + 1.66);
+          const d = chest.sub(eye);
+          g.player.yaw = Math.atan2(-d.x, -d.z);
+          g.player.pitch = Math.atan2(d.y, Math.hypot(d.x, d.z));
+          for (let i = 0; i < 35 && !z.dying; i++) g.update(.05);
+          return { firing, hp: z.hp, dying: z.dying, kills: g.stats.kills - kills,
+            state: z.skillState, weapon: g.weapons.current };
+        });
+        await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+        check(before === 40 && killed.firing && killed.dying && killed.hp === 0 && killed.kills === 1
+          && killed.weapon === 0, label + '真实触屏豌豆未击杀落地蝙蝠：' + JSON.stringify(killed));
+        check(await p.evaluate(() => !window.__game.controls.firing), label + '松手仍开火');
+        await reset(p);
+        await p.tap('#jumpBtn');
+        const jumped = await p.evaluate(() => { const g = window.__game; for (let i = 0; i < 3; i++) g.update(.05); return g.player.pos.y; });
+        check(jumped > .05, label + '真实触屏跳跃失效');
+        await p.evaluate(() => { for (let i = 0; i < 30; i++) window.__game.update(.05); });
+        const joy = await p.locator('#joyBase').boundingBox();
+        const origin = await p.evaluate(() => ({ x: window.__game.player.pos.x, z: window.__game.player.pos.z }));
+        await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: joy.x + joy.width / 2, y: joy.y + joy.height / 2, id: 2 }] });
+        await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: joy.x + joy.width / 2, y: joy.y + joy.height * .1, id: 2 }] });
+        const moved = await p.evaluate(([x, z]) => { const g = window.__game; for (let i = 0; i < 6; i++) g.update(.05); return Math.hypot(g.player.pos.x - x, g.player.pos.z - z); }, [origin.x, origin.z]);
+        await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+        check(moved > .4, label + '森林摇杆未驱动移动');
+        await reset(p);
+        await p.evaluate(() => { const g = window.__game; g.zombies.startWave(1); g.zombies.queue.length = 0; g.update(.05); });
+        const next = await layout(p, ['#nextWaveBtn']);
+        check(next.elements[0].inside && next.elements[0].clickable, label + '提前开波按钮被遮挡');
+        await p.tap('#nextWaveBtn');
+        await waitUntil(p, () => window.__game.zombies.wave === 2, 5000, label + '触屏开波事件完成').catch(async (e) => {
+          const d = await p.evaluate(() => ({ state: window.__game.state, wave: window.__game.zombies.wave,
+            ws: window.__game.zombies.state, wt: window.__game.zombies.intermission,
+            button: document.getElementById('nextWaveBtn').className }));
+          throw new PhaseError(e.message + ' ' + JSON.stringify(d));
+        });
+
+        // 网络只在传输边界记录请求；远端技能/休整渲染完全使用 host 真实快照。
+        await reset(p);
+        const remote = await p.evaluate((states) => {
+          const g = window.__game;
+          g.duo = { seat: 1 }; g.seat = 1;
+          g.zombies.setRemote(true);
+          g.applyPeerState({ seq: 1, wave: 4, ws: 'intermission', wt: 10, z: states });
+          g.update(0);
+          return g.zombies.zombies.map((z) => {
+            const hp = z.hp, timer = z.skillTimer;
+            z.hit(1000, false, false, { type: 'pea' });
+            for (let i = 0; i < 100; i++) z.update(.05, g.player, g.map.colliders);
+            return { state: z.skillState, cue: z.skillCue.visible, hpStable: z.hp === hp, timerStable: z.skillTimer === timer };
+          });
+        }, snapshots);
+        check(remote.length === 3 && remote.every((r) => r.cue && r.hpStable && r.timerStable), label + '远端Boss技能/伤害越权：' + JSON.stringify(remote));
+        for (const snapshot of snapshots) {
+          await p.evaluate((state) => {
+            const g = window.__game;
+            g.zombies.reset();
+            g.applyPeerState({ seq: 1, wave: 4, ws: 'intermission', wt: 10, z: [state] });
+            g.update(0);
+          }, snapshot);
+          await render(p);
+          screenshots.push(await shot(p, 'forest-rework-' + label + '-remote-' + snapshot.t));
+        }
+        await p.evaluate(() => { window.__e2eNextWave = 0; window.__game.duoSession = { sendNextWave: () => window.__e2eNextWave++ }; });
+        await p.tap('#nextWaveBtn');
+        await waitUntil(p, () => window.__e2eNextWave === 1, 5000, label + 'guest开波请求事件完成');
+        const request = await p.evaluate(() => {
+          const g = window.__game;
+          const before = { requests: window.__e2eNextWave, wave: g.zombies.wave, state: g.zombies.state };
+          g.duoSession = null;
+          g.applyPeerState({ seq: 2, wave: 5, ws: 'spawning', wt: 0, z: [] });
+          g.update(0);
+          return { ...before, confirmed: g.zombies.wave, hidden: document.getElementById('nextWaveBtn').classList.contains('hidden') };
+        });
+        check(request.requests === 1 && request.wave === 4 && request.state === 'intermission'
+          && request.confirmed === 5 && request.hidden, label + 'guest 未等待host快照开波：' + JSON.stringify(request));
+        const errors = [...consoleErrors, ...await drainErrors(p)];
+        check(errors.length === 0, label + '控制台错误：' + errors.join('\n'));
+        responsive.push(label + ':' + scale.value + '/batKill/jump/joy/' + lighting.feet);
+      } catch (error) {
+        const file = await shot(p, 'forest-rework-' + label + '-FAIL');
+        throw new PhaseError(error.message + '；触屏截图：' + path.relative(ROOT, file));
+      } finally {
+        await context.close();
+      }
+    }
+    const restored = await page.evaluate(() => {
+      const g = window.__game;
+      g.backToMenu(); g.setMap('snow');
+      let toon = 0, invalid = 0;
+      g.weapons.root.traverse((o) => {
+        if (!o.isMesh || !o.userData.dayMaterial) return;
+        toon++; if (!o.material.isMeshToonMaterial) invalid++;
+      });
+      return { toon, invalid, flash: g.maps.find((m) => m.id === 'forest').flash.visible };
+    });
+    check(restored.toon > 0 && restored.invalid === 0 && !restored.flash, '非森林地图未恢复Toon/残留手电：' + JSON.stringify(restored));
+    return { metrics: { landmarks: geometry.landmarks.length, blocked: geometry.blocked, fireflies: geometry.fireflies,
+      feet: light.feet, white: light.white, splits: split.children + '/peak' + split.peak,
+      calls14: perf.calls, triangles14: perf.triangles, dpr: perf.dpr, responsive: responsive.join(','),
+      screenshots: screenshots.map((s) => path.relative(ROOT, s)).join(',') } };
+  } finally {
+    await page.evaluate(() => {
+      const g = window.__game;
+      g.controls.setFiring(false);
+      g.zombies.setRemote(false);
+      g.zombies.reset();
+      g.duo = null; g.seat = -1; g.duoSession = null;
+      g.player.maxHp = 100;
+      g.backToMenu();
+      g.setMap('backyard');
+      if (!g.running) {
+        g.running = true;
+        g.clock.getDelta();
+        requestAnimationFrame(g.loop);
+      }
+    }).catch(() => {});
+    await page.setViewportSize({ width: 1440, height: 860 });
+  }
+}
+
 // ---------------------------------------------------------------- 主流程
 
 const PHASES = [
@@ -1689,6 +2174,7 @@ const PHASES = [
   { name: 'remote', label: '队友模型（Farmer 戴夫化）', group: 'desktop', fn: phaseRemote },
   { name: 'maps', label: '四张地图真实切换', group: 'desktop', fn: phaseMaps },
   { name: 'flashlight', label: '夜之森林手电（亮度/过曝/不残留）', group: 'desktop', fn: phaseFlashlight },
+  { name: 'forest-rework', label: '月光森林（全图/技能/触屏/联机快照）', group: 'desktop', fn: phaseForestRework },
   { name: 'mobile', label: '手机模拟（横屏 UI + 竖屏拦截）', group: 'mobile', fn: phaseMobile },
   { name: 'perf', label: '性能与稳定性（10s 采样）', group: 'desktop', fn: phasePerf },
   { name: 'gameover', label: '死亡结算与重开', group: 'desktop', fn: phaseGameOver },

@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { Zombie } from './Zombie.js';
 import { zombieModel } from './ZombieModel.js';
-import { ZOMBIES, DUO, BOUNTY, wavePlan, duoWavePlan, waveMaxAlive, waveSpawnInterval, waveAirQuota, zombieHpMul, zombieSpeedMul, SKELETON_MAX_ALIVE, SKELETON_MAPS } from '../config.js';
+import { ZOMBIES, DUO, BOUNTY, FOREST, bossForWave, wavePlan, duoWavePlan, waveMaxAlive, waveSpawnInterval, waveAirQuota, zombieHpMul, zombieSpeedMul, SKELETON_MAX_ALIVE, SKELETON_MAPS } from '../config.js';
 import { rand, clamp } from '../utils.js';
 
 export class ZombieManager {
@@ -11,6 +11,7 @@ export class ZombieManager {
     this.zombies = [];
     this.wave = 0;
     this.queue = [];
+    this.pendingSplits = [];
     this.state = 'idle';
     this.intermission = 0;
     this.spawnTimer = 0;
@@ -41,6 +42,7 @@ export class ZombieManager {
     if (this.remote) {
       this.state = 'idle';
       this.queue.length = 0;
+      this.pendingSplits.length = 0;
     }
   }
 
@@ -51,6 +53,7 @@ export class ZombieManager {
     }
     this.zombies.length = 0;
     this.queue.length = 0;
+    this.pendingSplits.length = 0;
     this.despawned.clear();
     this.wave = 0;
     this.state = 'idle';
@@ -102,14 +105,16 @@ export class ZombieManager {
     }
     if (this.state === 'spawning') {
       this.spawnTimer -= dt;
-      if (this.queue.length > 0 && this.zombies.length < this.maxAlive && this.spawnTimer <= 0 && this.modelReady(this.queue[0])) {
+      if (this.queue.length > 0 && this.zombies.length < Math.min(14, this.maxAlive) && this.spawnTimer <= 0) {
         const spawned = this.spawnOne(player);
         // spawnOne 可能返回 null（骷髅超上限且队列里只剩骷髅），这时不重置计时，下个 tick 再试
         if (spawned) this.spawnTimer = this.interval * rand(0.75, 1.25);
       }
-      if (this.queue.length === 0 && this.zombies.length === 0) {
+      if (this.queue.length === 0 && this.zombies.length === 0 && this.pendingSplits.length === 0) {
         this.state = 'intermission';
-        this.intermission = this.duo ? DUO.intermission : 6.5;
+        this.intermission = this.ctx.map && this.ctx.map.id === 'forest'
+          ? (bossForWave(this.wave) ? FOREST.bossIntermission : FOREST.intermission)
+          : (this.duo ? DUO.intermission : 6.5);
         this.ctx.onWaveClear(this.wave);
       }
     } else if (this.state === 'intermission') {
@@ -131,13 +136,96 @@ export class ZombieManager {
       }
     }
 
+    this.spawnSplits();
+
     this.groanTimer -= dt;
     if (this.groanTimer <= 0) {
       this.groanTimer = rand(2.6, 6.5);
-      if (this.zombies.length > 0) {
+      if (this.ctx.map && this.ctx.map.id === 'forest') {
+        let nearest = null;
+        let distance = FOREST.nearSound;
+        for (const z of this.zombies) {
+          if (!z.alive || z.dying) continue;
+          const d = Math.hypot(z.root.position.x - player.pos.x, z.root.position.z - player.pos.z);
+          if (d <= distance) { nearest = z; distance = d; }
+        }
+        if (nearest) {
+          const dx = nearest.root.position.x - player.pos.x;
+          const dz = nearest.root.position.z - player.pos.z;
+          if (nearest.def.family && this.ctx.sfx.creature) {
+            const yaw = player.yaw || 0;
+            const pan = distance > 0 ? (dx * Math.cos(yaw) - dz * Math.sin(yaw)) / distance : 0;
+            const volume = (nearest.def.boss ? 0.9 : 0.55) * (1 - distance / (FOREST.nearSound * 1.25));
+            this.ctx.sfx.creature(nearest.def.family, volume, clamp(pan, -1, 1));
+          } else {
+            this.ctx.sfx.groan(nearest.def.boss ? 0.9 : 0.55, dx / 24);
+          }
+        }
+      } else if (this.zombies.length > 0) {
         const z = this.zombies[Math.floor(Math.random() * this.zombies.length)];
         this.ctx.sfx.groan(z.def.boss ? 0.9 : 0.55, (z.root.position.x - player.pos.x) / 24);
       }
+    }
+  }
+
+  skipIntermission() {
+    if (this.remote || this.state !== 'intermission') return false;
+    this.intermission = 0;
+    this.startWave(this.wave + 1);
+    return true;
+  }
+
+  forestSpawnPoint(type, player) {
+    const map = this.ctx.map;
+    const groups = map.zombieSpawnGroups || {};
+    const opening = this.wave === 1 && map.openingSpawnPoints;
+    const family = ZOMBIES[type].family || 'undead';
+    const valid = (point, min, max) => {
+      const [x, z] = point;
+      const distance = Math.hypot(x - player.pos.x, z - player.pos.z);
+      return distance >= min && distance <= max
+        && (!map.bounds || (Math.abs(x) <= map.bounds.x - 1.2 && Math.abs(z) <= map.bounds.z - 1.2))
+        && !(map.colliders || []).some((c) => Math.hypot(x - c.x, z - c.z) < c.r + 1.05);
+    };
+    let candidates = opening ? opening.filter((p) => valid(p, 16, 22)) : [];
+    if (!candidates.length) candidates = (groups[family] || []).filter((p) => valid(p, 10, 32));
+    if (!candidates.length) {
+      const points = Object.values(groups).flat().concat(map.zombieSpawnPoints || []);
+      candidates = points.filter((p) => valid(p, 10, 32));
+      if (!candidates.length) candidates = points.filter((p) => valid(p, 10, Infinity));
+    }
+    if (!candidates.length) return null;
+    if (!opening) {
+      const yaw = player.yaw || 0;
+      const isSide = ([x, z]) => {
+        const dx = x - player.pos.x, dz = z - player.pos.z;
+        const distance = Math.hypot(dx, dz);
+        return type === 'wolf'
+          ? Math.abs(dx * Math.cos(yaw) - dz * Math.sin(yaw)) / distance >= 0.7
+          : (-dx * Math.sin(yaw) - dz * Math.cos(yaw)) / distance < 0.65;
+      };
+      let side = candidates.filter(isSide);
+      if (type === 'wolf' && !side.length) {
+        side = Object.values(groups).flat().concat(map.zombieSpawnPoints || [])
+          .filter((point) => valid(point, 10, 32) && isSide(point));
+      }
+      if (side.length) candidates = side;
+    }
+    return candidates[Math.floor(rand(0, candidates.length))];
+  }
+
+  spawnSplits() {
+    for (let i = 0; i < this.pendingSplits.length && this.zombies.length < Math.min(14, this.maxAlive);) {
+      const split = this.pendingSplits[i];
+      if (this.zombies.includes(split.parent) || !this.modelReady(split.type)) { i++; continue; }
+      const map = this.ctx.map;
+      const safe = this.clearOfColliders(split.x, split.z, (map && map.colliders) || []);
+      if (map && map.bounds) {
+        safe.x = clamp(safe.x, -map.bounds.x + 1.2, map.bounds.x - 1.2);
+        safe.z = clamp(safe.z, -map.bounds.z + 1.2, map.bounds.z - 1.2);
+      }
+      this.spawnAt(split.type, split.wave, safe.x, safe.z, split.hpMul, split.speedMul, split.source);
+      this.pendingSplits.splice(i, 1);
     }
   }
 
@@ -200,44 +288,26 @@ export class ZombieManager {
   }
 
   spawnOne(player) {
-    // 骷髅有两个额外条件，不满足时改刷别的类型、骷髅留在队列里下次再来：
-    //   1) 同屏不超过 SKELETON_MAX_ALIVE（单只 9 个 skinned mesh，太贵）
-    //   2) 骷髅 glb 已就绪（异步加载，开局很快时可能还没好，硬刷会白模）
-    // Boss 也是骷髅模型，但它每波只有 1 只、不吃同屏上限，只等模型就绪。
-    let type = this.queue[0];
-    if (type === 'skeleton') {
-      let alive = 0;
-      for (let i = 0; i < this.zombies.length; i++) {
-        if (this.zombies[i].type === 'skeleton' && this.zombies[i].alive && !this.zombies[i].dead) alive++;
-      }
-      const blocked = alive >= SKELETON_MAX_ALIVE || !this.modelReady(type);
-      if (blocked) {
-        const alt = this.queue.findIndex((t) => t !== 'skeleton' && !(ZOMBIES[t] && ZOMBIES[t].boss) && this.modelReady(t));
-        if (alt === -1) return null; // 全是骷髅又不能刷：这波先不刷，等下个 tick 或前面的清掉
-        type = this.queue.splice(alt, 1)[0];
-      } else {
-        type = this.queue.shift();
-      }
-    } else if (ZOMBIES[type] && ZOMBIES[type].airborne && this.airborneCount() >= (this.airQuota || 1)) {
-      // 气球同屏配额：满了就换别的先刷，气球留在队首下次再来。
-      // 不是为了「保底」（爆炸类武器本身就能打气球），而是为了别让整波阳光全拿去对付天上。
-      const alt = this.queue.findIndex((t) => !(ZOMBIES[t] && ZOMBIES[t].airborne) && this.modelReady(t));
-      if (alt === -1) return null;
-      type = this.queue.splice(alt, 1)[0];
-    } else if (!this.modelReady(type)) {
-      // 任意类型（含 Boss）的 glb 还没就绪：换一个能刷的先上，它留在队首等下次。
-      // 普通僵尸走的就是这条 —— 它用的是 alchemist.glb，比 zombie.glb 大，可能后到。
-      const alt = this.queue.findIndex((t) => this.modelReady(t));
-      if (alt === -1) return null;
-      type = this.queue.splice(alt, 1)[0];
-    } else {
-      type = this.queue.shift();
+    let skeletons = 0;
+    for (const z of this.zombies) {
+      if (z.type === 'skeleton' && z.alive && !z.dead) skeletons++;
     }
+    const air = this.airborneCount();
+    const index = this.queue.findIndex((type) => this.modelReady(type)
+      && (type !== 'skeleton' || skeletons < SKELETON_MAX_ALIVE)
+      && (!ZOMBIES[type].airborne || air < (this.airQuota || 1)));
+    if (index === -1) return null;
+    const type = this.queue[index];
     let x = 0;
     let z = 0;
     const map = this.ctx.map;
     const points = map && map.zombieSpawnPoints;
-    if (points && points.length) {
+    const forestPoint = map && map.id === 'forest' && this.forestSpawnPoint(type, player);
+    if (map && map.id === 'forest' && !forestPoint && (map.zombieSpawnGroups || points)) return null;
+    this.queue.splice(index, 1);
+    if (forestPoint) {
+      [x, z] = forestPoint;
+    } else if (points && points.length) {
       for (let attempt = 0; attempt < 10; attempt++) {
         const p = points[Math.floor(rand(0, points.length))];
         x = p[0] + rand(-1.6, 1.6);
@@ -268,16 +338,25 @@ export class ZombieManager {
         if (Math.hypot(x - player.pos.x, z - player.pos.z) > 14) break;
       }
     }
-    const zombie = new Zombie(type, this.wave, x, z, {
+    return this.spawnAt(type, this.wave, x, z,
+      this.hpMul * (this.duo && ZOMBIES[type].boss ? DUO.bossHpMul : 1), this.speedMul);
+  }
+
+  spawnAt(type, wave, x, z, hpMul, speedMul, source = 0) {
+    const zombie = new Zombie(type, wave, x, z, {
       scene: this.scene,
       map: this.ctx.map,
+      zombies: this,
       // Zombie.buildRig 用它给身体材质挂 PMREM 环境反射；漏传会让身体 envMap 恒为 null（只有帽子有）
       env: this.ctx.env,
       particles: this.ctx.particles,
       sfx: this.ctx.sfx,
       onAttack: (z2) => this.ctx.onZombieAttack(z2),
-    }, this.hpMul * (this.duo && ZOMBIES[type] && ZOMBIES[type].boss ? DUO.bossHpMul : 1), this.speedMul);
+    }, hpMul, speedMul);
 
+    zombie.spawnHpMul = hpMul;
+    zombie.spawnSpeedMul = speedMul;
+    zombie.lastHitBy = source;
     this.zombies.push(zombie);
     zombie.netId = this.nextNetId++;
     if (this.bountyPending && !zombie.def.boss) {
@@ -368,7 +447,7 @@ export class ZombieManager {
   }
 
   handleKill(z, headshot) {
-    if (z.counted) return;
+    if (this.remote || z.counted) return;
     z.counted = true;
     this.totalKills++;
     const mult = headshot ? 1.5 : 1;
@@ -395,14 +474,24 @@ export class ZombieManager {
                   : z.type === 'balloon'
                     ? 2
                     : 1;
-    this.ctx.sunOrbs.spawn(z.root.position.clone(), orbs);
+    if (orbs > 0) this.ctx.sunOrbs.spawn(z.root.position.clone(), orbs);
+    if (z.dying && z.def.split) {
+      for (let i = 0; i < z.def.split.count; i++) {
+        this.pendingSplits.push({
+          parent: z, type: z.def.split.into, wave: z.wave,
+          x: z.root.position.x + (i - (z.def.split.count - 1) / 2) * (z.radius + ZOMBIES[z.def.split.into].radius),
+          z: z.root.position.z,
+          hpMul: z.spawnHpMul, speedMul: z.spawnSpeedMul, source: z.lastHitBy || 0,
+        });
+      }
+    }
   }
 
   airborneCount() {
     let n = 0;
     for (let i = 0; i < this.zombies.length; i++) {
       const z = this.zombies[i];
-      if (z.airborne && !z.dying) n++;
+      if (z.def.airborne && !z.dying) n++;
     }
     return n;
   }

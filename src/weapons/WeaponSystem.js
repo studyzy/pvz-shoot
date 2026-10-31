@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { WEAPONS, WEAPON_SLOTS, SLOT_KEYS, GRENADE, PEA_ID, AIR_HIGH_GROUND } from '../config.js';
+import { WEAPONS, WEAPON_SLOTS, SLOT_KEYS, GRENADE, PEA_ID, AIR_HIGH_GROUND, FOREST } from '../config.js';
 import { toon } from '../world/materials.js';
 import { clamp, segmentSphereT, damp } from '../utils.js';
 
@@ -64,6 +64,28 @@ export class WeaponSystem {
     // 开局就把 5 号槽的坚果画进底栏；否则要等第一次拾取才会 setSlots
     this.ctx.hud.setSlots(this.slots);
     this.equip(this.slots.peaGun[0], true);
+  }
+
+  setMapAppearance(id) {
+    const forest = id === 'forest';
+    this.root.traverse((mesh) => {
+      if (!mesh.isMesh) return;
+      if (forest && !mesh.userData.dayMaterial && mesh.material.isMeshToonMaterial) {
+        mesh.userData.dayMaterial = mesh.material;
+        const normals = mesh.geometry.getAttribute('normal');
+        const colors = new Float32Array(normals.count * 3);
+        for (let i = 0; i < normals.count; i++) {
+          const light = 0.68 + 0.32 * Math.max(0, (normals.getY(i) - normals.getZ(i)) * Math.SQRT1_2);
+          colors.fill(light, i * 3, i * 3 + 3);
+        }
+        mesh.geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+        mesh.userData.nightMaterial = new THREE.MeshBasicMaterial({
+          color: mesh.material.color, vertexColors: true, side: mesh.material.side,
+          transparent: mesh.material.transparent, opacity: mesh.material.opacity,
+        });
+      }
+      if (mesh.userData.dayMaterial) mesh.material = forest ? mesh.userData.nightMaterial : mesh.userData.dayMaterial;
+    });
   }
 
   makeSlots() {
@@ -976,7 +998,8 @@ export class WeaponSystem {
     const kick = this.recoil;
     const layoutX = this.portrait ? model.basePos.x * 0.5 : model.basePos.x;
     const layoutY = this.portrait ? model.basePos.y + 0.02 : model.basePos.y;
-    g.scale.setScalar(model.baseScale * (this.portrait ? 0.78 : 1));
+    const forestTouch = this.ctx.touch && this.ctx.map && this.ctx.map.id === 'forest';
+    g.scale.setScalar(model.baseScale * (this.portrait ? 0.78 : 1) * (forestTouch ? FOREST.touchWeaponScale : 1));
     g.position.set(
       layoutX + bob + this.swayX,
       layoutY + bobY + this.swayY + kick * 0.012,
@@ -1248,7 +1271,8 @@ export class WeaponSystem {
       z.getChest(tmpChest);
       tmpTo.copy(tmpChest).sub(tmpOrigin);
       const dist = tmpTo.length();
-      if (dist > 62) continue;
+      const maxDist = this.ctx.map && this.ctx.map.id === 'forest' ? FOREST.aimDistance : 62;
+      if (dist > maxDist) continue;
       tmpTo.divideScalar(dist);
       const dot = tmpFwd.dot(tmpTo);
       if (dot < 0.5) continue;

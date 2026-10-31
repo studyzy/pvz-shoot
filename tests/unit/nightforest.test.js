@@ -22,7 +22,7 @@ describe('夜之森林 · 基本契约', () => {
   });
 
   it('出生点在南侧营地，且不压在任何碰撞体上', () => {
-    expect(map.spawn.z).toBeGreaterThan(30);
+    expect(map.spawn.z).toBe(30);
     expect(map.spawn.x).toBe(0);
     for (const c of map.colliders) {
       const d = Math.hypot(c.x - map.spawn.x, c.z - map.spawn.z);
@@ -117,7 +117,7 @@ describe('夜之森林 · 渲染预算与夜间氛围', () => {
     });
     const total = plain + instanced + points + sprites;
     // 留足余量给 14 只僵尸（每只 1–6 dc）与武器视图模型
-    expect(total, `森林场景 dc=${total}：普通 mesh ${plain} / instanced ${instanced}`).toBeLessThanOrEqual(40);
+    expect(total, `森林场景 dc=${total}：普通 mesh ${plain} / instanced ${instanced}`).toBeLessThanOrEqual(55);
   });
 
   it('大量重复物件必须走 InstancedMesh，而不是逐棵建 mesh', () => {
@@ -324,5 +324,173 @@ describe('夜之森林 · 手电（TECH-flashlight.md）', () => {
       expect(m.setFlash).toBeUndefined();
       expect(m.flash).toBeUndefined();
     }
+  });
+});
+
+
+describe('月光童话战场 · 完整构图', () => {
+  it('五处具象地标在 root 内，北侧月心高4–6m且南入口可见', () => {
+    expect(Object.keys(map.landmarks).sort()).toEqual(['beastDen', 'camp', 'graveyard', 'moonheart', 'mushrooms']);
+    for (const [name, group] of Object.entries(map.landmarks)) {
+      expect(group.name).toBe(name);
+      expect(group.parent).toBe(map.root);
+      let meshes = 0;
+      group.traverse(o => { if (o.isMesh) meshes++; });
+      expect(meshes, name + '必须有真实几何').toBeGreaterThan(1);
+    }
+    const heart = map.landmarks.moonheart;
+    expect(heart.position.z).toBeLessThan(0);
+    const box = new THREE.Box3().setFromObject(heart);
+    expect(box.max.y).toBeGreaterThanOrEqual(4);
+    expect(box.max.y).toBeLessThanOrEqual(6);
+    expect(map.colliders.filter(c => Math.abs(c.x) < 3 && c.z > heart.position.z && c.z < map.spawn.z)).toEqual([]);
+  });
+
+  it('三树母型的树干/树冠使用同一完整变换，不再各自随机缩放', () => {
+    expect(map.treeArchetypes).toHaveLength(3);
+    for (const tree of map.treeArchetypes) {
+      const [trunk, canopy] = tree.children;
+      expect(trunk.isInstancedMesh && canopy.isInstancedMesh).toBe(true);
+      expect(trunk.count).toBe(canopy.count);
+      expect(Array.from(trunk.instanceMatrix.array)).toEqual(Array.from(canopy.instanceMatrix.array));
+      expect(trunk.geometry).not.toBe(canopy.geometry);
+      canopy.geometry.computeBoundingBox();
+      trunk.geometry.computeBoundingBox();
+      expect(trunk.geometry.boundingBox.max.y).toBeGreaterThan(canopy.geometry.boundingBox.min.y);
+    }
+  });
+
+  it('同一地图生成完全确定，萤火虫收敛到140只成簇微光', () => {
+    const other = new NightForest(new THREE.Scene());
+    expect(map.colliders).toEqual(other.colliders);
+    expect(map.treeSpots).toEqual(other.treeSpots);
+    expect(map.fireflyBase).toEqual(other.fireflyBase);
+    expect(map.fireflies.geometry.getAttribute('position').count).toBe(140);
+    expect(map.fireflies.material.size).toBeLessThanOrEqual(.3);
+    for (const o of map.treeArchetypes) expect(o.children[0].castShadow).toBe(false);
+  });
+
+  it('主径8m/四区连接环5m保持净空，成簇叶草不使用发光锥', () => {
+    for (const c of map.colliders) {
+      if (Math.abs(c.z) < 32) expect(Math.abs(c.x) - c.r).toBeGreaterThanOrEqual(4);
+      if (Math.abs(c.x) < 32) expect(Math.abs(c.z) - c.r).toBeGreaterThanOrEqual(4);
+      const ring = Math.max(Math.abs(c.x), Math.abs(c.z));
+      expect(Math.abs(ring - 24) - c.r, '连接环被挡').toBeGreaterThanOrEqual(2.5);
+    }
+    const grass = map.root.getObjectByName('leaf-grass');
+    expect(grass.isInstancedMesh).toBe(true);
+    expect(grass.geometry.type).not.toBe('ConeGeometry');
+    expect(grass.material.emissiveIntensity).toBeLessThanOrEqual(.15);
+    expect(map.root.getObjectByName('moon-patches').material.alphaMap).toBeTruthy();
+  });
+
+  it('入口补给固定可見，全部点位有合法非保底武器池', async () => {
+    const { WEAPONS } = await import('../../src/config.js');
+    expect(map.initialPickupSpot).toBe(0);
+    expect(map.pickupSpots).toHaveLength(10);
+    expect(map.pickupSpots[0]).toEqual([0,24]);
+    expect(map.aimDistance).toBe(30);
+    for (let i=0;i<10;i++) {
+      expect(map.pickupPools[i].length).toBeGreaterThan(0);
+      for (const id of map.pickupPools[i]) expect(WEAPONS.some(w => w.id===id && !w.starter)).toBe(true);
+    }
+    expect(map.pickupPools[0]).not.toContain('cob');
+    expect(Object.values(map.pickupPools).some(pool => pool.includes('cob'))).toBe(true);
+  });
+
+  it('圆形实体真正阻挡导航；所有补给/族群/开场刷点接入流场', () => {
+    expect(map.nav.blocked.some(v=>v===1)).toBe(true);
+    expect(Object.keys(map.zombieSpawnGroups).sort()).toEqual(['beast','goblin','slime','undead']);
+    map.nav.update(map.spawn.x,map.spawn.z,1);
+    for (const group of Object.values(map.zombieSpawnGroups)) expect(group.length).toBeGreaterThanOrEqual(3);
+    expect(map.openingSpawnPoints.length).toBeGreaterThanOrEqual(5);
+    for (const [x,z] of map.openingSpawnPoints) {
+      expect(z).toBeLessThan(map.spawn.z);
+      expect(Math.hypot(x-map.spawn.x,z-map.spawn.z)).toBeGreaterThanOrEqual(16);
+      expect(Math.hypot(x-map.spawn.x,z-map.spawn.z)).toBeLessThanOrEqual(22);
+    }
+    const points=[...map.pickupSpots,...Object.values(map.zombieSpawnGroups).flat(),...map.openingSpawnPoints];
+    for (const [x,z] of points) {
+      expect(map.flowAt(x,z,{}), '不可达点 '+x+','+z).toBe(true);
+      for (const c of map.colliders) expect(Math.hypot(c.x-x,c.z-z)).toBeGreaterThan(c.r+1);
+    }
+    for (const c of map.colliders) {
+      const i=Math.floor(c.z+45)*map.nav.cols+Math.floor(c.x+45);
+      expect(map.nav.blocked[i]).toBe(1);
+    }
+  });
+});
+
+
+describe('月光森林 · 美术视距与面数', () => {
+  it('地标周围9m没有程序树穿插，四区实体能形成独立剪影', () => {
+    for (const [x,z,outer] of map.treeSpots) {
+      if (outer) continue;
+      for (const name of ['mushrooms','camp','graveyard','beastDen']) {
+        const p=map.landmarks[name].position;
+        expect(Math.hypot(x-p.x,z-p.z),name+'被树挡住').toBeGreaterThanOrEqual(9);
+      }
+    }
+  });
+  it('全森林场景实例面数不超过55k，给14只怪留预算', () => {
+    let triangles=0;
+    map.root.traverse(o=>{
+      if (!o.isMesh) return;
+      const g=o.geometry;
+      triangles+=(g.index ? g.index.count : g.attributes.position.count)/3*(o.isInstancedMesh ? o.count : 1);
+    });
+    expect(triangles).toBeLessThanOrEqual(55000);
+  });
+});
+
+
+describe('森林地标进路与有机边缘', () => {
+  it('四个区域到地标的5m进路不被程序树遮住', () => {
+    for (const [name,px,pz] of [['mushrooms',-18,-18],['camp',18,-18],['graveyard',-18,18],['beastDen',18,18]]) {
+      const p=map.landmarks[name].position;
+      const dx=p.x-px,dz=p.z-pz;
+      for (const [x,z,outer] of map.treeSpots) {
+        if (outer) continue;
+        const t=Math.max(0,Math.min(1,((x-px)*dx+(z-pz)*dz)/(dx*dx+dz*dz)));
+        expect(Math.hypot(x-px-t*dx,z-pz-t*dz),name+'进路被树挡').toBeGreaterThanOrEqual(3);
+      }
+    }
+  });
+  it('围挡只保留物理，不能渲染90m长的规则立墙', () => {
+    map.root.traverse(o=>{
+      if (!o.isMesh) return;
+      o.geometry.computeBoundingBox();
+      o.updateMatrix();
+      const size=o.geometry.boundingBox.clone().applyMatrix4(o.matrix).getSize(new THREE.Vector3());
+      expect(size.y>1 && Math.max(size.x,size.z)>70, '可见方形边墙 '+o.name+' '+o.geometry.type+' '+size.toArray()).toBe(false);
+    });
+  });
+});
+
+
+it('月心门廊除吊晶还有连续微光树纹，远处轮廓不融进普通树林', () => {
+  const runes=map.landmarks.moonheart.getObjectByName('moonheart-runes');
+  expect(runes?.isMesh).toBe(true);
+  expect(runes.material.emissiveIntensity).toBeGreaterThan(0);
+  runes.geometry.computeBoundingBox();
+  expect(runes.geometry.boundingBox.max.y-runes.geometry.boundingBox.min.y).toBeGreaterThan(2);
+});
+
+
+describe('森林视觉审查修订', () => {
+  it('巨菇为2–3m区域地标而不超过主门廊高度', () => {
+    const group=map.landmarks.mushrooms;
+    const box=new THREE.Box3().setFromObject(group);
+    expect(box.max.y).toBeGreaterThanOrEqual(2);
+    expect(box.max.y).toBeLessThanOrEqual(3);
+  });
+  it('仅月心吊晶/细树纹免雾，木结构局部提亮但普通树材质不变', () => {
+    const group=map.landmarks.moonheart;
+    const crystal=group.children.find(o=>o.geometry?.type==='OctahedronGeometry');
+    expect(crystal.material.fog).toBe(false);
+    expect(group.getObjectByName('moonheart-runes').material.fog).toBe(false);
+    expect(group.getObjectByName('moonheart-wood').material.emissive.getHex()).not.toBe(0);
+    expect(map.matTrunk.emissive.getHex()).toBe(0);
+    expect(map.matGlowBlue.fog).toBe(true);
   });
 });

@@ -10,6 +10,11 @@ const ICE = new THREE.Color(0x9fe4ff);
 const WHITE = new THREE.Color(0xffffff);
 const tmpV = new THREE.Vector3();
 const hatQuat = new THREE.Quaternion();
+const shadowGeometry = new THREE.PlaneGeometry(1.5, 1.5);
+const skillGeometry = new THREE.RingGeometry(0.86, 1, 48);
+const lightOrigin = new THREE.Vector3();
+const lightDirection = new THREE.Vector3();
+const lightTarget = new THREE.Vector3();
 
 // 只量由 Head 驱动的顶点，避免举手/弯腰影响落点；在骨骼局部空间缓存，动画与出生位置不影响贴合。
 function headCrownLocal(zombie, headBone) {
@@ -206,6 +211,7 @@ export const ANIM_NAMES = {
   },
   // 有 Duck 的怪：Death / Duck / HitReact / Idle / Jump… / Punch / Run / Walk / Wave / Weapon
   duck: {
+    duck: ['duck'],
     idle: ['idle'],
     walk: ['walk', 'run'],
     attack: ['punch', 'attack', 'headbutt'],
@@ -315,6 +321,15 @@ export class Zombie {
     // 空中单位：root 整体抬到 airHeight，命中球跟着抬（getChest/getHead 里加）。
     this.airHeight = this.def.airborne ? this.def.airHeight || 2.2 : 0;
     this.airborne = this.airHeight > 0;
+    const flight = this.def.landing || this.def.dive;
+    this.skillState = this.def.ambush ? 'ambush' : flight ? 'fly' : 'idle';
+    this.skillTimer = flight ? flight.period - flight.groundTime - flight.telegraph
+      : this.def.duck ? this.def.duck.period - this.def.duck.duration - this.def.duck.recover : 0;
+    this.skillCenter = new THREE.Vector3(x, 0, z);
+    if (flight) {
+      this.airHeight = flight.high;
+      this.airborne = true;
+    }
 
     this.variant = Math.floor(rand(0, 3));
     this.baseTint = new THREE.Color(0xffffff).offsetHSL(0, 0, rand(-0.03, 0.025));
@@ -323,10 +338,10 @@ export class Zombie {
     this.root.position.set(x, this.airHeight, z);
     this.root.scale.setScalar(this.scaleFactor);
 
-    const shadow = new THREE.Mesh(new THREE.PlaneGeometry(1.5, 1.5), shadowMaterial());
+    const shadow = new THREE.Mesh(shadowGeometry, shadowMaterial());
     shadow.rotation.x = -Math.PI / 2;
     // root 在空中时影子要落回地面，而不是跟着飞；气球再缩小一圈，作为「它在天上」的线索
-    shadow.position.y = -this.airHeight + 0.025;
+    shadow.position.y = (0.025 - this.airHeight) / this.scaleFactor;
     if (this.airborne) shadow.scale.setScalar(0.6);
     shadow.renderOrder = 1;
     this.shadow = shadow;
@@ -337,6 +352,7 @@ export class Zombie {
     this.root.add(this.model);
 
     this.buildRig();
+    this.buildSkillCue();
 
     this.root.rotation.y = this.rotY;
     ctx.scene.add(this.root);
@@ -431,10 +447,11 @@ export class Zombie {
       die: pick(names.die),
       hit: pick(names.hit),
     };
+    if (names.duck) want.duck = pick(names.duck);
     for (const k in want) {
       if (!want[k]) continue;
       const a = this.mixer.clipAction(want[k]);
-      if (k === 'attack' || k === 'die' || k === 'hit') {
+      if (k === 'attack' || k === 'die' || k === 'hit' || k === 'duck') {
         a.setLoop(THREE.LoopOnce, 1);
         a.clampWhenFinished = true;
       }
@@ -712,17 +729,17 @@ export class Zombie {
 // 注意：这里返回的是**模型局部单位**，调用方（ProjectileSystem / WeaponSystem）会再乘 scaleFactor。
   // 注意：空中单位的 root.position.y = airHeight，命中球的高度要跟着抬，否则打不到气球。
   getAimPoint(out) {
-    out.set(this.root.position.x, this.root.position.y + this.chestY * this.scaleFactor, this.root.position.z);
+    out.set(this.root.position.x, this.root.position.y + this.chestY * this.scaleFactor * this.model.scale.y, this.root.position.z);
     return out;
   }
 
   getChest(out) {
-    out.set(this.root.position.x, this.root.position.y + this.chestY * this.scaleFactor, this.root.position.z);
+    out.set(this.root.position.x, this.root.position.y + this.chestY * this.scaleFactor * this.model.scale.y, this.root.position.z);
     return out;
   }
 
   getHead(out) {
-    out.set(this.root.position.x, this.root.position.y + this.headY * this.scaleFactor, this.root.position.z);
+    out.set(this.root.position.x, this.root.position.y + this.headY * this.scaleFactor * this.model.scale.y, this.root.position.z);
     return out;
   }
 
@@ -750,6 +767,8 @@ export class Zombie {
     const type = (o && o.type) || 'pea';
     // 协同集火：标记成立**之后**的伤害才吃 1.08，凑成标记的这一下不算
     let amount = dmg * (this.coop ? COOP.mul : 1);
+    const skillState = o && o.skillState !== undefined ? o.skillState : this.skillState;
+    if (this.def.duck && skillState === 'duck') amount *= this.def.duck.reduce;
     if (source === 0) this.coopA = this.age;
     else this.coopB = this.age;
     const coop = this.age - this.coopA <= COOP.window && this.age - this.coopB <= COOP.window;
@@ -819,6 +838,9 @@ export class Zombie {
 
   startDeath() {
     this.dying = true;
+    this.skillState = 'idle';
+    this.skillTimer = 0;
+    if (this.skillCue) this.skillCue.visible = false;
     // 气球被打爆有专属的「啵」，别和普通僵尸的扑倒混在一起
     if (this.airborne && this.ctx.sfx && this.ctx.sfx.balloonPop) this.ctx.sfx.balloonPop();
     this.deathT = 0;
@@ -878,6 +900,182 @@ export class Zombie {
     if (this.markBounty) this.markBounty.visible = !!on;
   }
 
+  buildSkillCue() {
+    if (!this.def.slam && !this.def.duck && !this.def.landing && !this.def.dive && !this.def.ambush) return;
+    this.skillCue = new THREE.Mesh(skillGeometry, new THREE.MeshBasicMaterial({
+      color: 0xffac55, transparent: true, opacity: 0.65, depthWrite: false, side: THREE.DoubleSide,
+    }));
+    this.skillCue.rotation.x = -Math.PI / 2;
+    this.skillCue.renderOrder = 2;
+    this.root.add(this.skillCue);
+    this.updateSkillCue();
+  }
+
+  setSkill(state, timer) {
+    this.skillState = state;
+    this.skillTimer = timer;
+    this.attackAnim = 0;
+  }
+
+  illuminated(targets) {
+    const flash = this.map && this.map.flash;
+    if (!flash || !flash.visible) return false;
+    flash.getWorldPosition(lightOrigin);
+    flash.target.getWorldPosition(lightDirection);
+    lightDirection.sub(lightOrigin).normalize();
+    this.getChest(lightTarget).sub(lightOrigin);
+    const distance = lightTarget.length();
+    if (distance <= this.def.ambush.notice &&
+        lightTarget.normalize().dot(lightDirection) >= Math.cos(flash.angle)) return true;
+    // guest 的相机不在 host 场景中，用已同步的代理视角重建同一手电锥。
+    for (let i = 1; i < targets.length; i++) {
+      const target = targets[i];
+      if (!target || target.dead || target.downed || !target.eye) continue;
+      const cp = Math.cos(target.pitch);
+      lightDirection.set(-Math.sin(target.yaw) * cp, Math.sin(target.pitch), -Math.cos(target.yaw) * cp);
+      this.getChest(lightTarget).sub(target.eye);
+      if (lightTarget.length() <= this.def.ambush.notice &&
+          lightTarget.normalize().dot(lightDirection) >= Math.cos(flash.angle)) return true;
+    }
+    return false;
+  }
+
+  // 只由 host 推进阶段；返回 true 时，本帧不能移动或触发普通近战。
+  updateSkill(dt, targets, target) {
+    const p = this.root.position;
+    const slam = this.def.slam;
+    if (slam) {
+      if (this.skillState === 'idle') {
+        if (!target || Math.hypot(target.pos.x - p.x, target.pos.z - p.z) > slam.range) return false;
+        this.attackTimer -= dt;
+        if (this.attackTimer > 0) return false;
+        this.skillCenter.set(target.pos.x, 0, target.pos.z);
+        this.setSkill('telegraph', slam.telegraph);
+      } else if (this.skillState === 'telegraph') {
+        this.skillTimer = Math.max(0, this.skillTimer - dt);
+        if (this.skillTimer <= 1e-8) {
+          this.setSkill('slam', 0);
+          for (let i = 0; i < targets.length; i++) {
+            const t = targets[i];
+            if (!t || t.dead || t.downed ||
+                Math.hypot(t.pos.x - this.skillCenter.x, t.pos.y, t.pos.z - this.skillCenter.z) > slam.radius) continue;
+            this.targetSeat = i;
+            this.ctx.onAttack(this);
+          }
+        }
+      } else if (this.skillState === 'slam') {
+        this.setSkill('recover', slam.recover);
+      } else if (this.skillState === 'recover') {
+        this.skillTimer = Math.max(0, this.skillTimer - dt);
+        if (this.skillTimer <= 1e-8) {
+          this.setSkill('idle', 0);
+          this.attackTimer = 0;
+        }
+      }
+      return this.skillState !== 'idle';
+    }
+
+    const duck = this.def.duck;
+    if (duck) {
+      this.skillTimer = Math.max(0, this.skillTimer - dt);
+      if (this.skillTimer <= 1e-8) {
+        if (this.skillState === 'idle') this.setSkill('duck', duck.duration);
+        else if (this.skillState === 'duck') this.setSkill('recover', duck.recover);
+        else this.setSkill('idle', duck.period - duck.duration - duck.recover);
+      }
+      return this.skillState !== 'idle';
+    }
+
+    const flight = this.def.landing || this.def.dive;
+    if (flight) {
+      this.skillTimer = Math.max(0, this.skillTimer - dt);
+      if (this.skillState === 'fly') {
+        this.airHeight = Math.min(flight.high, this.airHeight + (flight.high - flight.ground) * dt / flight.telegraph);
+        if (this.skillTimer <= 1e-8) {
+          this.skillCenter.set(p.x, 0, p.z);
+          this.setSkill('telegraph', flight.telegraph);
+        }
+      } else if (this.skillState === 'telegraph') {
+        this.airHeight = flight.ground + (flight.high - flight.ground) * this.skillTimer / flight.telegraph;
+        if (this.skillTimer <= 1e-8) this.setSkill('land', flight.groundTime);
+      } else if (this.skillState === 'land' && this.skillTimer <= 1e-8) {
+        this.setSkill('fly', flight.period - flight.groundTime - flight.telegraph);
+      }
+      this.airborne = this.skillState !== 'land';
+      p.y = this.airHeight;
+      return this.skillState === 'telegraph';
+    }
+
+    const ambush = this.def.ambush;
+    if (ambush) {
+      if (this.skillState === 'ambush') {
+        if ((target && Math.hypot(target.pos.x - p.x, target.pos.z - p.z) <= ambush.range) || this.illuminated(targets)) {
+          this.setSkill('wake', ambush.wake);
+        }
+      } else if (this.skillState === 'wake') {
+        this.skillTimer = Math.max(0, this.skillTimer - dt);
+        if (this.skillTimer <= 1e-8) this.setSkill('idle', 0);
+      }
+      return this.skillState !== 'idle';
+    }
+    return false;
+  }
+
+  updateSkillCue() {
+    if (!this.skillCue) return;
+    const state = this.skillState;
+    const impact = this.remote && this.def.slam && state === 'recover' && this.skillTimer > this.def.slam.recover * 0.75;
+    this.skillCue.visible = !this.dying && !this.dead &&
+      (impact || state === 'telegraph' || state === 'slam' || state === 'duck' || state === 'land' || state === 'ambush' || state === 'wake');
+    const slam = this.def.slam;
+    const center = slam ? this.skillCenter : this.root.position;
+    const dx = center.x - this.root.position.x, dz = center.z - this.root.position.z;
+    const c = Math.cos(this.root.rotation.y), s = Math.sin(this.root.rotation.y);
+    this.skillCue.position.set((dx * c - dz * s) / this.scaleFactor,
+      (0.045 - this.root.position.y) / this.scaleFactor, (dx * s + dz * c) / this.scaleFactor);
+    const radius = slam ? slam.radius : this.radius * 1.5;
+    this.skillCue.scale.setScalar(radius / this.scaleFactor);
+    this.skillCue.material.color.setHex(state === 'ambush' ? 0x976dc4 : state === 'duck' ? 0x65bcdc : 0xffac55);
+    this.skillCue.material.opacity = state === 'ambush' ? 0.35 : 0.55 + Math.sin(this.age * 15) * 0.2;
+  }
+
+  // 姿态只读技能快照，guest 也调用但绝不推进技能时钟。
+  updateSkillVisuals() {
+    this.shadow.position.y = (0.025 - this.root.position.y) / this.scaleFactor;
+    this.shadow.scale.setScalar(this.airborne ? 0.6 : 1);
+    this.updateSkillCue();
+    const state = this.skillState;
+    // 20 Hz快照可能跳过单帧slam；恢复前段仍展示冲击，不改变权威计时或结算。
+    const impact = this.remote && this.def.slam && state === 'recover' && this.skillTimer > this.def.slam.recover * 0.75;
+    const flight = this.def.landing || this.def.dive;
+    let special = false;
+    let lean = 0, squash = 1;
+    if (this.def.duck && (state === 'duck' || state === 'recover')) {
+      this.play(state === 'duck' ? 'duck' : 'idle', 0.12);
+      squash = state === 'duck' ? 0.65 : 1 - 0.35 * this.skillTimer / this.def.duck.recover;
+      special = true;
+    } else if (this.def.slam && state !== 'idle') {
+      this.play(state === 'recover' && !impact ? 'idle' : 'attack', 0.1);
+      lean = state === 'telegraph' ? -0.18 : 0.22;
+      special = true;
+    } else if (this.def.ambush && state !== 'idle') {
+      this.play('idle', 0.1);
+      squash = state === 'ambush' ? 0.6 : 1 - 0.4 * this.skillTimer / this.def.ambush.wake;
+      special = true;
+    } else if (flight) {
+      this.play(state === 'land' && this.attackAnim > 0 ? 'attack' : 'idle', 0.12);
+      lean = state === 'telegraph' ? 0.22 : state === 'land' ? 0 : -0.08;
+      special = true;
+    }
+    this.model.scale.set(1, squash, 1);
+    if (special) {
+      this.model.position.y = 0;
+      this.model.rotation.set(lean, 0, 0);
+      if (this.mixer) this.mixer.timeScale = 1;
+    }
+    return special;
+  }
+
   serialize() {
     let st = 0;
     if (this.dying) st = 3;
@@ -895,6 +1093,12 @@ export class Zombie {
       sl: this.slowTimer > 0 ? 1 : 0,
       bo: this.bounty ? 1 : 0,
       co: this.coop ? 1 : 0,
+      ab: this.airborne ? 1 : 0,
+      sk: this.skillState,
+      kt: +this.skillTimer.toFixed(2),
+      kx: +this.skillCenter.x.toFixed(2),
+      kz: +this.skillCenter.z.toFixed(2),
+      ys: +this.model.scale.y.toFixed(2),
     };
   }
 
@@ -906,11 +1110,18 @@ export class Zombie {
     this.rotY = s.yaw;
     this.root.rotation.y = s.yaw;
     this.hp = s.hp;
+    this.airHeight = s.y;
+    if (s.ab !== undefined) this.airborne = !!s.ab;
+    if (s.sk !== undefined) this.skillState = s.sk;
+    if (s.kt !== undefined) this.skillTimer = s.kt;
+    if (s.kx !== undefined && s.kz !== undefined) this.skillCenter.set(s.kx, 0, s.kz);
     this.slowTimer = s.sl ? 0.2 : 0;
     if (!!s.bo !== this.bounty) this.setBounty(!!s.bo);
     if (!!s.co !== this.coop) this.setCoopMark(!!s.co);
     this.coop = !!s.co;
     if (s.st === 3) {
+      if (this.skillCue) this.skillCue.visible = false;
+      this.shadow.visible = false;
       if (!this.dying) {
         this.dying = true;
         this.deathT = 0;
@@ -919,13 +1130,15 @@ export class Zombie {
       return;
     }
     if (this.dying) return;
-    if (s.st === 2) {
+    this.attackAnim = s.st === 2 ? 0.4 : 0;
+    const special = this.updateSkillVisuals();
+    if (!special && s.st === 2) {
       this.attackAnim = 0.4;
       this.play('attack', 0.1);
-    } else if (s.st === 1) {
+    } else if (!special && s.st === 1) {
       this.attackAnim = 0;
       this.play('walk', 0.18);
-    } else {
+    } else if (!special) {
       this.attackAnim = 0;
       this.play('idle', 0.18);
     }
@@ -955,6 +1168,7 @@ export class Zombie {
         this.applyTint(0.55);
         if (this.slowTimer <= 0) this.applyTint(0);
       }
+      this.updateSkillVisuals();
       if (this.mixer) this.mixer.update(dt);
       return;
     }
@@ -1076,7 +1290,16 @@ export class Zombie {
         }
       }
     }
+    if (this.updateSkill(dt, targets, target)) {
+      this.animSpeed = 0;
+      this.updateSkillVisuals();
+      if (this.mixer) this.mixer.update(dt);
+      this.pushX = 0;
+      this.pushZ = 0;
+      return;
+    }
     if (!target) {
+      this.updateSkillVisuals();
       this.attackAnim = 0;
       this.play('idle', 0.18);
       if (this.mixer) this.mixer.update(dt);
@@ -1090,7 +1313,8 @@ export class Zombie {
     // 空中单位（气球）从头顶俯冲：玩家在脚下（垂直差 ≥ 1.6 米）才咬得到。
     // 跳起来（+1.04 米）或站上高台会把垂直差压到 1.6 米以内，这一口就落空 —— 这是气球唯一的弱点窗口。
     const dy = Math.abs(target.pos.y - this.root.position.y);
-    const inReach = !this.airborne || dy >= 1.6;
+    const flight = this.def.landing || this.def.dive;
+    const inReach = flight ? Math.hypot(dist, dy) <= attackRange + 0.25 : !this.airborne || dy >= 1.6;
 
     const targetRot = Math.atan2(dx, dz);
     this.rotY = turnToward(this.rotY, targetRot, dt * 6);
@@ -1110,7 +1334,7 @@ export class Zombie {
       let sx = dx * inv;
       let sz = dz * inv;
       this.flowActive = false;
-      if (this.targetSeat === 0 && this.map && this.map.flowAt && dist > attackRange + 1.2) {
+      if (!this.def.phase && !this.airborne && this.targetSeat === 0 && this.map && this.map.flowAt && dist > attackRange + 1.2) {
         if (this.map.flowAt(this.root.position.x, this.root.position.z, this.flow)) {
           sx = this.flow.x;
           sz = this.flow.z;
@@ -1142,7 +1366,7 @@ export class Zombie {
         this.animSpeed = spd;
       }
       this.attackTimer = Math.max(this.attackTimer, 0.5);
-    } else if (dist <= attackRange + 0.25 && inReach) {
+    } else if (!this.def.slam && dist <= attackRange + 0.25 && inReach) {
       this.attackTimer -= dt;
       if (this.attackTimer <= 0) {
         this.attackTimer = 1.28;
@@ -1153,7 +1377,7 @@ export class Zombie {
 
     if (this.stagger > 0) this.stagger -= dt;
 
-    if (dist > attackRange && !this.flowActive) {
+    if (!this.def.phase && dist > attackRange && !this.flowActive) {
       const moved = Math.hypot(this.root.position.x - prevX, this.root.position.z - prevZ);
       if (moved < this.speed * dt * 0.35) this.stuckT += dt;
       else this.stuckT = Math.max(0, this.stuckT - dt * 1.5);
@@ -1178,7 +1402,7 @@ export class Zombie {
       this.detourT = 0;
     }
 
-    for (let i = 0; !this.airborne && i < colliders.length; i++) {
+    for (let i = 0; !this.def.phase && !this.airborne && i < colliders.length; i++) {
       const c = colliders[i];
       const px = this.root.position.x - c.x;
       const pz = this.root.position.z - c.z;
@@ -1212,8 +1436,11 @@ export class Zombie {
     const moveK = moving ? 1 : 0.3;
 
     this.animSpeed = moving ? this.speed * speedMul : 0;
-    if (this.attackAnim > 0) this.play('attack', 0.1);
-    else this.play(moving ? 'walk' : 'idle', 0.18);
+    const special = this.updateSkillVisuals();
+    if (!special) {
+      if (this.attackAnim > 0) this.play('attack', 0.1);
+      else this.play(moving ? 'walk' : 'idle', 0.18);
+    }
 
     if (this.mixer) {
       // 走快时动画也放快，脚步才不会打滑
@@ -1221,9 +1448,11 @@ export class Zombie {
       this.mixer.update(dt);
     }
 
-    this.model.position.y = moving ? Math.abs(s) * 0.03 : 0;
-    this.model.rotation.x = 0.03 + atk * 0.16;
-    this.model.rotation.z = s * 0.03 * moveK;
+    if (!special) {
+      this.model.position.y = moving ? Math.abs(s) * 0.03 : 0;
+      this.model.rotation.x = 0.03 + atk * 0.16;
+      this.model.rotation.z = s * 0.03 * moveK;
+    }
 
     this.pushX = 0;
     this.pushZ = 0;
@@ -1236,6 +1465,9 @@ export class Zombie {
       this.mixer.uncacheRoot(this.body);
     }
     for (let i = 0; i < this.mats.length; i++) this.mats[i].dispose();
+    if (this.skillCue) this.skillCue.material.dispose();
+    if (this.markBounty) this.markBounty.material.dispose();
+    if (this.markCoop) this.markCoop.material.dispose();
   }
 }
 

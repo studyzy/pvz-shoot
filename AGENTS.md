@@ -295,6 +295,17 @@ npm run duo       # build 后直接起双人服务器
 
 ---
 
+### 5.9.1 月光童话森林（v4）
+
+- 森林保留90×90边界、spawn.z=30、三树母型共用完整变换、140成簇萤火虫；五个地标挂root。主路与环路的净空、所有拾取/出生点都受确定性生成与契约测试保护。
+- FlowField.blockCircles(colliders)阻挡实体圆障碍；BFS与方向生成均禁止对角穿角。树、碰撞和弹道walls必须同位，不能只改外观。
+- map.initialPickupSpot / pickupPools / zombieSpawnGroups / openingSpawnPoints 是森林可选接口；其他地图不提供也照常工作。首波3哥布林2史莱姆，总量waveTotal不变；森林参数集中FOREST。
+- Zombie的slam/duck/dive/landing/ambush/phase由config驱动；技能伤害只有host执行。空中状态ab与技能sk/kt/kx/kz、姿态ys都进快照；guest不自推技能时钟，历史命中按有效seq的状态和姿态裁决。
+- 粉史莱姆死亡进ZombieManager.pendingSplits，尸体回收后才生成2子体，含尸体实体数不超过当前波上限/14；重开清队，小体不掉阳光，不再分裂。
+- 森林普通休整10秒、Boss后18秒，HUD小按钮或Enter可提前开波；guest只发送nextwave请求，host在真实休整阶段确认。其他地图休整/气球对空规则不变。
+- 森林手持武器使用固定顶点明暗与Basic材质隔离手电洗白，切图恢复原Toon材质；触屏仅森林缩放.88，不改弹道。阳光只换外观不改经济。Sfx复用采样做族群预警，不另拉外部资源。
+- 改版回归：tests/integration/forest-rework.test.js、forest-creatures/forest-director/nightforest/flowfield；真实WebGL由E2E的forest-rework覆盖。不得降低覆盖率门槛或把软件渲染/模拟触屏当成真机性能。
+
 ### 5.10 僵尸图鉴页
 
 - **入口**：`gallery.html`（Vite 多页），主菜单右上角「僵尸图鉴」链接；`vite.config.js` 的 `rollupOptions.input` 必须同时包含 `index.html` 和 `gallery.html`，否则 `npm run build` 不会产出图鉴页。
@@ -461,7 +472,7 @@ CI（`.github/workflows/ci.yml`）在每次 push 到 main 和每个 PR 上跑三
 
 ## 8. 已知限制（是设计取舍，不要当 bug 修）
 
-- 只有后院 / 雪地 / 沙城三张无尽地图，没有关卡章节/剧情。
+- 后院 / 雪地 / 沙城 / 夜之森林四张无尽地图，没有关卡章节/剧情。
 - 没有通用地形/斜坡系统：地图只有轴对齐的平顶平台（雪地的田字四柱/矮墙/砖台、沙城的 A/B 点观景台），靠 `platforms` 采样支撑；没有斜坡、楼梯、可破坏物。
 - **僵尸不会跳**：能站上去的高台必须给僵尸留活路——沙城观景台只有 0.4 米且不挂 `colliders`；`FlowField.blockPlatforms` 的阈值统一用 `config.js` 的 `PLAYER_PERCH = 0.6`（= 跳跃能上的最高台阶 0.42 + 余量），低于它的平台不封流场，玩家跳上去也还是能被打到。**改这个阈值前先确认没有新的可站平台低于它。**
 - 拾取植物是弹匣制（打空用阳光续弹），但**没有手动换弹键**；豌豆常驻 1 号槽、坚果常驻 5 号槽，其它植物靠捡、打完用阳光续。

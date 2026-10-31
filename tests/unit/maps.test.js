@@ -1142,3 +1142,19 @@ describe('雪 / 沙粒子循环', () => {
     }
   });
 });
+
+
+describe('森林软月斑贴图', () => {
+  it('缓存512灰度遮罩，边缘归零且轮廓不具有圆盘对称性', () => {
+    const tex = materials.moonPatchTexture();
+    expect(materials.moonPatchTexture()).toBe(tex);
+    expect(tex.image.width).toBe(512);
+    expect(tex.colorSpace).toBe(THREE.NoColorSpace);
+    const ctx=tex.image.getContext('2d');
+    const shade=(x,y)=>ctx.getImageData(x,y,1,1).data[1];
+    expect(shade(0,0)).toBe(0);
+    expect(shade(511,511)).toBe(0);
+    expect(shade(256,256)).toBeGreaterThan(80);
+    expect(Math.abs(shade(80,256)-shade(256,80))).toBeGreaterThan(15);
+  });
+});
