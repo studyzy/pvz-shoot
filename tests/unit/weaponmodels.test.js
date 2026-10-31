@@ -96,6 +96,60 @@ describe('手持植物视觉替换', () => {
     expect(model.group.visible).toBe(visible);
   });
 
+  it('森林中迟到的GLB也保持受光隔离、原顶点色和共享模板', async () => {
+    const system = new WeaponSystem(ctx());
+    system.setMapAppearance('forest');
+    const model = system.models[0];
+    const oldMeshes = [];model.visual.traverse(n=>{if(n.isMesh)oldMeshes.push(n);});
+    const disposed = oldMeshes.filter(n=>n.userData.dayMaterial).map(n=>({
+      day:vi.spyOn(n.userData.dayMaterial,'dispose'),
+      night:vi.spyOn(n.userData.nightMaterial,'dispose'),
+    }));
+    const resource = template('pea');
+    const source = resource.children[0];
+    source.geometry.setAttribute('color', new THREE.Float32BufferAttribute(
+      Array.from({length:source.geometry.attributes.position.count},()=>[.2,.5,.1]).flat(),3));
+    source.material.vertexColors=true;
+    const before=source.geometry.attributes.color.array.slice();
+    requests[0].done({scene:resource});await model.ready;
+    const mesh=model.visual.children[0].children[0];
+    expect(mesh.material.isMeshBasicMaterial).toBe(true);
+    expect(mesh.geometry).not.toBe(source.geometry);
+    expect(source.material.isMeshStandardMaterial).toBe(true);
+    expect(source.geometry.attributes.color.array).toEqual(before);
+    const paint=mesh.geometry.attributes.color;
+    expect(paint.getX(0)/paint.getY(0)).toBeCloseTo(.4);
+    expect(paint.getZ(0)/paint.getY(0)).toBeCloseTo(.2);
+    expect(disposed.length).toBeGreaterThan(0);
+    disposed.forEach(d=>{expect(d.day).toHaveBeenCalled();expect(d.night).toHaveBeenCalled();});
+    const cachedGeometry=mesh.geometry;const cachedMaterial=mesh.material;
+    system.setMapAppearance('snow');
+    expect(mesh.geometry).toBe(source.geometry);expect(mesh.material).toBe(source.material);
+    system.setMapAppearance('forest');
+    expect(mesh.geometry).toBe(cachedGeometry);expect(mesh.material).toBe(cachedMaterial);
+  });
+
+  it('加载后切图不把夜间明暗烘进地面拾取的共享几何', async () => {
+    const system = new WeaponSystem(ctx());const resource=template('pea');
+    requests[0].done({scene:resource});await system.models[0].ready;
+    const mesh=system.models[0].visual.children[0].children[0];
+    system.setMapAppearance('forest');expect(mesh.material.isMeshBasicMaterial).toBe(true);
+    expect(resource.children[0].geometry.getAttribute('color')).toBeUndefined();
+    expect(resource.children[0].material.isMeshStandardMaterial).toBe(true);
+    system.setMapAppearance('dust');expect(mesh.material.isMeshStandardMaterial).toBe(true);
+  });
+
+  it('加载前切回白天也释放占位模型的夜间资源', async () => {
+    const system = new WeaponSystem(ctx());system.setMapAppearance('forest');
+    const mesh=system.models[0].visual.children.find(n=>n.userData.nightMaterial);
+    const material=vi.spyOn(mesh.userData.nightMaterial,'dispose');
+    const geometry=vi.spyOn(mesh.userData.nightGeometry,'dispose');
+    system.setMapAppearance('snow');
+    requests[0].done({scene:template('pea')});await system.models[0].ready;
+    expect(material).toHaveBeenCalled();expect(geometry).toHaveBeenCalled();
+    expect(system.models[0].visual.children[0].children[0].material.isMeshStandardMaterial).toBe(true);
+  });
+
   it('下载失败后仍保留可见的原植物', async () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     const system = new WeaponSystem(ctx());

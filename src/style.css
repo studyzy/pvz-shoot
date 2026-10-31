@@ -1261,3 +1261,23 @@ body.desktop #orientationBtn { display: none; }
     --joy-size: 110px;
   }
 }
+
+.next-wave {
+  position: absolute;
+  left: 50%;
+  top: calc(76px + var(--safe-t));
+  transform: translateX(-50%);
+  min-height: 44px;
+  padding: 10px 18px;
+  border: 1px solid #80d9dd;
+  border-radius: 18px;
+  color: #e6ffff;
+  background: #11243bee;
+  font: inherit;
+  font-weight: 700;
+  pointer-events: auto;
+  touch-action: manipulation;
+}
+body.touch .next-wave { top: calc(56px + var(--safe-t)); }
+
+#nextWaveBtn:not(.hidden) ~ .tutorial { visibility: hidden; }

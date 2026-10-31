@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { WEAPONS, PEA_ID } from '../config.js';
 import { toon, glowTexture } from '../world/materials.js';
-import { rand, TAU } from '../utils.js';
+import { rand, randInt, TAU } from '../utils.js';
 import { loadWeaponModel } from '../weapons/WeaponModels.js';
 
 const MAX_SPOTS = 10;
@@ -319,7 +319,7 @@ export class WeaponPickups {
   pickAirSpot() {
     const open = this.items.filter((it) => it.spot && !it.used);
     if (!open.length) return null;
-    return open[rand(0, open.length - 1) | 0].spot;
+    return open[randInt(0, open.length - 1)].spot;
   }
 
   byId(id) {
@@ -424,16 +424,19 @@ export class WeaponPickups {
 
   // 随机挑一个空点位出场。一关内每个点位只出一次（used 标记），被捡走后不再补刷；
   // 点位用尽就整关不再出新道具。返回是否真的出成功。
-  spawnRandom() {
+  spawnRandom(spotIndex) {
     const open = [];
     for (let i = 0; i < this.items.length; i++) {
       const item = this.items[i];
       if (item.spot && !item.active && !item.used) open.push(item);
     }
     if (!open.length || this.lootIndices.length === 0) return false;
-    const item = open[rand(0, open.length - 1) | 0];
+    const item = spotIndex === undefined ? open[randInt(0, open.length - 1)] : this.items[spotIndex];
+    if (!open.includes(item)) return false;
+    const pool = this.map && this.map.pickupPools && this.map.pickupPools[this.items.indexOf(item)];
+    const indices = pool ? this.lootIndices.filter((i) => pool.includes(WEAPONS[i].id)) : this.lootIndices;
     item.used = true;
-    item.index = this.lootIndices[rand(0, this.lootIndices.length - 1) | 0];
+    item.index = indices[randInt(0, indices.length - 1)];
     item.active = true;
     item.id = this.nextId++;
     this.paint(item, item.index);
@@ -467,12 +470,16 @@ export class WeaponPickups {
       this.finished = true;
       return;
     }
-    this.spawnRandom();
+    this.spawnRandom(this.map && this.map.initialPickupSpot);
   }
 
   reset() {
     if (!this.map) return;
     for (let i = 0; i < this.items.length; i++) {
+      this.items[i].spot = this.map.pickupSpots[i] || null;
+      this.items[i].air = false;
+      this.items[i].pickCooldown = 0;
+      this.items[i].claimT = 0;
       this.items[i].active = false;
       this.items[i].used = false;
       this.items[i].dropped = false;

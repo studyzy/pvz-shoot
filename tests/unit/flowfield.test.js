@@ -315,15 +315,15 @@ describe('FlowField / 有障碍时的寻路', () => {
     const d = flow(ff, -2, -2);
     expect(d.ok).toBe(true);
     expect(d.z).toBeGreaterThan(0);
-    expect(ff.dist[idx(ff, -2, -1)]).toBe(4);
-    // 绕墙的真面目：(-2,-2) 到玩家只有 4 步的切比雪夫距离，但逼着绕墙后要 5 步
-    expect(ff.dist[idx(ff, -2, -2)]).toBe(5);
-    // 墙左侧贴墙格 (-1,0) 往通道方向走：(+x,+z) 对角
+    expect(ff.dist[idx(ff, -2, -1)]).toBe(5);
+    // 禁止贴墙切角：4 步直线距离绕墙需要 6 步
+    expect(ff.dist[idx(ff, -2, -2)]).toBe(6);
+    // 墙左侧贴墙格先正交走向通道，不能沿对角擦进墙角
     const beside = flow(ff, -1, 0);
     expect(beside.ok).toBe(true);
-    expect(beside.x).toBeCloseTo(Math.SQRT1_2, 6);
-    expect(beside.z).toBeCloseTo(Math.SQRT1_2, 6);
-    expect(ff.dist[idx(ff, -1, -2)]).toBe(5);
+    expect(beside.x).toBe(0);
+    expect(beside.z).toBe(1);
+    expect(ff.dist[idx(ff, -1, -2)]).toBe(6);
   });
 
   it('整列墙把地图劈成两半：另一侧完全不可达（-1）', () => {
@@ -363,12 +363,12 @@ describe('FlowField / 玩家站在 blocked 格上', () => {
     // 4 个正交邻居距离平方都是 1；扫描顺序 z 外层、x 内层、严格 < 比较，
     // 第一个命中的是 (x=2,z=1) => 世界 (0.5,-0.5)（blocked 格的 -z 侧邻居）作为 BFS 起点
     expect(ff.dist[idx(ff, 0.5, -0.5)]).toBe(0);
-    // 其余三个正交邻居距离为 1
-    expect(ff.dist[idx(ff, 1.5, 0.5)]).toBe(1);
-    expect(ff.dist[idx(ff, -0.5, 0.5)]).toBe(1);
-    expect(ff.dist[idx(ff, 0.5, 1.5)]).toBe(2);
-    // 对角格距离为 2（绕过障碍）
-    expect(ff.dist[idx(ff, 1.5, 1.5)]).toBe(2);
+    // 起点左右不能贴 blocked 格切角，需各走 2 步
+    expect(ff.dist[idx(ff, 1.5, 0.5)]).toBe(2);
+    expect(ff.dist[idx(ff, -0.5, 0.5)]).toBe(2);
+    expect(ff.dist[idx(ff, 0.5, 1.5)]).toBe(4);
+    // 绕 blocked 格转角需正交经过
+    expect(ff.dist[idx(ff, 1.5, 1.5)]).toBe(3);
     // 被堵格自身永远不会被访问
     expect(ff.dist[idx(ff, 0.5, 0.5)]).toBe(-1);
     // 其余格子仍能算出方向（场是联通的）
@@ -532,5 +532,44 @@ describe('FlowField / 与 IceWorld 规模一致（23 米半宽的整图）', () 
     for (const [x, z] of [[20, 20], [-20, 20], [20, -20], [-20, -20], [0, 20], [20, 0]]) {
       expect(flow(ff, x, z).ok, `(${x},${z})`).toBe(true);
     }
+  });
+});
+
+describe('FlowField / 圆形实体与禁止切角', () => {
+  it('圆形padding只阻挡圆内格心，支持出界/自定义padding/累加平台', () => {
+    const ff = new FlowField(5,5,1);
+    ff.blockCircles([{x:.5,z:.5,r:1}]);
+    expect(ff.blocked[idx(ff,.5,.5)]).toBe(1);
+    expect(ff.blocked[idx(ff,1.5,1.5)]).toBe(1);
+    expect(ff.blocked[idx(ff,2.5,.5)]).toBe(0);
+    const tight = new FlowField(5,5,1);
+    tight.blockCircles([{x:.5,z:.5,r:.2}],0);
+    expect(tight.blocked.reduce((a,b)=>a+b,0)).toBe(1);
+    tight.blockCircles([{x:-5,z:-5,r:.5},{x:99,z:99,r:1}]);
+    expect(tight.blocked[0]).toBe(1);
+    expect(tight.blocked.length).toBe(100);
+    tight.blockPlatforms([{x:3,z:3,w:1,d:1,h:2}]);
+    expect(tight.blocked[idx(tight,.5,.5)]).toBe(1);
+    expect(tight.blocked[idx(tight,3,3)]).toBe(1);
+  });
+
+  it('BFS不能从两个实体夹角漏到隔绝格', () => {
+    const ff=make();
+    ff.blocked[idx(ff,-.5,-1.5)]=1;
+    ff.blocked[idx(ff,-1.5,-.5)]=1;
+    ff.update(.5,.5,1);
+    expect(ff.dist[idx(ff,-1.5,-1.5)]).toBe(-1);
+    expect(flow(ff,-1.5,-1.5).ok).toBe(false);
+  });
+
+  it('方向不进入任何邻接障碍的对角线，保留开放格的对角捷径', () => {
+    const ff=make();
+    ff.blocked[idx(ff,-.5,-1.5)]=1;
+    ff.update(-1.5,-1.5,1);
+    const d=flow(ff,-.5,-.5);
+    expect(d).toEqual({ok:true,x:-1,z:0});
+    const open=make();
+    open.update(-1.5,-1.5,1);
+    expect(flow(open,-.5,-.5).x).toBeCloseTo(-Math.SQRT1_2);
   });
 });

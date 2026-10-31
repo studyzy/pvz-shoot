@@ -174,6 +174,7 @@ export class Game {
       if (!locked && this.state === 'playing' && !this.controls.isTouch && !this.duo) this.pause();
     };
 
+    this.hud.onNextWave = () => this.requestNextWave();
     this.hud.onStart = () => this.start();
     this.hud.onDuo = () => this.toggleDuo();
     this.hud.onDuoShare = () => this.copyDuoLink();
@@ -205,6 +206,9 @@ export class Game {
   }
 
   bindButtons() {
+    window.addEventListener('keydown', (e) => {
+      if (e.code === 'Enter' && !e.repeat && this.zombies.state === 'intermission') this.requestNextWave();
+    });
     const fireBtn = this.hud.fireBtn;
     const press = (e) => {
       e.preventDefault();
@@ -329,6 +333,9 @@ export class Game {
     this.hud.setMapSelection(map.id);
     this.hud.setStartLabel(map.startLabel);
     if (this.pickups) this.pickups.setMap(map);
+    this.sunOrbs.setMap(map.id);
+    this.weapons.setMapAppearance(map.id);
+    this.forestAmbienceT = 0;
   }
 
   selectMap(id) {
@@ -672,6 +679,10 @@ export class Game {
   }
 
   applyWorldState(d) {
+    if (d.ws === 'intermission' || d.ws === 'spawning') {
+      this.zombies.state = d.ws;
+      this.zombies.intermission = Math.max(0, Number(d.wt) || 0);
+    }
     if (typeof d.wave === 'number' && d.wave !== this.zombies.wave) {
       this.zombies.wave = d.wave;
       this.hud.setWave(d.wave);
@@ -680,6 +691,7 @@ export class Game {
     if (Array.isArray(d.z)) this.zombies.netSnapshot(d.z);
     if (typeof d.bossHp === 'number') {
       if (d.bossHp > 0) {
+        if (this.zombies.boss) this.hud.setBossName(this.zombies.boss.def.title);
         this.hud.setBossVisible(true);
         this.hud.setBossHp(d.bossHp);
       } else {
@@ -773,6 +785,8 @@ export class Game {
     if (!z || !z.alive || z.dying) return;
 
     const snap = this.duoSession && this.duoSession.getZombieAt(d.zid, d.seq);
+    if (!Number.isInteger(d.seq) || d.seq <= 0 || !snap) return;
+    const airborne = snap && typeof snap.ab === 'number' ? !!snap.ab : z.airborne;
     const sx = snap ? snap.x : z.root.position.x;
     const sy = snap ? snap.y : z.root.position.y;
     const sz = snap ? snap.z : z.root.position.z;
@@ -794,8 +808,9 @@ export class Game {
 
     const end = origin.clone().addScaledVector(dir, 80);
     const rs = z.hitRadiusScale || 1;
-    const tc = segmentSphereT(origin, end, new THREE.Vector3(sx, sy + z.chestY * z.scaleFactor, sz), 0.46 * z.scaleFactor * rs + 0.14);
-    const th = segmentSphereT(origin, end, new THREE.Vector3(sx, sy + z.headY * z.scaleFactor, sz), 0.36 * z.scaleFactor * rs);
+    const bodyY = snap ? snap.ys ?? 1 : z.model?.scale?.y ?? 1;
+    const tc = segmentSphereT(origin, end, new THREE.Vector3(sx, sy + z.chestY * z.scaleFactor * bodyY, sz), 0.46 * z.scaleFactor * rs + 0.14);
+    const th = segmentSphereT(origin, end, new THREE.Vector3(sx, sy + z.headY * z.scaleFactor * bodyY, sz), 0.36 * z.scaleFactor * rs);
     let t = -1;
     let head = false;
     if (th >= 0 && (tc < 0 || th <= tc)) {
@@ -812,7 +827,7 @@ export class Game {
     if (sweepWalls(this.map.walls || [], bounds.x, bounds.z, origin, hitPoint, 0.05, n) >= 0) return;
 
     const aerial = typeof def.aerial === 'number' ? def.aerial : def.aerial ? 1 : 0;
-    if (z.airborne && !(aerial > 0)) {
+    if (airborne && !(aerial > 0)) {
       const high = this.netGuest.pos.y >= 0.9 && Math.hypot(sx - this.netGuest.pos.x, sz - this.netGuest.pos.z) <= 3.2;
       if (!high) return;
     }
@@ -829,12 +844,13 @@ export class Game {
     }
     this.guestHit.set(def.id, rec);
 
-    const aerialMul = z.airborne && aerial > 0 ? aerial : 1;
+    const aerialMul = airborne && aerial > 0 ? aerial : 1;
     const damage = def.damage * (head ? TUNING.headshotMul : 1) * aerialMul;
     const killed = z.hit(damage, def.slow, head, {
       type: def.pierce ? 'pierce' : 'pea',
       burn: def.burn,
       armorBreak: def.armorBreak,
+      skillState: snap ? snap.sk : undefined,
       source: 1,
     });
     if (killed) this.zombies.handleKill(z, head);
@@ -1032,6 +1048,8 @@ export class Game {
     const boss = this.zombies ? this.zombies.boss : null;
     return {
       wave: this.zombies ? this.zombies.wave : 0,
+      ws: this.zombies ? this.zombies.state : 'idle',
+      wt: this.zombies ? this.zombies.intermission : 0,
       sun: Math.round(this.sun || 0),
       scores: this.duoStats ? this.duoStats.slice() : [0, 0],
       kills: this.duoKills ? this.duoKills.slice() : [0, 0],
@@ -1051,6 +1069,7 @@ export class Game {
     }
     this.pendingResync = null;
     this.zombies.reset();
+    this.applyWorldState(d);
     if (typeof d.wave === 'number') {
       this.zombies.wave = d.wave;
       this.stats.wave = d.wave;
@@ -1324,6 +1343,19 @@ export class Game {
     this.hud.showBanner((seat === this.seat ? '你' : '队友') + '抢到了空投 +' + AIRDROP.score, 2);
   }
 
+  requestNextWave() {
+    if (this.state !== 'playing' || this.mapId !== 'forest') return;
+    if (this.duo && this.seat === 1) {
+      this.duoSession.sendNextWave();
+      return;
+    }
+    this.zombies.skipIntermission();
+  }
+
+  applyNextWaveRequest() {
+    if (this.duo && this.seat === 0) this.requestNextWave();
+  }
+
   onWaveStart(n) {
     this.stats.wave = n;
     this.hud.setWave(n);
@@ -1353,6 +1385,7 @@ export class Game {
   }
 
   onBossSpawn(z) {
+    this.hud.setBossName(z && z.def && z.def.title ? z.def.title : 'BOSS');
     this.hud.setBossVisible(true);
     this.hud.setBossHp(1);
     this.hud.showBanner((z && z.def && z.def.title ? z.def.title : 'BOSS') + '出现了!', 2.4);
@@ -1412,6 +1445,14 @@ export class Game {
     if (this.duoSession) this.duoSession.update(dt);
     this.particles.update(dt);
 
+    this.hud.setIntermission(this.mapId === 'forest' && this.zombies.state === 'intermission' ? this.zombies.intermission : 0);
+    if (this.mapId === 'forest') {
+      this.forestAmbienceT -= dt;
+      if (this.forestAmbienceT <= 0) {
+        this.forestAmbienceT = 3;
+        this.sfx.forestAmbience();
+      }
+    }
     this.hud.setHealth(this.player.hp, this.player.maxHp);
     this.hud.setShield(this.wallNuts.hp, this.wallNuts.maxHp, this.wallNuts.active);
     if (this.zombies.boss) {

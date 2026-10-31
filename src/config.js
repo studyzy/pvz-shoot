@@ -20,6 +20,14 @@ export const TUNING = {
   sunOrbTtl: 18,
 };
 
+export const FOREST = {
+  aimDistance: 30,
+  intermission: 10,
+  bossIntermission: 18,
+  touchWeaponScale: 0.88,
+  nearSound: 18,
+};
+
 // 天降阳光：小福利，主收入仍然靠击杀掉落
 export const SUN_SKY = {
   interval: 30,
@@ -459,12 +467,14 @@ export const ZOMBIES = {
 
   // ── 哥布林族：脆、快、成群 ──
   goblin: {
+    family: 'goblin',
     hp: 55, speed: 2.6, damage: 8, score: 90,
     scale: 1, model: 'goblin', acc: null, radius: 0.4,
     sun: 1,
   },
   // 小恶魔：哥布林的强化版，W6 起补位
   demon3: {
+    family: 'goblin',
     hp: 80, speed: 2.2, damage: 12, score: 140,
     scale: 1, model: 'demon3', acc: null, radius: 0.44,
     sun: 1,
@@ -472,12 +482,14 @@ export const ZOMBIES = {
 
   // ── 史莱姆族：弹跳、分裂、厚 ──
   slime: {
+    family: 'slime',
     hp: 70, speed: 1.5, damage: 10, score: 110,
     scale: 1, model: 'slime', acc: null, radius: 0.48,
     sun: 1,
   },
   // 粉史莱姆：死亡分裂成 2 只小史莱姆
   'pink-slime': {
+    family: 'slime',
     hp: 45, speed: 1.8, damage: 7, score: 90,
     scale: 1, model: 'pink-slime', acc: null, radius: 0.42,
     sun: 1,
@@ -485,12 +497,14 @@ export const ZOMBIES = {
   },
   // 分裂出的小史莱姆：不再分裂（模型复用 slime，缩小）
   slimelet: {
+    family: 'slime',
     hp: 22, speed: 2.3, damage: 5, score: 30,
     scale: 0.55, model: 'slime', acc: null, radius: 0.26,
-    sun: 1,
+    sun: 0,
   },
   // 绿块：厚、慢、弹开豌豆（轻护甲）
   'green-blob': {
+    family: 'slime',
     hp: 120, speed: 1.2, damage: 13, score: 180,
     scale: 1, model: 'green-blob', acc: null, radius: 0.56,
     armor: { material: 'plastic', hp: 60 },
@@ -501,42 +515,53 @@ export const ZOMBIES = {
   // 注意：type 故意叫 bones 而不是 skeleton —— skeleton 那个 type 有 9 dc 的旧限流
   // （SKELETON_MAX_ALIVE / spawnOne 里的换队逻辑），新骷髅只要 3 dc，不该吃这条。
   bones: {
+    family: 'undead',
     hp: 90, speed: 1.9, damage: 14, score: 160,
     scale: 1, model: 'bones', acc: null, radius: 0.46,
     sun: 1,
   },
   ghost: {
+    family: 'undead',
     hp: 70, speed: 1.7, damage: 11, score: 190,
     scale: 1, model: 'ghost', acc: null, radius: 0.46,
+    phase: true,
     sun: 2,
   },
   'ghost-skull': {
+    family: 'undead',
     hp: 50, speed: 2.1, damage: 9, score: 130,
     scale: 1, model: 'ghost-skull', acc: null, radius: 0.38,
+    phase: true,
     sun: 1,
   },
 
   // ── 兽族：快、伏击、成群 ──
   wolf: {
+    family: 'beast',
     hp: 75, speed: 3.0, damage: 15, score: 170,
     scale: 1, model: 'wolf', acc: null, radius: 0.5,
     sun: 2,
   },
   spider: {
+    family: 'beast',
     hp: 60, speed: 1.4, damage: 14, score: 150,
     scale: 1, model: 'spider', acc: null, radius: 0.5,
+    ambush: { range: 10, notice: 14, wake: 0.65 },
     sun: 1,
   },
   rat: {
+    family: 'beast',
     hp: 25, speed: 3.2, damage: 4, score: 40,
     scale: 1, model: 'rat', acc: null, radius: 0.24,
     sun: 1,
   },
   // 蝙蝠：飞行单位，吃 AIR_QUOTA_RATIO 的同屏配额
   bat: {
+    family: 'beast',
     hp: 40, speed: 2.4, damage: 7, score: 120,
     scale: 1, model: 'bat', acc: null, radius: 0.36,
     airborne: true, airHeight: 2.0,
+    landing: { period: 6, groundTime: 2, high: 2, ground: 0.2, telegraph: 0.7 },
     sun: 1,
   },
 
@@ -559,7 +584,7 @@ export const ZOMBIES = {
     // 蘑菇王：1.85 × 1.86 ≈ 3.44 米，保持 Boss 级观感（与修复渲染缩放前的可视尺寸一致）
     scale: 1.86, model: 'mushroom-king', acc: null, radius: 0.8,
     boss: true, title: '蘑菇王',
-    duck: { period: 9, duration: 3, reduce: 0.25 },
+    duck: { period: 9, duration: 3, reduce: 0.25, recover: 1.2 },
     sun: 7,
   },
   dragon: {
@@ -567,7 +592,7 @@ export const ZOMBIES = {
     // 巨龙：1.85 × 1.53 ≈ 2.83 米，保持 Boss 级观感（与修复渲染缩放前的可视尺寸一致）
     scale: 1.53, model: 'dragon', acc: null, radius: 0.9,
     boss: true, title: '巨龙',
-    dive: { high: 3.2, ground: 0, period: 7, groundTime: 2 },
+    dive: { high: 3.2, ground: 0, period: 7, groundTime: 2, telegraph: 0.7 },
     sun: 8,
   },
 };
@@ -651,21 +676,42 @@ export function waveTotal(n) {
 
 // 森林专属波次：奇幻单位替换普通僵尸，总只数与普通地图一致。
 function forestWavePlan(n) {
-  const list = [];
+  if (n === 1) return shuffle(['goblin', 'goblin', 'goblin', 'slime', 'slime']);
   const total = waveTotal(n);
-  const picks = [];
+  const list = [];
+  const groups = {};
   for (const id in FANTASY_PLAN) {
-    const [start, rate, cap] = FANTASY_PLAN[id];
-    if (n < start) continue;
-    const k = Math.min(cap, Math.floor((n - start) * rate) + 1);
-    for (let i = 0; i < k; i++) picks.push(id);
+    if (n < FANTASY_PLAN[id][0]) continue;
+    const family = ZOMBIES[id].family;
+    (groups[family] ||= []).push(id);
   }
-  // 总量守恒：奇幻怪最多占 (总只数 - 4)，普通僵尸始终留 4 只保底。
-  const room = Math.max(0, total - 4);
-  const fantasy = picks.length > room ? picks.slice(0, room) : picks;
-  const normals = total - fantasy.length;
+  const families = ['goblin', 'slime', 'undead', 'beast'].filter((f) => groups[f]);
+  const primary = families[(n - 1) % families.length];
+  const secondary = families[n % families.length];
+  const normals = Math.floor(total * 0.15);
   for (let i = 0; i < normals; i++) list.push('normal');
-  for (let i = 0; i < fantasy.length; i++) list.push(fantasy[i]);
+  // 主辅之外的已解锁单位少量亮相，避免新物种被族群轮转饿死。
+  for (const family of families) {
+    if (family === primary || family === secondary) continue;
+    const ids = groups[family];
+    const debut = ids.find((id) => FANTASY_PLAN[id][0] === n);
+    list.push(debut || ids[(n - 1) % ids.length]);
+  }
+  const primaryCount = Math.round(total * 0.6);
+  for (const [family, count] of [[primary, primaryCount], [secondary, total - list.length - primaryCount]]) {
+    const ids = groups[family];
+    const picks = [];
+    for (const id of ids) {
+      const [start, rate, cap] = FANTASY_PLAN[id];
+      const amount = Math.min(cap, Math.floor((n - start) * rate) + 1);
+      for (let i = 1; i < amount; i++) picks.push(id);
+    }
+    // 特殊单位保留上限；余量用本族基础怪补齐，兽族以低血老鼠为主。
+    const base = { goblin: 'goblin', slime: 'slime', undead: 'bones', beast: 'rat' }[family];
+    const selected = ids.slice(0, count).concat(shuffle(picks).slice(0, Math.max(0, count - ids.length)));
+    while (selected.length < count) selected.push(base);
+    list.push(...selected);
+  }
   return withBoss(shuffle(list), n);
 }
 

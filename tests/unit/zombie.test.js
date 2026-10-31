@@ -1024,6 +1024,19 @@ describe('奇幻单位：命中球与动画', () => {
     }
   });
 
+  it('蘑菇王 Duck 单次夹持动作不混用 Walk，结束后可以恢复站立', () => {
+    const z = makeZombie('mushroomKing');
+    expect(z.actions.duck.getClip().name).toBe('Duck');
+    expect(z.actions.duck.loop).toBe(THREE.LoopOnce);
+    expect(z.actions.duck.clampWhenFinished).toBe(true);
+    z.play('duck', 0);
+    z.mixer.update(2);
+    expect(z.current).toBe('duck');
+    z.play('idle', 0);
+    expect(z.current).toBe('idle');
+    z.dispose();
+  });
+
   it('BOSS 三只都能构造，且 def.boss 为真（Game/Manager 靠它判定）', () => {
     for (const type of ['gargantuar', 'mushroomKing', 'dragon']) {
       const z = makeZombie(type);

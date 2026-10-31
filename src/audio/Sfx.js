@@ -18,6 +18,10 @@ const SAMPLES = {
   hit:         [['pop1', 0.3], 0.85, 1.2, 'pan'],
   hurt:        [['z4', 0.5], 0.85, 1.0, 'mono'],
   step:        [['splash5', 0.1], 0.7, 0.85, 'mono'],
+  creatureSlime: [['slime', 0.45], ['bubble', 0.35], 0.7, 0.9, 'pan'],
+  creatureUndead: [['blackpowder', 0.18], ['freeze', 0.2], 0.55, 0.7, 'pan'],
+  creatureBeast: [['z4', 0.35], ['splash5', 0.4], 1.2, 1.4, 'pan'],
+  creatureGoblin: [['z2', 0.45], ['z5', 0.4], 1.3, 1.55, 'pan'],
   groan:       [['z1', 1], ['z2', 1], ['z3', 1], ['z5', 1], ['z6', 1], 0.82, 1.05, 'pan'],
   waveStart:   [['blackpowder', 0.5], 0.95, 1, 'mono'],
   dirt:        [['splash5', 0.45], 0.5, 0.62, 'mono'],
@@ -299,6 +303,16 @@ export class Sfx {
     // 只有不传 vol 时才用默认值；显式传 0 表示「太远了听不见」，不能当成没传
     const v = vol === undefined ? 0.5 : vol;
     this.play('groan', { gain: Math.max(0, Math.min(1, v)) * 0.9, pan: pan || 0 });
+  }
+
+  creature(family, vol, pan) {
+    if (!(vol > 0)) return;
+    const names = { slime: 'creatureSlime', undead: 'creatureUndead', beast: 'creatureBeast', goblin: 'creatureGoblin' };
+    this.play(names[family] || 'groan', { gain: vol, pan });
+  }
+
+  forestAmbience() {
+    this.noise({ dur: 1.2, freq: 340, endFreq: 180, gain: 0.008, attack: 0.3 });
   }
 
   dirt() {

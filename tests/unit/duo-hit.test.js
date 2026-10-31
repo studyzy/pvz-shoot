@@ -50,7 +50,10 @@ describe('guest 命中请求由 host 裁决', () => {
       sendZombieSpawn: vi.fn(),
       sendZombieDead: vi.fn(),
       sendAoe: vi.fn(),
-      getZombieAt: () => null,
+      getZombieAt: (zid) => {
+        const z = game.zombies.zombies.find(z=>z.netId===zid);
+        return z ? {id:zid,x:z.root.position.x,y:z.root.position.y,z:z.root.position.z,ab:z.airborne?1:0,ys:1,sk:z.skillState} : null;
+      },
     };
     game.duoSession = session;
     game.startDuo({ mapId: 'backyard', seat: 0, peerName: '队友 B' });
@@ -62,18 +65,18 @@ describe('guest 命中请求由 host 裁决', () => {
     const hp0 = z.hp;
     const zid = z.netId;
 
-    game.applyGuestHit({ w: 'pea', zid, dir: [0, 0, -1], seq: 0 });
+    game.applyGuestHit({ w: 'pea', zid, dir: [0, 0, -1], seq: 1 });
     expect(z.hp).toBeLessThan(hp0);
     const hp1 = z.hp;
 
-    game.applyGuestHit({ w: 'pea', zid, dir: [0, 0, -1], seq: 0 });
+    game.applyGuestHit({ w: 'pea', zid, dir: [0, 0, -1], seq: 1 });
     expect(z.hp).toBe(hp1);
 
     game.guestHit.clear();
-    game.applyGuestHit({ w: 'pea', zid, dir: [0, 0, 1], seq: 0 });
+    game.applyGuestHit({ w: 'pea', zid, dir: [0, 0, 1], seq: 1 });
     expect(z.hp).toBe(hp1);
 
-    game.applyGuestHit({ w: 'no-such-weapon', zid, dir: [0, 0, -1], seq: 0 });
+    game.applyGuestHit({ w: 'no-such-weapon', zid, dir: [0, 0, -1], seq: 1 });
     expect(z.hp).toBe(hp1);
 
     z.hit(1, false, false, { source: 1 });
@@ -81,7 +84,7 @@ describe('guest 命中请求由 host 裁决', () => {
     z.hit(1, false, false, { source: 1, burn: { dps: 1, time: 1 } });
     expect(z.burnSource).toBe(1);
     game.guestHit.clear();
-    game.applyGuestAoe({ w: 'cherry', x: z.root.position.x, y: 0, z: z.root.position.z, seq: 0 });
+    game.applyGuestAoe({ w: 'cherry', x: z.root.position.x, y: 0, z: z.root.position.z, seq: 1 });
     expect(z.dying || z.hp < hp1).toBe(true);
     expect(game.duoStats[1]).toBeGreaterThan(0);
 
@@ -96,7 +99,10 @@ describe('guest 命中请求由 host 裁决', () => {
       sendZombieSpawn: vi.fn(),
       sendZombieDead: vi.fn(),
       sendAoe: vi.fn(),
-      getZombieAt: () => null,
+      getZombieAt: (zid) => {
+        const z = game.zombies.zombies.find(z=>z.netId===zid);
+        return z ? {id:zid,x:z.root.position.x,y:z.root.position.y,z:z.root.position.z,ab:z.airborne?1:0,ys:1,sk:z.skillState} : null;
+      },
     };
     game.duoSession = session;
     game.startDuo({ mapId: 'backyard', seat: 0, peerName: '队友 B' });
@@ -108,28 +114,28 @@ describe('guest 命中请求由 host 裁决', () => {
     game.netGuest.pitch = 0;
     const zid = z.netId;
 
-    game.applyGuestHit({ w: 'pea', zid: 999, dir: [0, 0, -1], seq: 0 });
+    game.applyGuestHit({ w: 'pea', zid: 999, dir: [0, 0, -1], seq: 1 });
     expect(z.hp).toBe(100);
 
     z.dying = true;
-    game.applyGuestHit({ w: 'pea', zid, dir: [0, 0, -1], seq: 0 });
+    game.applyGuestHit({ w: 'pea', zid, dir: [0, 0, -1], seq: 1 });
     z.dying = false;
-    game.applyGuestHit({ w: 'pea', zid, dir: [0, 0, 0], seq: 0 });
+    game.applyGuestHit({ w: 'pea', zid, dir: [0, 0, 0], seq: 1 });
     expect(z.hp).toBe(100);
 
     z.root.position.x += 5;
-    game.applyGuestHit({ w: 'pea', zid, dir: [0, 0, -1], seq: 0 });
+    game.applyGuestHit({ w: 'pea', zid, dir: [0, 0, -1], seq: 1 });
     z.root.position.x -= 5;
     expect(z.hp).toBe(100);
 
     game.netGuest.pitch = -0.27;
     game.guestHit.clear();
-    game.applyGuestHit({ w: 'pea', zid, dir: [0, -0.27, -0.96], seq: 0 });
+    game.applyGuestHit({ w: 'pea', zid, dir: [0, -0.27, -0.96], seq: 1 });
     expect(z.hp).toBe(85);
 
     game.guestHit.clear();
     game.map.walls = [{ x: game.netGuest.pos.x, y: 1, z: game.netGuest.pos.z - 2, hx: 3, hy: 1, hz: 0.2, c: 1, s: 0 }];
-    game.applyGuestHit({ w: 'pea', zid, dir: [0, -0.27, -0.96], seq: 0 });
+    game.applyGuestHit({ w: 'pea', zid, dir: [0, -0.27, -0.96], seq: 1 });
     expect(z.hp).toBe(85);
     game.map.walls = [];
 
@@ -139,8 +145,8 @@ describe('guest 命中请求由 host 裁决', () => {
     expect(z.hp).toBe(85);
     game.guestHit.clear();
     game.applyGuestAoe(null);
-    game.applyGuestAoe({ w: 'cherry', x: z.root.position.x, y: 0, z: z.root.position.z, seq: 0 });
-    game.applyGuestAoe({ w: 'cherry', x: z.root.position.x, y: 0, z: z.root.position.z, seq: 0 });
+    game.applyGuestAoe({ w: 'cherry', x: z.root.position.x, y: 0, z: z.root.position.z, seq: 1 });
+    game.applyGuestAoe({ w: 'cherry', x: z.root.position.x, y: 0, z: z.root.position.z, seq: 1 });
     game.applyGuestHit(null);
 
     game.duoSession = null;
@@ -148,8 +154,8 @@ describe('guest 命中请求由 host 裁决', () => {
     expect(() => game.ctx.onGuestHit(z, 'pea', soloDir)).not.toThrow();
     expect(() => game.ctx.onGuestAoe('cherry', { x: 0, y: 0, z: 0 })).not.toThrow();
     game.duo = null;
-    game.applyGuestHit({ w: 'pea', zid: z.netId, dir: [0, 0, -1], seq: 0 });
-    game.applyGuestAoe({ w: 'cherry', x: 0, y: 0, z: 0, seq: 0 });
+    game.applyGuestHit({ w: 'pea', zid: z.netId, dir: [0, 0, -1], seq: 1 });
+    game.applyGuestAoe({ w: 'cherry', x: 0, y: 0, z: 0, seq: 1 });
   });
 
   it('空中目标：低处普通弹丸拒绝，站高台放行；snapshot 位置参与射线', async () => {
@@ -172,13 +178,13 @@ describe('guest 命中请求由 host 裁决', () => {
 
     game.netGuest.pos.y = 0.5;
     game.netGuest.pitch = 0.34;
-    game.applyGuestHit({ w: 'pea', zid, dir: [0, 0.34, -0.94], seq: 0 });
+    game.applyGuestHit({ w: 'pea', zid, dir: [0, 0.34, -0.94], seq: 1 });
     expect(z.hp).toBe(hp);
 
     game.netGuest.pos.y = 1.0;
     game.netGuest.pitch = 0.184;
     game.guestHit.clear();
-    game.applyGuestHit({ w: 'pea', zid, dir: [0, 0.184, -0.983], seq: 0 });
+    game.applyGuestHit({ w: 'pea', zid, dir: [0, 0.184, -0.983], seq: 1 });
     expect(z.hp).toBeLessThan(hp);
   });
 

@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { WEAPONS, WEAPON_SLOTS, SLOT_KEYS, GRENADE, PEA_ID, AIR_HIGH_GROUND } from '../config.js';
+import { WEAPONS, WEAPON_SLOTS, SLOT_KEYS, GRENADE, PEA_ID, AIR_HIGH_GROUND, FOREST } from '../config.js';
 import { toon } from '../world/materials.js';
 import { clamp, segmentSphereT, damp } from '../utils.js';
 import { loadWeaponModel } from './WeaponModels.js';
@@ -67,6 +67,38 @@ export class WeaponSystem {
     this.equip(this.slots.peaGun[0], true);
   }
 
+  setMapAppearance(id) {
+    this.mapAppearance = id;
+    const forest = id === 'forest';
+    this.root.traverse((mesh) => {
+      if (!mesh.isMesh) return;
+      if (forest && !mesh.userData.dayMaterial && (mesh.material.isMeshToonMaterial || mesh.material.isMeshStandardMaterial)) {
+        mesh.userData.dayMaterial = mesh.material;
+        mesh.userData.dayGeometry = mesh.geometry;
+        // GLB 模板也给地面拾取使用，夜间明暗只烘进手持实例的副本。
+        mesh.userData.nightGeometry = mesh.geometry.clone();
+        const normals = mesh.geometry.getAttribute('normal');
+        const paint = mesh.material.vertexColors ? mesh.geometry.getAttribute('color') : null;
+        const colors = new Float32Array(normals.count * 3);
+        for (let i = 0; i < normals.count; i++) {
+          const light = 0.68 + 0.32 * Math.max(0, (normals.getY(i) - normals.getZ(i)) * Math.SQRT1_2);
+          colors[i * 3] = light * (paint ? paint.getX(i) : 1);
+          colors[i * 3 + 1] = light * (paint ? paint.getY(i) : 1);
+          colors[i * 3 + 2] = light * (paint ? paint.getZ(i) : 1);
+        }
+        mesh.userData.nightGeometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+        mesh.userData.nightMaterial = new THREE.MeshBasicMaterial({
+          color: mesh.material.color, map: mesh.material.map, vertexColors: true, side: mesh.material.side,
+          transparent: mesh.material.transparent, opacity: mesh.material.opacity,
+        });
+      }
+      if (mesh.userData.dayMaterial) {
+        mesh.material = forest ? mesh.userData.nightMaterial : mesh.userData.dayMaterial;
+        mesh.geometry = forest ? mesh.userData.nightGeometry : mesh.userData.dayGeometry;
+      }
+    });
+  }
+
   makeSlots() {
     const slots = {};
     for (const role of ['peaGun', 'gun', 'demo', 'grenade', 'shield']) {
@@ -119,13 +151,18 @@ export class WeaponSystem {
         item.visual.traverse((node) => {
           if (!node.isMesh) return;
           geometries.add(node.geometry);
+          if (node.userData.dayGeometry) geometries.add(node.userData.dayGeometry);
+          if (node.userData.nightGeometry) geometries.add(node.userData.nightGeometry);
           if (node.material !== outlineMat) materials.add(node.material);
+          if (node.userData.dayMaterial) materials.add(node.userData.dayMaterial);
+          if (node.userData.nightMaterial) materials.add(node.userData.nightMaterial);
         });
         item.visual.clear();
         for (const geometry of geometries) geometry.dispose();
         for (const material of materials) material.dispose();
         item.visual.add(template.clone(true));
         item.loaded = true;
+        this.setMapAppearance(this.mapAppearance);
       });
       item.group.visible = false;
       this.root.add(item.group);
@@ -998,7 +1035,8 @@ export class WeaponSystem {
     const kick = this.recoil;
     const layoutX = this.portrait ? model.basePos.x * 0.5 : model.basePos.x;
     const layoutY = this.portrait ? model.basePos.y + 0.02 : model.basePos.y;
-    g.scale.setScalar(model.baseScale * (this.portrait ? 0.78 : 1));
+    const forestTouch = this.ctx.touch && this.ctx.map && this.ctx.map.id === 'forest';
+    g.scale.setScalar(model.baseScale * (this.portrait ? 0.78 : 1) * (forestTouch ? FOREST.touchWeaponScale : 1));
     g.position.set(
       layoutX + bob + this.swayX,
       layoutY + bobY + this.swayY + kick * 0.012,
@@ -1270,7 +1308,8 @@ export class WeaponSystem {
       z.getChest(tmpChest);
       tmpTo.copy(tmpChest).sub(tmpOrigin);
       const dist = tmpTo.length();
-      if (dist > 62) continue;
+      const maxDist = this.ctx.map && this.ctx.map.id === 'forest' ? FOREST.aimDistance : 62;
+      if (dist > maxDist) continue;
       tmpTo.divideScalar(dist);
       const dot = tmpFwd.dot(tmpTo);
       if (dot < 0.5) continue;

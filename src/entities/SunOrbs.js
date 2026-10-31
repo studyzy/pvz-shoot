@@ -28,6 +28,12 @@ export class SunOrbs {
     this.claimT = 0;
   }
 
+  setMap(id) {
+    const forest = id === 'forest';
+    this.mat.color.setHex(forest ? 0xffdc8a : 0xffd83f);
+    this.glowMat.color.setHex(forest ? 0x80d9dd : 0xffffff);
+  }
+
   // 双人击杀密度 ×1.5，池子 40（单人 28）。只增不减，切换模式不会回收已建对象。
   ensureCapacity(n) {
     while (this.orbs.length < n) {

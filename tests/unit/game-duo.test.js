@@ -619,7 +619,10 @@ describe('Game · guest 命中裁决 applyGuestHit', () => {
   async function setup() {
     const game = await boot();
     game.startDuo({ mapId: 'backyard', seat: 0, peerName: 'B' });
-    game.duoSession = { getZombieAt: () => null, sendEvent: vi.fn() };
+    game.duoSession = { getZombieAt: (id) => {
+      const z = game.zombies.zombies.find(z=>z.netId===id);
+      return z && z.root ? {id,x:z.root.position.x,y:z.root.position.y,z:z.root.position.z,ys:1} : null;
+    }, sendEvent: vi.fn() };
     game.netGuest = {
       pos: { x: 0, y: 0, z: 0 }, yaw: 0, pitch: 0, dead: false, downed: false,
     };
@@ -640,7 +643,7 @@ describe('Game · guest 命中裁决 applyGuestHit', () => {
     const game = await setup();
     expect(() => game.applyGuestHit({ w: 'pea', zid: 9999, dir: [0, 0, 1] })).not.toThrow();
     game.zombies.zombies = [{ netId: 1, alive: false, dying: false }];
-    expect(() => game.applyGuestHit({ w: 'pea', zid: 1, dir: [0, 0, 1] })).not.toThrow();
+    expect(() => game.applyGuestHit({ w: 'pea', zid: 1, dir: [0, 0, 1], seq: 1 })).not.toThrow();
   });
 
   it('背对目标的命中被锥形校验拒绝', async () => {
@@ -653,7 +656,7 @@ describe('Game · guest 命中裁决 applyGuestHit', () => {
       hit,
     }];
     // 玩家朝 -Z（yaw=0），dir 却朝 +Z：背对，应拒绝
-    expect(() => game.applyGuestHit({ w: 'pea', zid: 1, dir: [0, 0, 1] })).not.toThrow();
+    expect(() => game.applyGuestHit({ w: 'pea', zid: 1, dir: [0, 0, 1], seq: 1 })).not.toThrow();
     expect(hit).not.toHaveBeenCalled();
   });
 
@@ -667,7 +670,7 @@ describe('Game · guest 命中裁决 applyGuestHit', () => {
       hit,
     }];
     game.map.walls = [];
-    game.applyGuestHit({ w: 'pea', zid: 1, dir: [0, 0, -1] });
+    game.applyGuestHit({ w: 'pea', zid: 1, dir: [0, 0, -1], seq: 1 });
     expect(hit).toHaveBeenCalled();
   });
 
@@ -682,10 +685,10 @@ describe('Game · guest 命中裁决 applyGuestHit', () => {
     }];
     game.map.walls = [];
     // 第一次通过
-    game.applyGuestHit({ w: 'pea', zid: 1, dir: [0, 0, -1] });
+    game.applyGuestHit({ w: 'pea', zid: 1, dir: [0, 0, -1], seq: 1 });
     const first = hit.mock.calls.length;
     // 立刻再来很多次：应被 cooldown 窗口限制
-    for (let i = 0; i < 6; i++) game.applyGuestHit({ w: 'pea', zid: 1, dir: [0, 0, -1] });
+    for (let i = 0; i < 6; i++) game.applyGuestHit({ w: 'pea', zid: 1, dir: [0, 0, -1], seq: 1 });
     expect(hit.mock.calls.length - first).toBeLessThan(6);
   });
 });
