@@ -79,6 +79,7 @@ const SOURCE_FILES = [
 const FIXTURES = {
   '__fixture_index_html__': readFileSync(resolve(ROOT, 'index.html'), 'utf8'),
   '__fixture_zombie_glb__': Array.from(readFileSync(resolve(ROOT, 'public/models/zombie.glb'))),
+  '__fixture_football_glb__': Array.from(readFileSync(resolve(ROOT, 'public/models/football.glb'))),
   // 静态契约测试要读的项目文件（node:fs 在 jsdom 模块图里拿不到，只能这里读好注入）
   '__fixture_sources__': Object.fromEntries(
     SOURCE_FILES.map((f) => [f, readFileSync(resolve(ROOT, f), 'utf8')])
@@ -89,6 +90,7 @@ export default defineConfig({
   define: {
     __fixture_index_html__: JSON.stringify(FIXTURES.__fixture_index_html__),
     __fixture_zombie_glb__: JSON.stringify(FIXTURES.__fixture_zombie_glb__),
+    __fixture_football_glb__: JSON.stringify(FIXTURES.__fixture_football_glb__),
     __fixture_sources__: JSON.stringify(FIXTURES.__fixture_sources__),
   },
   plugins: [audioPlugin],

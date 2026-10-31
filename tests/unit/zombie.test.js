@@ -20,6 +20,10 @@ vi.mock('../../src/entities/ZombieModel.js', async (importOriginal) => {
   };
   const geo = skinGeo(0.45, 1.194, 0.3);
   geo.translate(0, 1.194 / 2, 0); // BoxGeometry 居中；真实 glb 脚底在 y≈0，这里对齐
+  // 顶部顶点由 Head 驱动，配件定位只采样头骨权重，不把躯干算进颅顶。
+  for (let i = 0; i < geo.attributes.position.count; i++) {
+    if (geo.attributes.position.getY(i) > 0.8) geo.attributes.skinIndex.setX(i, 2);
+  }
   const mat = new THREE.MeshStandardMaterial({ color: 0x9ab271, roughness: 0.8 });
   // 真实模型是 SkinnedMesh：造一套最小骨骼，让 AnimationMixer 有东西可驱动
   const rootBone = new THREE.Bone();
@@ -41,7 +45,7 @@ vi.mock('../../src/entities/ZombieModel.js', async (importOriginal) => {
   mesh.bind(skeleton, new THREE.Matrix4());
   // 绑定姿态统一成单位变换：替身几何本身就是最终形状，
   // headCrownLocal 量出来的头顶才等于 BoxGeometry 的顶面（和真实 glb 的口径一致）。
-  // 全部顶点权重给 Root（skinIndex 恒 0），Head 只用来给 buildHat 提供挂点。
+  // 躯干顶点给 Root，顶部顶点给 Head；配件取样与真实模型一样按头骨权重过滤。
   rootBone.updateMatrixWorld(true);
   skeleton.calculateInverses();
   mesh.bindMatrix.identity();

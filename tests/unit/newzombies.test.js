@@ -6,6 +6,13 @@ vi.mock('../../src/entities/ZombieModel.js', async (importOriginal) => {
   const THREE = await import('three');
   const actual = await importOriginal();
   const geo = new THREE.BoxGeometry(0.45, 1.194, 0.3);
+  const count = geo.attributes.position.count;
+  geo.setAttribute('skinIndex', new THREE.Uint16BufferAttribute(
+    Uint16Array.from({ length: count * 4 }, (_, i) => i % 4 === 0 ? 1 : 0), 4
+  ));
+  geo.setAttribute('skinWeight', new THREE.Float32BufferAttribute(
+    Float32Array.from({ length: count * 4 }, (_, i) => i % 4 === 0 ? 1 : 0), 4
+  ));
   const mat = new THREE.MeshStandardMaterial({ color: 0x9ab271, roughness: 0.8 });
   const rootBone = new THREE.Bone();
   rootBone.name = 'Root';
@@ -87,6 +94,7 @@ function makeZombie(type, ctx = makeCtx()) {
   const z = new Zombie(type, 1, 0, 0, ctx, 1, 1);
   z.spawnT = 1;
   z.model.position.y = 0;
+  z.mountHeadTop();
   return z;
 }
 

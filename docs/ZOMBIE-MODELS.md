@@ -316,7 +316,7 @@ Blender 4.2 headless（同 alchemist，`bpy==4.2.23` + 本地 `libSM/libICE`）�
 
 - **归属**：`ZOMBIES.football.model = 'football'`；`MODELS.football = { url: 'models/football.glb', scale: 0.95, height: 1.84 }`。1.938 × 0.95 ≈ 1.84 m，再乘类型 scale 1.12 ≈ 2.06 m。
 - **命中球**：`HIT.football = { chest: 1.34, head: 1.66, radius: 1 }`（乘类型 scale 1.12 → 胸口 1.50 / 头 1.86）。头球半径 0.36×1.12 < 身体 0.46×1.12，爆头仍然成立。
-- **头盔是程序化的**（模型本身没头盔）：`buildHat` 的 helmet 分支挂在 `Head` 骨骼、本地 Y 1.76；模型自带白色护肩和红球衣，**不要再补护肩**。
+- **头盔是程序化的**（模型本身没头盔）：`buildHat` 的 helmet 分支生成红色包耳盔壳、米白中线和弧形金属面罩（护面杆合并成一个网格，头盔共 5 个 draw call）；和交通锥/铁桶一样由 `mountHeadTop()` 取 Head 权重顶点的颅顶范围中心挂到骨骼上。橄榄球 Head 的局部 +X 是脸朝向（旧僵尸是 +Z），头盔绕局部 Y 转 90°；偏移按模型单位乘帽子缩放，不混入世界米。模型自带白色护肩和红球衣，**不要再补护肩**。
 - 模型未就绪时 `spawnOne` 会改刷别的类型、它留在队首（`zombieModel.football` 槽）。
 - 同屏最多 14 只、单只 1 万面/1 draw call；橄榄球每波数量有限，性能预算与炼金模型同量级。
 
