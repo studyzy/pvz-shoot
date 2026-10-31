@@ -96,7 +96,6 @@ vi.mock('../../src/entities/ZombieModel.js', async (importOriginal) => {
     bat: ['Bat_Flying', 'Bat_Attack', 'Bat_Death', 'Bat_Hit'],
     flying: ['Flying_Idle', 'Fast_Flying', 'Headbutt', 'Death', 'HitReact'],
     duck: ['Idle', 'Walk', 'Punch', 'Death', 'HitReact', 'Duck'],
-    dragon: ['Dragon_Flying', 'Dragon_Attack', 'Dragon_Death', 'Dragon_Hit'],
   };
   const slotFor = (fam, box = null) => ({ ready: true, failed: false, scene, clips: clipsFor(...FAM_CLIPS[fam]), box });
   return {
@@ -127,7 +126,9 @@ vi.mock('../../src/entities/ZombieModel.js', async (importOriginal) => {
       'green-blob': slotFor('blob'),
       ghost: slotFor('flying'),
       'ghost-skull': slotFor('flying'),
-      dragon: slotFor('dragon'),
+      // 真实 dragon-evolved.glb 的 clip 是 Flying_Idle / Fast_Flying / Headbutt / Death / HitReact，
+      // 并没有 Dragon_* 命名（曾按设计稿猜了一组不存在的名字，巨龙永远停在 bind pose）
+      dragon: slotFor('flying'),
       wolf: slotFor('beast'),
       spider: slotFor('spider'),
       rat: slotFor('rat'),
@@ -1007,7 +1008,9 @@ describe('奇幻单位：命中球与动画', () => {
     spider.dispose();
 
     const dragon = makeZombie('dragon');
-    expect(dragon.actions.attack.getClip().name).toBe('Dragon_Attack');
+    // 巨龙挂 flying 族：它的 glb 里只有 Flying_Idle / Fast_Flying / Headbutt 这组 clip
+    expect(dragon.actions.attack.getClip().name).toBe('Headbutt');
+    expect(dragon.actions.walk.getClip().name).toBe('Fast_Flying');
     dragon.dispose();
   });
 
@@ -1062,6 +1065,77 @@ describe('奇幻单位：命中球与动画', () => {
       src.box = saved;
       z.dispose();
     }
+  });
+
+  it('targetHeight 模型烙进 scene 的归一化缩放不得被 buildRig 抹掉（蝙蝠 4.7 米回归）', async () => {
+    await boot();
+    const slot = zombieModel.bat;
+    const savedScene = slot.scene;
+    const savedClips = slot.clips;
+    try {
+      // 模拟真实 bat.glb 加载完的样子：fitToHeight 把 0.117 的缩放烘进 scene.scale，
+      // 原始包围盒高 4.7 米。buildRig 里若对它 setScalar(1)，模型就会按 4.7 米渲染，
+      // 而命中球仍按 0.55 米口径标在 2.28 米 —— 空中单位「看着打中却不出血」。
+      const scene = new THREE.Group();
+      scene.scale.setScalar(0.117);
+      scene.add(new THREE.Mesh(new THREE.BoxGeometry(4, 4.7, 1), new THREE.MeshStandardMaterial()));
+      slot.scene = scene;
+      slot.clips = [];
+      const z = makeZombie('bat');
+      expect(z.body.scale.x).toBeCloseTo(0.117, 5);
+      z.root.updateMatrixWorld(true);
+      const box = new THREE.Box3().setFromObject(z.body);
+      // 世界高度 = 原始 4.7 × 归一化 0.117 ≈ 0.55 米，悬空在 airHeight 2 米
+      expect(box.max.y - box.min.y).toBeCloseTo(4.7 * 0.117, 3);
+      z.dispose();
+      // 老四套（无 targetHeight）仍然乘自己的 MODELS.scale，行为不变
+      const n = makeZombie('normal');
+      expect(n.body.scale.x).toBeCloseTo(1.72, 5);
+      n.dispose();
+    } finally {
+      slot.scene = savedScene;
+      slot.clips = savedClips;
+    }
+  });
+
+  it('奇幻单位命中球按动画姿态实测校准（狼/小恶魔/绿块回归）', async () => {
+    await boot();
+    // 狼的身体立在腿上、身长 1.46 米：胸口球按体块重心抬高，半径放大才罩得住躯干。
+    // 旧口径 0.58/0.72/0.72 会让豌豆几乎打不中（实测扫掠覆盖率仅 15%）
+    const wolf = makeZombie('wolf');
+    expect(wolf.chestY).toBe(0.7);
+    expect(wolf.headY).toBe(0.98);
+    expect(wolf.hitRadiusScale).toBe(1.1);
+    wolf.dispose();
+    const demon = makeZombie('demon3');
+    expect(demon.chestY).toBe(0.9);
+    expect(demon.headY).toBe(1.28);
+    expect(demon.hitRadiusScale).toBe(1);
+    demon.dispose();
+    const blob = makeZombie('green-blob');
+    expect(blob.chestY).toBe(0.72);
+    expect(blob.headY).toBe(1.05);
+    expect(blob.hitRadiusScale).toBe(1.15);
+    blob.dispose();
+  });
+
+  it('三只新 Boss 的体型倍率：命中球世界高度跟着放大', async () => {
+    await boot();
+    // 巨人按设计稿 3.4 米（1.85 × 1.84）；蘑菇王/巨龙保持修复渲染缩放前的可视尺寸
+    expect(ZOMBIES.gargantuar.scale).toBeCloseTo(1.84, 5);
+    expect(ZOMBIES.mushroomKing.scale).toBeCloseTo(1.86, 5);
+    expect(ZOMBIES.dragon.scale).toBeCloseTo(1.53, 5);
+    // 巨人命中球（包围盒口径 chest = 1.85×0.9）乘上体型后应落在胸口一带，
+    // 而不是停在 1.85 米人形口径（旧 bug：3.4 米的巨人只有膝盖以下能被打中）
+    const g = makeZombie('gargantuar');
+    expect(g.getChest(vec()).y).toBeCloseTo(1.85 * 0.9 * 1.84, 2);
+    g.dispose();
+    const mk = makeZombie('mushroomKing');
+    expect(mk.getChest(vec()).y).toBeCloseTo(1.0 * 1.86, 2);
+    mk.dispose();
+    const d = makeZombie('dragon');
+    expect(d.getChest(vec()).y).toBeCloseTo(1.4 * 1.53, 2);
+    d.dispose();
   });
 
   it('旧 skeleton 与新的 bones 是两个独立类型，模型各自独立', () => {

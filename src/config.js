@@ -544,23 +544,26 @@ export const ZOMBIES = {
   // ══════════════════════════════════════════════════════════════════════
   gargantuar: {
     hp: 1560, speed: 1.15, damage: 30, score: 3000,
-    // 巨人：类型 scale 保持 1，命中球由模型自身的包围盒推出（Zombie.hitForModel）。
-    // 不能只放大模型、把命中球写死成小人尺寸 —— 那样上半身落在球外，打中却不掉血。
-    scale: 1.0, model: 'giant', acc: null, radius: 0.85,
+    // 巨人：模型按 targetHeight 1.85 归一化，再乘类型 scale 1.84 → 约 3.4 米
+    // （设计稿 DESIGN-traps-and-bosses-v2 的既定口径）。
+    // 命中球由模型自身的包围盒推（Zombie.hitForModel），跟着这个 scale 一起放大。
+    scale: 1.84, model: 'giant', acc: null, radius: 0.85,
     boss: true, title: '巨人',
     slam: { range: 2.6, radius: 2.3, telegraph: 0.85, recover: 1.4 },
     sun: 7,
   },
   mushroomKing: {
     hp: 1620, speed: 1.05, damage: 28, score: 3100,
-    scale: 1.0, model: 'mushroom-king', acc: null, radius: 0.8,
+    // 蘑菇王：1.85 × 1.86 ≈ 3.44 米，保持 Boss 级观感（与修复渲染缩放前的可视尺寸一致）
+    scale: 1.86, model: 'mushroom-king', acc: null, radius: 0.8,
     boss: true, title: '蘑菇王',
     duck: { period: 9, duration: 3, reduce: 0.25 },
     sun: 7,
   },
   dragon: {
     hp: 1740, speed: 1.25, damage: 34, score: 3300,
-    scale: 1.0, model: 'dragon', acc: null, radius: 0.9,
+    // 巨龙：1.85 × 1.53 ≈ 2.83 米，保持 Boss 级观感（与修复渲染缩放前的可视尺寸一致）
+    scale: 1.53, model: 'dragon', acc: null, radius: 0.9,
     boss: true, title: '巨龙',
     dive: { high: 3.2, ground: 0, period: 7, groundTime: 2 },
     sun: 8,

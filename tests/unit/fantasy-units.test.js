@@ -102,6 +102,13 @@ describe('奇幻单位 · 动画族', () => {
     expect(ANIM_NAMES.flying.walk).toContain('fast_flying');
     expect(ZOMBIES.ghost.airborne).toBeFalsy();
   });
+
+  it('巨龙挂 flying 族：dragon-evolved.glb 里没有 Dragon_* 动画', () => {
+    // 它的 clip 实际是 Flying_Idle / Fast_Flying / Headbutt / Death / HitReact。
+    // 曾经按设计稿猜了一组 Dragon_* 名字，一个都取不到，巨龙永远停在 bind pose 站桩滑动。
+    expect(ANIM_FAMILIES.dragon).toBe('flying');
+    expect(ANIM_NAMES.dragon).toBeUndefined();
+  });
 });
 
 describe('BOSS 轮换', () => {

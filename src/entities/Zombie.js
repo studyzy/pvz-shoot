@@ -81,22 +81,28 @@ const HIT = {
   // ── 夜之森林的奇幻单位 ──
   // 这些模型都按 targetHeight 归一化过，所以下面填的是**归一化后**的世界米口径，
   // 调用方仍会再乘类型的 scaleFactor。头部球半径始终小于胸口球（见 §5.3 硬规则）。
+  // 数值口径：按「加载真实 glb → 归一化 → 播走路动画 → 逐帧采样蒙皮顶点」实测校准，
+  // 保证可见躯干的大块落在命中球内（脚本量法见 git 历史的临时审计 tmp-audit.mjs）。
   goblin: { chest: 0.82, head: 1.18, radius: 0.85 },
-  demon3: { chest: 0.85, head: 1.22, radius: 0.85 },
+  // 小恶魔的体块重心偏高（角+宽肩），胸口球要抬到 0.9、半径给足 1
+  demon3: { chest: 0.9, head: 1.28, radius: 1 },
   slime: { chest: 0.45, head: 0.72, radius: 1.05 },
   'pink-slime': { chest: 0.42, head: 0.66, radius: 1.05 },
-  'green-blob': { chest: 0.55, head: 0.88, radius: 1.1 },
+  'green-blob': { chest: 0.72, head: 1.05, radius: 1.15 },
   bones: { chest: 0.88, head: 1.42, radius: 0.8 },
   ghost: { chest: 0.95, head: 1.55, radius: 0.85 },
   'ghost-skull': { chest: 0.62, head: 0.95, radius: 0.8 },
-  // 四足：胸口（躯干）低于头，但半径仍然头 < 身体
-  wolf: { chest: 0.58, head: 0.72, radius: 0.72 },
+  // 四足：身体立在腿上、重心比「四足=矮」的直觉高，胸口球按实测体块重心给；
+  // 狼身长（z 向 1.46 米），半径倍率放大到 1.1 才罩得住躯干
+  wolf: { chest: 0.7, head: 0.98, radius: 1.1 },
   spider: { chest: 0.32, head: 0.42, radius: 0.85 },
   rat: { chest: 0.14, head: 0.2, radius: 0.8 },
   bat: { chest: 0.28, head: 0.38, radius: 0.8 },
 
-  'mushroom-king': { chest: 0.9, head: 1.4, radius: 0.9 },
-  dragon: { chest: 0.85, head: 1.35, radius: 0.9 },
+  // 蘑菇王/巨龙按**飞行/站立姿态实测**：蘑菇的伞盖占上半身，巨龙走 Flying 姿态
+  // （身体抬高、双翼展开），胸口球都要按姿态重心给，不能按 bind pose 猜
+  'mushroom-king': { chest: 1.0, head: 1.5, radius: 1 },
+  dragon: { chest: 1.4, head: 1.75, radius: 1.15 },
 };
 
 // giant 不进 HIT：它按**模型加载后的真实包围盒**推（见 hitForModel），
@@ -227,14 +233,6 @@ export const ANIM_NAMES = {
     die: ['death'],
     hit: ['hitreact', 'hitrecieve'],
   },
-  // 龙：Dragon_Attack / Dragon_Attack2 / Dragon_Death / Dragon_Flying / Dragon_Hit
-  dragon: {
-    idle: ['dragon_flying'],
-    walk: ['dragon_flying'],
-    attack: ['dragon_attack', 'dragon_attack2', 'headbutt'],
-    die: ['dragon_death', 'death'],
-    hit: ['dragon_hit', 'hitreact'],
-  },
 };
 
 export const ANIM_FAMILIES = {
@@ -255,7 +253,10 @@ export const ANIM_FAMILIES = {
 
   ghost: 'flying',
   'ghost-skull': 'flying',
-  dragon: 'dragon',
+  // 巨龙用的 dragon-evolved.glb 里根本没有 Dragon_* 动画（实际是
+  // Flying_Idle / Fast_Flying / Headbutt / Death / HitReact），挂 flying 族；
+  // 曾经挂了不存在的 dragon 族，导致巨龙永远停在 bind pose 站桩滑动
+  dragon: 'flying',
 
   wolf: 'beast',
   spider: 'spider',
@@ -385,17 +386,18 @@ export class Zombie {
     const src = this.modelSource();
     const def = MODELS[this.modelId];
     this.isSkeleton = this.modelId === 'skeleton';
-    // 两层缩放不能混：
-    //   root.scale = def.scale（类型的体型倍率）
-    //   body.scale = 模型自身的归一化缩放（MODELS[id].scale；老四套手写，新模型加载时算好）
-    // 新模型已经把缩放烘进 scene，这里必须填 1，否则二次缩放。
-    const modelScale = def.targetHeight ? 1 : ((src && src.scale) || def.scale || 1);
 
     // 骨骼模型每个僵尸克隆一份：骨骼必须独立，材质也要独立（白闪/冰冻）
     // 骨骼模型必须用 SkeletonUtils.clone，否则所有僵尸共享同一套骨骼会一起动
     this.body = src.scene ? cloneSkinned(src.scene) : new THREE.Group();
-    // 归一化过的模型（targetHeight）缩放已经烘进 scene，别再乘一遍
-    this.body.scale.setScalar(modelScale);
+    // 两层缩放不能混：
+    //   root.scale = def.scale（类型的体型倍率）
+    //   body.scale = 模型自身的归一化缩放（老四套手写在 slot.scale，在这里乘）
+    // targetHeight 模型的缩放已由 fitToHeight 烙进 scene.scale，clone 会原样带来 ——
+    // 这里绝不能再 setScalar 把它抹掉。曾经对归一化模型填 1，把烘好的缩放冲掉，
+    // 模型按原始 glb 尺寸渲染（蝙蝠 4.7 米、老鼠 2.2 米、巨人 3.9 米），而命中球
+    // 仍按 targetHeight 口径标定 —— 这就是「看着打中却不掉血」的根源。
+    if (!def.targetHeight) this.body.scale.setScalar((src && src.scale) || def.scale || 1);
     this.model.add(this.body);
 
     this.mats = [];
