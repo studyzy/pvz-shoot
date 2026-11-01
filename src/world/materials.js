@@ -316,6 +316,56 @@ export function desertSkyTexture() {
   return tex;
 }
 
+let _carnivalSky = null;
+export function carnivalSkyTexture() {
+  if (_carnivalSky) return _carnivalSky;
+  const c = document.createElement('canvas');
+  c.width = 8;
+  c.height = 512;
+  const ctx = c.getContext('2d');
+  const sky = ctx.createLinearGradient(0, 0, 0, 512);
+  sky.addColorStop(0, '#91b9ce');
+  sky.addColorStop(.34, '#c2d8dd');
+  sky.addColorStop(.62, '#fff0d8');
+  sky.addColorStop(.84, '#f6c6ae');
+  sky.addColorStop(1, '#fff0d8');
+  ctx.fillStyle = sky;
+  ctx.fillRect(0, 0, 8, 512);
+  _carnivalSky = new THREE.CanvasTexture(c);
+  _carnivalSky.colorSpace = THREE.SRGBColorSpace;
+  return _carnivalSky;
+}
+
+let _carnivalFloor = null;
+export function carnivalFloorTexture() {
+  if (_carnivalFloor) return _carnivalFloor;
+  const c = document.createElement('canvas');
+  c.width = c.height = 256;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#e7d3b1';
+  ctx.fillRect(0, 0, 256, 256);
+  for (let z = 0; z < 4; z++) {
+    for (let x = 0; x < 4; x++) {
+      ctx.fillStyle = (x + z) % 2 ? '#e5d3b6' : '#f0e0c5';
+      ctx.fillRect(x * 64 + 1, z * 64 + 1, 62, 62);
+      ctx.strokeStyle = 'rgba(153,111,74,.1)';
+      ctx.lineWidth = 1;
+      for (let i = 0; i < 3; i++) {
+        ctx.beginPath();
+        ctx.moveTo(x * 64 + 5, z * 64 + 15 + i * 16);
+        ctx.bezierCurveTo(x * 64 + 21, z * 64 + 11 + i * 16, x * 64 + 39, z * 64 + 20 + i * 16, x * 64 + 57, z * 64 + 15 + i * 16);
+        ctx.stroke();
+      }
+    }
+  }
+  _carnivalFloor = new THREE.CanvasTexture(c);
+  _carnivalFloor.colorSpace = THREE.SRGBColorSpace;
+  _carnivalFloor.wrapS = _carnivalFloor.wrapT = THREE.RepeatWrapping;
+  _carnivalFloor.repeat.set(9, 9);
+  _carnivalFloor.anisotropy = 4;
+  return _carnivalFloor;
+}
+
 let _nightSky = null;
 // 夜空：顶部墨蓝 → 地平线偏紫，中段留一点月光冷色，便于和远景树影拉开层次。
 export function nightSkyTexture() {
@@ -473,7 +523,7 @@ export function cloudTexture() {
 let _envs = null;
 // 程序化户外环境贴图（PMREM）：只给 PBR 材质提供反射与高光，不参与场景雾/背景。
 export function outdoorEnvironment(renderer, mapId) {
-  const key = mapId === 'snow' ? 'snow' : mapId === 'dust' ? 'dust' : mapId === 'forest' ? 'forest' : 'backyard';
+  const key = mapId === 'snow' ? 'snow' : mapId === 'dust' ? 'dust' : mapId === 'forest' ? 'forest' : mapId === 'cloud' ? 'cloud' : 'backyard';
   if (_envs && _envs[key]) return _envs[key];
   if (!_envs) _envs = {};
 
@@ -493,6 +543,11 @@ export function outdoorEnvironment(renderer, mapId) {
     sky.addColorStop(0.5, '#9cc0d2');
     sky.addColorStop(0.82, '#ecd9ac');
     sky.addColorStop(1, '#f7ecc9');
+  } else if (key === 'cloud') {
+    sky.addColorStop(0, '#91b9ce');
+    sky.addColorStop(.5, '#d5e0dd');
+    sky.addColorStop(.82, '#fff0d8');
+    sky.addColorStop(1, '#f6c6ae');
   } else if (key === 'forest') {
     // 夜之森林：环境贴图只给 PBR 材质提供冷色反光，别用白天的蓝天，否则模型会发亮
     sky.addColorStop(0, '#060c1c');
@@ -515,6 +570,9 @@ export function outdoorEnvironment(renderer, mapId) {
   } else if (key === 'dust') {
     ground.addColorStop(0, '#e6cf9f');
     ground.addColorStop(1, '#a5804a');
+  } else if (key === 'cloud') {
+    ground.addColorStop(0, '#eddbc0');
+    ground.addColorStop(1, '#9a6244');
   } else if (key === 'forest') {
     ground.addColorStop(0, '#24401f');
     ground.addColorStop(1, '#0d1a0b');

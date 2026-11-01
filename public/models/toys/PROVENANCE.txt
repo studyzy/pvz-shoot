@@ -1,0 +1,13 @@
+Original cloud carnival toy assets authored for pvz-shoot.
+
+Files: toySoldier.glb, springDuck.glb, teaSprite.glb, paperGlider.glb, jackBox.glb, clockRabbit.glb.
+Source: tools/build-toy-models.mjs; deterministic original offline surface, paint, rig and clip authoring.
+No EA models, zombie reskins, downloaded geometry, third-party animations or external textures were used.
+Geometry: rounded timber puppet panels, lathed porcelain, swept spout/handle/springs, closed thin paper folds, glove and long-eared watch rabbit.
+Materials: one shared embedded linear vertex-painted material per toy; warm directional vertex shading and original timber/porcelain motifs.
+Rig: one rigid-weight skinned main mesh, individual articulated joints, one separately removable ChestArmor mesh for toySoldier.
+Clips: Idle, Walk, Idle_Attack, Attack (alias), HitReact, Death; original toy-specific articulation; no horizontal root motion.
+Coordinates: +Y up, +Z forward, feet at zero, target heights 1.8/1.1/1.3/0.65/1.6/3.4 meters; type scale 1.
+Rebuild: node tools/build-toy-models.mjs [output-directory] [toy ids ...].
+
+No separate CC0 dedication or third-party license is claimed. Use and redistribution remain subject to the repository owner licensing decisions. This provenance grants no new license.

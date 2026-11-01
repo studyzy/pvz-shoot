@@ -143,6 +143,44 @@ export const GALLERY_TYPES = [
     subtitle: '夜之森林 Boss',
     desc: '飞起来打不到，落地俯冲那 2 秒才是机会。',
   },
+
+  // ── 云上发条游乐园 · 原创玩具（tools/build-toy-models.mjs 离线生成）──
+  {
+    id: 'toySoldier',
+    name: '发条卫兵',
+    subtitle: '发条玩具',
+    desc: '木头身子、胸口一块可打掉的塑料胸甲；小跑着贴身推搡。',
+  },
+  {
+    id: 'springDuck',
+    name: '弹簧鸭',
+    subtitle: '发条玩具',
+    desc: '脚底弹簧一压就窜，扑过来之前会先蹲下蓄力。',
+  },
+  {
+    id: 'teaSprite',
+    name: '茶壶精',
+    subtitle: '发条玩具',
+    desc: '不远攻近战，从壶嘴抛出滚烫的茶球；离得远反而更危险。',
+  },
+  {
+    id: 'paperGlider',
+    name: '纸飞机',
+    subtitle: '发条玩具 · 飞行',
+    desc: '在半空滑翔，普通弹丸打不到；俯冲时贴地，才是开枪的窗口。',
+  },
+  {
+    id: 'jackBox',
+    name: '八音盒小丑',
+    subtitle: '发条玩具',
+    desc: '盖子一弹就伸拳，攻击距离比看起来长；血厚，适合用爆炸清。',
+  },
+  {
+    id: 'clockRabbit',
+    name: '暴走报时兔',
+    subtitle: '云上发条游乐园 Boss',
+    desc: '约 3.4 米高的长耳怀表兔；发扬声波一圈圈扫过，半血后连发两次。',
+  },
 ];
 
 // 单位方向向量：乘以相机距离后加到注视点上。top 特意留一点 z，避免相机与 up 轴共线。

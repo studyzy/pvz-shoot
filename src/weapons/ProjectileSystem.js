@@ -42,6 +42,7 @@ export class ProjectileSystem {
         active: false,
         pos: new THREE.Vector3(),
         prev: new THREE.Vector3(),
+        origin: new THREE.Vector3(),
         vel: new THREE.Vector3(),
         damage: 0,
         slow: false,
@@ -99,6 +100,7 @@ export class ProjectileSystem {
     p.active = true;
     p.pos.copy(origin);
     p.prev.copy(origin);
+    p.origin.copy(origin);
     p.vel.copy(dir).multiplyScalar(def.speed);
     p.damage = def.damage;
     // 瞄准辅助把弹道度数补偿到头部时打上标记：这一发第一个命中的僵尸直接吃爆头伤害。
@@ -198,14 +200,16 @@ export class ProjectileSystem {
       if (!p.active) continue;
       p.life -= dt;
       p.prev.copy(p.pos);
-      // 豌豆没有重力：撞墙就地消失（不反弹、不穿墙），撞地同样消失 —— 记下撞点做飞溅
-      if (this.step(p.pos, p.vel, dt, PEA_RADIUS, 0)) {
-        tmpA.copy(p.pos);
-        tmpA.y = 0.08;
-        this.particles.splat(tmpA, p.slow ? 0xa8f0ff : 0x7fbf3f);
-        this.deactivatePea(p);
-        continue;
+      // 同一段内按墙、敌人和铜钟的最早交点结算，不能让后面的墙吞掉前面的命中。
+      p.pos.addScaledVector(p.vel, dt);
+      const map = this.ctx.map;
+      const bounds = (map && map.bounds) || { x: 23, z: 23 };
+      let wallT = sweepWalls((map && map.walls) || noWalls, bounds.x, bounds.z, p.prev, p.pos, PEA_RADIUS, tmpN);
+      if (p.prev.y > 0 && p.pos.y <= 0) {
+        const groundT = p.prev.y / (p.prev.y - p.pos.y);
+        if (wallT < 0 || groundT < wallT) wallT = groundT;
       }
+      const bell = this.ctx.cloud && this.ctx.cloud.bellIntersection(p.prev, p.pos);
       p.mesh.position.copy(p.pos);
       // 火豌豆拖火星：复用粒子池，不新增 draw call
       if (p.burn) {
@@ -258,6 +262,20 @@ export class ProjectileSystem {
         }
       }
 
+      if (bell && bell.t < bestT && (wallT < 0 || bell.t < wallT)) {
+        p.pos.lerpVectors(p.prev, p.pos, bell.t);
+        this.ctx.onBellHit(bell.id, p.type, p.vel, p.origin);
+        this.deactivatePea(p);
+        continue;
+      }
+      if (wallT >= 0 && wallT <= bestT) {
+        p.pos.lerpVectors(p.prev, p.pos, wallT);
+        tmpA.copy(p.pos);
+        tmpA.y = .08;
+        this.particles.splat(tmpA, p.slow ? 0xa8f0ff : 0x7fbf3f);
+        this.deactivatePea(p);
+        continue;
+      }
       if (bestZ) {
         // guest 的远端僵尸只做本地白闪；命中请求交给 host 按武器/射线重算。
         if (bestZ.remote && this.ctx.onGuestHit) this.ctx.onGuestHit(bestZ, p.type, p.vel);

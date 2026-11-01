@@ -209,6 +209,15 @@ export const ANIM_NAMES = {
     die: ['death'],
     hit: ['hitreact', 'hitrecieve'],
   },
+  // 云上发条游乐园的原创玩具（tools/build-toy-models.mjs 生成）：
+  // 动作名故意对齐 Quaternius，Idle / Walk / Idle_Attack / Death / HitReact。
+  toy: {
+    idle: ['idle'],
+    walk: ['walk'],
+    attack: ['idle_attack', 'attack'],
+    die: ['death'],
+    hit: ['hitreact'],
+  },
   // 有 Duck 的怪：Death / Duck / HitReact / Idle / Jump… / Punch / Run / Walk / Wave / Weapon
   duck: {
     duck: ['duck'],
@@ -242,6 +251,13 @@ export const ANIM_FAMILIES = {
   // Flying_Idle / Fast_Flying / Headbutt / Death / HitReact），挂 flying 族；
   // 曾经挂了不存在的 dragon 族，导致巨龙永远停在 bind pose 站桩滑动
   dragon: 'flying',
+
+  toySoldier: 'toy',
+  springDuck: 'toy',
+  teaSprite: 'toy',
+  paperGlider: 'toy',
+  jackBox: 'toy',
+  clockRabbit: 'toy',
 
   wolf: 'beast',
   spider: 'spider',
@@ -326,6 +342,21 @@ export class Zombie {
     this.skillTimer = flight ? flight.period - flight.groundTime - flight.telegraph
       : this.def.duck ? this.def.duck.period - this.def.duck.duration - this.def.duck.recover : 0;
     this.skillCenter = new THREE.Vector3(x, 0, z);
+    // 云上发条乐园的玩具技能共用这几个槽位：
+    // skillCooldown 是招式之间的间隔，skillDirection 是冲撞/拳套锁定的方向，
+    // stopTimer 是铜钟停机剩下的秒数（>0 时整只玩具冻结），chargeSeen 是本次冲撞已结算过的 seat 位图。
+    this.skillCooldown = 0;
+    this.skillDirection = new THREE.Vector3(0, 0, 1);
+    this.stopTimer = 0;
+    this.stopCue = null;
+    this.chargeSeen = 0;
+    this.clockTurn = 0;
+    if (this.def.flight) {
+      this.airHeight = this.def.flight.high;
+      this.airborne = true;
+      this.skillState = 'fly';
+      this.skillTimer = this.def.flight.cruise;
+    }
     if (flight) {
       this.airHeight = flight.high;
       this.airborne = true;
@@ -416,6 +447,20 @@ export class Zombie {
 
     this.buildAnimations();
     this.buildHat();
+    // 铜钟停机提示：脚下一圈青色光环，只在被抓停时点亮（衰减由 updateStop 负责）。
+    if (this.def.family === 'toy' && this.ctx.cloud) {
+      this.stopCue = new THREE.Mesh(skillGeometry, new THREE.MeshBasicMaterial({
+        color: 0x8fe6d8, transparent: true, opacity: 0.5, depthWrite: false, side: THREE.DoubleSide,
+      }));
+      this.stopCue.rotation.x = -Math.PI / 2;
+      this.stopCue.renderOrder = 2;
+      this.stopCue.position.y = 0.045 / this.scaleFactor;
+      this.stopCue.scale.setScalar(Math.max(0.7, this.radius * 2.2) / this.scaleFactor);
+      this.stopCue.visible = false;
+      this.root.add(this.stopCue);
+    }
+    // 胸甲被打穿后重建/接管时保持不可见（快照只带 ar，不带节点状态）。
+    if (this.hat && this.armorHp <= 0) this.hat.visible = false;
   }
 
   // 骨骼动画：idle / walk / attack / die / hit 各一条，同一时刻只播一条。
@@ -479,6 +524,14 @@ export class Zombie {
   // 交通锥 / 铁桶：加在 glb 头顶（模型单位，Y 向上，头骨顶约 1.0）
   buildHat() {
     const acc = this.def.acc;
+    // 玩具卫兵的胸甲是 glb 里自带的可拆卸网格（见 tools/build-toy-models.mjs），
+    // 不在这里新建几何，只把那块 mesh 当作 this.hat，破甲时直接隐藏。
+    // 注意 getObjectByName 找不到时返回 undefined，赋给 this.hat 会把破甲/隐藏逻辑变成空操作。
+    if (acc === 'chestArmor') {
+      const armor = this.body ? this.body.getObjectByName('ChestArmor') : null;
+      this.hat = armor || null;
+      return;
+    }
     if (acc !== 'cone' && acc !== 'bucket' && acc !== 'club' && acc !== 'helmet' && acc !== 'balloon') return;
 
     const hat = new THREE.Group();
@@ -747,6 +800,7 @@ export class Zombie {
     return this.armorHp > 0;
   }
 
+
   // 伤害结算：先过护甲层，再打血。
   // opts（可选，第 4 参，不传就是老行为）：
   //   type  : 'pea' | 'explosion' | 'burn' | 'pierce'
@@ -767,8 +821,18 @@ export class Zombie {
     const type = (o && o.type) || 'pea';
     // 协同集火：标记成立**之后**的伤害才吃 1.08，凑成标记的这一下不算
     let amount = dmg * (this.coop ? COOP.mul : 1);
-    const skillState = o && o.skillState !== undefined ? o.skillState : this.skillState;
+    // 历史快照里的招式状态（命中仲裁用）；没给就用当前状态兜底——本地命中本来就没有历史，
+    // 硬当成 idle 会让蹲伏中的蘑菇王白吃满伤。
+    const hist = o ? o.skillState : undefined;
+    const skillState = hist !== undefined ? hist : this.skillState;
     if (this.def.duck && skillState === 'duck') amount *= this.def.duck.reduce;
+    // 报时兔按「打击生效那一刻」的技能状态结算身体倍率，且不改它当前的招式。
+    // 头不算：爆头走 headshotMul，不叠身体倍率。判定以「打击生效那一刻的状态」为准：
+    // 当前不在 recover 就是暴露；当前在 recover 时再看历史，历史缺失按此刻仍算暴露。
+    if (this.def.clock && !head) {
+      const exposed = this.skillState !== 'recover' || hist === undefined;
+      if (exposed) amount *= this.def.clock.bodyMul;
+    }
     if (source === 0) this.coopA = this.age;
     else this.coopB = this.age;
     const coop = this.age - this.coopA <= COOP.window && this.age - this.coopB <= COOP.window;
@@ -901,7 +965,8 @@ export class Zombie {
   }
 
   buildSkillCue() {
-    if (!this.def.slam && !this.def.duck && !this.def.landing && !this.def.dive && !this.def.ambush) return;
+    if (!this.def.slam && !this.def.duck && !this.def.landing && !this.def.dive && !this.def.ambush &&
+        !this.def.charge && !this.def.tea && !this.def.punch && !this.def.clock && !this.def.flight) return;
     this.skillCue = new THREE.Mesh(skillGeometry, new THREE.MeshBasicMaterial({
       color: 0xffac55, transparent: true, opacity: 0.65, depthWrite: false, side: THREE.DoubleSide,
     }));
@@ -940,9 +1005,260 @@ export class Zombie {
     return false;
   }
 
+  // 铜钟停机：全局技能里 1.6 秒内玩具完全静止（位移/骨骼/技能/近战都不推进），
+  // 只保留白闪消退和燃烧致死，否则玩家敲完钟还会被已经出招的怪白打。
+  updateStop(dt) {
+    if (this.stopTimer <= 0) return false;
+    this.stopTimer = Math.max(0, this.stopTimer - dt);
+    if (this.stopCue) this.stopCue.visible = this.stopTimer > 0;
+    this.flash = Math.max(0, this.flash - dt * 6);
+    this.applyFlash();
+    // 停机的最后一帧要立刻把控制权交还：否则这一整帧（位移/技能/近战）被白白吞掉，
+    // 16 帧的停机看起来像 1 秒多，也会让纸飞机的落地窗口少一帧。
+    return this.stopTimer > 0;
+  }
+
+  // 冲撞（弹簧鸭/报时兔）：锁向直线推进，撞墙或走满 range 结束。扫掠路径上每 seat 只结算一次。
+  updateCharge(dt, targets) {
+    const c = this.def.charge;
+    const p = this.root.position;
+    if (this.skillState === 'idle') {
+      if (this.skillCooldown > 0) return false;
+      const t = this.targetOf(targets);
+      if (!t || Math.hypot(t.pos.x - p.x, t.pos.z - p.z) > c.range) return false;
+      this.skillDirection.set(t.pos.x - p.x, 0, t.pos.z - p.z).normalize();
+      this.rotY = Math.atan2(this.skillDirection.x, this.skillDirection.z);
+      this.root.rotation.y = this.rotY;
+      this.setSkill('telegraph', c.telegraph);
+      return true;
+    }
+    if (this.skillState === 'telegraph') {
+      this.skillTimer = Math.max(0, this.skillTimer - dt);
+      if (this.skillTimer <= 1e-8) { this.setSkill('charge', c.range / c.speed); this.chargeSeen = 0; }
+      return true;
+    }
+    if (this.skillState === 'charge') {
+      this.skillTimer = Math.max(0, this.skillTimer - dt);
+      const step = c.speed * dt;
+      const nx = p.x + this.skillDirection.x * step, nz = p.z + this.skillDirection.z * step;
+      const cx = nx, cz = nz;
+      // 贴墙就停：地图盒子挡住就换到恢复，避免冲进建筑。
+      const blocked = (this.ctx.map.walls || []).some((w) =>
+        Math.abs(cx - w.x) < w.hx + this.radius && Math.abs(cz - w.z) < w.hz + this.radius &&
+        (w.hy === undefined || w.y + w.hy > 0.2));
+      if (blocked || this.skillTimer <= 1e-8) { this.hitCharge(targets); this.setSkill('recover', c.recover); return true; }
+      p.x = cx; p.z = cz;
+      this.hitCharge(targets);
+      return true;
+    }
+    this.skillTimer = Math.max(0, this.skillTimer - dt);
+    if (this.skillTimer <= 1e-8) {
+      this.setSkill('idle', 0);
+      this.skillCooldown = c.period;
+    }
+    return true;
+  }
+
+  // 冲撞扫掠：玩家到线段(本帧位移)距离 < width 且垂直差在可跳范围外就算命中。
+  hitCharge(targets) {
+    const c = this.def.charge;
+    const p = this.root.position;
+    for (let i = 0; i < targets.length; i++) {
+      const t = targets[i];
+      if (!t || t.dead || t.downed || (this.chargeSeen & (1 << i))) continue;
+      const dx = t.pos.x - p.x, dz = t.pos.z - p.z;
+      const along = dx * this.skillDirection.x + dz * this.skillDirection.z;
+      const side = Math.abs(dx * this.skillDirection.z - dz * this.skillDirection.x);
+      if (along > -c.width * 0.5 && along < this.radius + c.width * 0.5 && side < c.width * 0.5 + this.radius &&
+          Math.abs(t.pos.y - p.y) < 1) {
+        this.chargeSeen |= 1 << i;
+        this.deliverHit(i);
+      }
+    }
+  }
+
+  // 技能伤害直接结算到对应 seat 的玩家。常规近战走 ctx.onAttack（按 targetSeat 分派）；
+  // 玩具技能是定点/定向攻击，seat 在命中瞬间就确定了，直接命中才不会打错人。
+  deliverHit(seat) {
+    const t = this.ctx.cloud ? this.ctx.cloud.targets()[seat] : this.ctx.player;
+    if (t && !t.dead && !t.downed) t.damage(this.def.damage, { airborne: false });
+  }
+
+  targetOf(targets) {
+    for (const t of targets) if (t && !t.dead && !t.downed) return t;
+    return null;
+  }
+
+  // 茶壶：锁地预警后从云端抛一壶茶落到预警点（tea 池上限 6）。
+  updateTea(dt, targets) {
+    const d = this.def.tea;
+    const p = this.root.position;
+    if (this.skillState === 'idle') {
+      if (this.skillCooldown > 0) return false;
+      const t = this.targetOf(targets);
+      if (!t || Math.hypot(t.pos.x - p.x, t.pos.z - p.z) > d.range) return false;
+      if (!this.ctx.cloud || !this.ctx.cloud.hasLineOfSight(this, t)) return false;
+      // 锁定开火瞬间的地面点：之后玩家跑开也打不中，这是"可躲"的契约。
+      this.skillCenter.set(t.pos.x, 0, t.pos.z);
+      this.setSkill('teaTelegraph', d.telegraph);
+      return true;
+    }
+    if (this.skillState === 'teaTelegraph') {
+      this.skillTimer = Math.max(0, this.skillTimer - dt);
+      if (this.skillTimer <= 1e-8) {
+        this.ctx.cloud.throwTea(this, this.skillCenter);
+        this.setSkill('recover', 0.3);
+      }
+      return true;
+    }
+    this.skillTimer = Math.max(0, this.skillTimer - dt);
+    if (this.skillTimer <= 1e-8) { this.setSkill('idle', 0); this.skillCooldown = d.period; }
+    return true;
+  }
+
+  // 八音盒小丑：0.7 秒预警后拳套沿预警时的方向直捅 2.2 米，命中判定只看固定扇区。
+  updatePunch(dt, targets) {
+    const d = this.def.punch;
+    const p = this.root.position;
+    if (this.skillState === 'idle') {
+      if (this.skillCooldown > 0) return false;
+      const t = this.targetOf(targets);
+      if (!t || Math.hypot(t.pos.x - p.x, t.pos.z - p.z) > d.range) return false;
+      this.skillDirection.set(t.pos.x - p.x, 0, t.pos.z - p.z).normalize();
+      this.rotY = Math.atan2(this.skillDirection.x, this.skillDirection.z);
+      this.root.rotation.y = this.rotY;
+      this.setSkill('punchTelegraph', d.telegraph);
+      return true;
+    }
+    if (this.skillState === 'punchTelegraph') {
+      this.skillTimer = Math.max(0, this.skillTimer - dt);
+      if (this.skillTimer <= 1e-8) {
+        for (let i = 0; i < targets.length; i++) {
+          const t = targets[i];
+          if (!t || t.dead || t.downed) continue;
+          const dx = t.pos.x - p.x, dz = t.pos.z - p.z;
+          const dist = Math.hypot(dx, dz);
+          if (dist > d.range + this.radius || Math.abs(t.pos.y - p.y) > 1) continue;
+          // 拳套只打预警时锁定的方向：偏离中线超过一个身位就算躲开。
+          const angle = Math.abs(Math.atan2(
+            dx * this.skillDirection.z - dz * this.skillDirection.x,
+            dx * this.skillDirection.x + dz * this.skillDirection.z));
+          if (angle > Math.PI / 2) continue;
+          this.deliverHit(i);
+        }
+        this.setSkill('recover', d.recover);
+      }
+      return true;
+    }
+    this.skillTimer = Math.max(0, this.skillTimer - dt);
+    if (this.skillTimer <= 1e-8) { this.setSkill('idle', 0); this.skillCooldown = d.period; }
+    return true;
+  }
+
+  // 报时兔：先放报时圈（预警 → 扩散），半血时再叠一圈；恢复完再锁向冲撞。
+  updateClock(dt, targets) {
+    const c = this.def.clock;
+    const p = this.root.position;
+    if (this.skillState === 'ringTelegraph') {
+      this.skillTimer = Math.max(0, this.skillTimer - dt);
+      if (this.skillTimer <= 1e-8) {
+        this.ctx.cloud.emitWave(this);
+        this.setSkill('ring', (c.radius - c.startRadius) / c.speed);
+        // 半血以下直接排第二圈：等 1.2 秒 → 完整的 0.9 秒预警 → 再扩散一次，
+        // 两圈都跑完才进恢复。只排一次，否则血量卡在半血会无限连圈。
+        if (!this.clockRepeated && this.hp <= this.maxHp * 0.5) {
+          this.clockRepeated = true;
+          // repeat 的计时 = 等第一圈扩散完 + 额外的 1.2 秒。
+          this.setSkill('repeat', (c.radius - c.startRadius) / c.speed + c.repeatDelay);
+        }
+      }
+      return true;
+    }
+    if (this.skillState === 'ring') {
+      this.skillTimer = Math.max(0, this.skillTimer - dt);
+      if (this.skillTimer <= 1e-8) this.setSkill('recover', c.recover);
+      return true;
+    }
+    if (this.skillState === 'repeat') {
+      this.skillTimer = Math.max(0, this.skillTimer - dt);
+      if (this.skillTimer <= 1e-8) {
+        this.setSkill('ringTelegraph', c.telegraph);
+        this.skillTimer = c.telegraph;
+      }
+      return true;
+    }
+    if (this.skillState === 'recover') {
+      this.skillTimer = Math.max(0, this.skillTimer - dt);
+      // 收招结束才起冷却：和冲撞那招同口径，别让报时圈刚吃完就接着放下一招。
+      if (this.skillTimer <= 1e-8) {
+        this.setSkill('idle', 0);
+        this.skillCooldown = c.period;
+      }
+      return true;
+    }
+    if (this.skillState !== 'idle') return true;
+    if (this.skillCooldown > 0) return false;
+    if (!this.ctx.cloud || !this.ctx.cloud.canStartAttack(this)) return false;
+    const t = this.targetOf(targets);
+    if (!t) return false;
+    // 槽轮：第 0 轮永远先放报时圈（startRadius → radius 的扩散就是玩家的躲避窗口），
+    // 之后一轮圈、一轮锁向冲撞交替 —— 连着的两圈会被冲撞隔开。
+    const ringTurn = this.clockTurn % 2 === 0;
+    this.clockTurn += 1;
+    if (ringTurn) {
+      this.clockRepeated = false;
+      this.setSkill('ringTelegraph', c.telegraph);
+      return true;
+    }
+    const d = Math.hypot(t.pos.x - p.x, t.pos.z - p.z);
+    if (d > c.radius) return false;
+    return this.updateCharge(dt, targets);
+  }
+
+  // 纸飞机：巡航 → 预警 → 下降落地打 2.4 秒豌豆窗口 → 升空。
+  updateFlight(dt, targets) {
+    const f = this.def.flight;
+    const p = this.root.position;
+    const state = this.skillState;
+    if (state === 'fly') {
+      this.skillTimer -= dt;
+      if (this.skillTimer <= 0) this.setSkill('telegraph', f.telegraph);
+    } else if (state === 'telegraph') {
+      this.skillTimer -= dt;
+      const t = this.targetOf(targets);
+      if (t) { this.skillCenter.set(t.pos.x, 0, t.pos.z); this.rotY = Math.atan2(t.pos.x - p.x, t.pos.z - p.z); }
+      if (this.skillTimer <= 0) this.setSkill('descent', f.descent);
+    } else if (state === 'descent') {
+      this.skillTimer = Math.max(0, this.skillTimer - dt);
+      this.airHeight = f.high * Math.max(0, 1 + this.skillTimer / f.descent);
+      if (this.skillTimer <= 1e-8) { this.airHeight = 0; this.setSkill('land', f.groundTime); }
+    } else if (state === 'land') {
+      this.skillTimer -= dt;
+      if (this.skillTimer <= 0) this.setSkill('rise', f.ascent);
+    } else if (state === 'rise') {
+      this.skillTimer = Math.max(0, this.skillTimer - dt);
+      this.airHeight = f.high * Math.min(1, 1 - this.skillTimer / f.ascent);
+      if (this.skillTimer <= 1e-8) { this.airHeight = f.high; this.setSkill('fly', f.cruise); }
+    } else {
+      this.setSkill('fly', f.cruise);
+    }
+    this.airborne = this.skillState !== 'land';
+    p.y = this.airHeight;
+    // 飞行循环全程接管：落地窗口也归这招管，放回常规近战会在着陆那几帧夹带一次撕咬。
+    return true;
+  }
+
   // 只由 host 推进阶段；返回 true 时，本帧不能移动或触发普通近战。
   updateSkill(dt, targets, target) {
     const p = this.root.position;
+    if (this.skillCooldown > 0) this.skillCooldown = Math.max(0, this.skillCooldown - dt);
+    // clock 排在 charge 前面：报时兔自己也有 charge（冲撞是它的第二招），
+    // 由 updateClock 槽轮决定什么时候把控制权交给 updateCharge。
+    if (this.def.clock) return this.updateClock(dt, targets);
+    if (this.def.charge) return this.updateCharge(dt, targets);
+    if (this.def.tea) return this.updateTea(dt, targets);
+    if (this.def.punch) return this.updatePunch(dt, targets);
+    if (this.def.flight) return this.updateFlight(dt, targets);
     const slam = this.def.slam;
     if (slam) {
       if (this.skillState === 'idle') {
@@ -1025,15 +1341,25 @@ export class Zombie {
     if (!this.skillCue) return;
     const state = this.skillState;
     const impact = this.remote && this.def.slam && state === 'recover' && this.skillTimer > this.def.slam.recover * 0.75;
+    // 玩具的预警环：冲撞/拳套/报时圈/茶壶都画在各自锁定的位置上，预警期间才亮。
+    // 纸飞机的落地窗口用 'descent' 亮，其余节拍不亮（否则空中一直有一圈光）。
+    const toyWarn = state === 'telegraph' || state === 'punchTelegraph' || state === 'ringTelegraph' ||
+      state === 'teaTelegraph' || state === 'descent';
     this.skillCue.visible = !this.dying && !this.dead &&
-      (impact || state === 'telegraph' || state === 'slam' || state === 'duck' || state === 'land' || state === 'ambush' || state === 'wake');
+      (impact || state === 'telegraph' || state === 'slam' || state === 'duck' || state === 'land' || state === 'ambush' || state === 'wake' || toyWarn);
     const slam = this.def.slam;
-    const center = slam ? this.skillCenter : this.root.position;
+    const toyLocked = this.def.tea || state === 'teaTelegraph';
+    const center = slam || toyLocked ? this.skillCenter : this.root.position;
     const dx = center.x - this.root.position.x, dz = center.z - this.root.position.z;
     const c = Math.cos(this.root.rotation.y), s = Math.sin(this.root.rotation.y);
     this.skillCue.position.set((dx * c - dz * s) / this.scaleFactor,
       (0.045 - this.root.position.y) / this.scaleFactor, (dx * s + dz * c) / this.scaleFactor);
-    const radius = slam ? slam.radius : this.radius * 1.5;
+    // 玩具的预警环半径取各自招式的实际覆盖范围：冲撞沿射线，拳套 2.2 米，茶滴是落点。
+    const radius = slam ? slam.radius
+      : this.def.charge ? this.def.charge.width * 0.5
+        : this.def.punch ? this.def.punch.range
+          : this.def.tea ? this.def.tea.radius
+            : this.radius * 1.5;
     this.skillCue.scale.setScalar(radius / this.scaleFactor);
     this.skillCue.material.color.setHex(state === 'ambush' ? 0x976dc4 : state === 'duck' ? 0x65bcdc : 0xffac55);
     this.skillCue.material.opacity = state === 'ambush' ? 0.35 : 0.55 + Math.sin(this.age * 15) * 0.2;
@@ -1094,11 +1420,21 @@ export class Zombie {
       bo: this.bounty ? 1 : 0,
       co: this.coop ? 1 : 0,
       ab: this.airborne ? 1 : 0,
+      // 模型的 Y 缩放（duck 压扁 / 受击压缩）：guest 直接用，不自己算姿态曲线。
+      sp: +this.model.scale.y.toFixed(2),
       sk: this.skillState,
       kt: +this.skillTimer.toFixed(2),
       kx: +this.skillCenter.x.toFixed(2),
       kz: +this.skillCenter.z.toFixed(2),
       ys: +this.model.scale.y.toFixed(2),
+      // 玩具专属：冷却 / 锁向 / 停机 / 冲撞已结算位图 / 出招轮次 / 甲血。
+      // guest 只按这些值做姿态与提示，不自行推进任何一个时钟。
+      kc: +this.skillCooldown.toFixed(2),
+      kd: [+this.skillDirection.x.toFixed(2), +this.skillDirection.z.toFixed(2)],
+      kh: +this.stopTimer.toFixed(2),
+      ks: this.chargeSeen,
+      ka: this.clockTurn || 0,
+      ar: Math.round(this.armorHp),
     };
   }
 
@@ -1115,6 +1451,15 @@ export class Zombie {
     if (s.sk !== undefined) this.skillState = s.sk;
     if (s.kt !== undefined) this.skillTimer = s.kt;
     if (s.kx !== undefined && s.kz !== undefined) this.skillCenter.set(s.kx, 0, s.kz);
+    if (s.kd) this.skillDirection.set(s.kd[0], 0, s.kd[1]);
+    if (s.kc !== undefined) this.skillCooldown = s.kc;
+    if (s.ks !== undefined) this.chargeSeen = s.ks;
+    if (s.ka !== undefined) this.clockTurn = s.ka;
+    if (s.kh !== undefined) this.stopTimer = s.kh;
+    if (s.ar !== undefined) {
+      this.armorHp = s.ar;
+      if (this.hat && this.armorHp <= 0) this.hat.visible = false;
+    }
     this.slowTimer = s.sl ? 0.2 : 0;
     if (!!s.bo !== this.bounty) this.setBounty(!!s.bo);
     if (!!s.co !== this.coop) this.setCoopMark(!!s.co);
@@ -1149,7 +1494,9 @@ export class Zombie {
   update(dt, player, colliders) {
     if (this.dead) return;
     if (this._hatPending) this.mountHeadTop();
-    this.age += dt;
+    // 出生升起动画期间要计数（下面靠它判断就绪）；只有就绪之后才累计年龄 ——
+    // 协同/悬赏的窗口都是按 age 算的，出生那 0.55 秒不该被算进去。
+    if (this.spawnT >= 0.55) this.age += dt;
 
     if (this.remote) {
       if (this.dying) {
@@ -1169,7 +1516,9 @@ export class Zombie {
         if (this.slowTimer <= 0) this.applyTint(0);
       }
       this.updateSkillVisuals();
-      if (this.mixer) this.mixer.update(dt);
+      // guest 只照快照摆姿势，不自己推进骨骼：停机（kh>0）时 host 也冻着 mixer，
+      // guest 一旦自推就会和 host 错开半个动作。
+      if (this.mixer && this.stopTimer <= 0) this.mixer.update(dt);
       return;
     }
 
@@ -1289,6 +1638,15 @@ export class Zombie {
           target = p;
         }
       }
+    }
+    // 铜钟停机：整只玩具冻结一帧（位移/骨骼/技能/近战都不推进），只保留白闪与燃烧致死。
+    if (this.updateStop(dt)) {
+      this.animSpeed = 0;
+      this.updateSkillVisuals();
+      if (this.stopCue) this.stopCue.visible = true;
+      this.pushX = 0;
+      this.pushZ = 0;
+      return;
     }
     if (this.updateSkill(dt, targets, target)) {
       this.animSpeed = 0;

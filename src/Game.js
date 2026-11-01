@@ -12,10 +12,11 @@ import { SkySun } from './entities/SkySun.js';
 import { WeaponPickups } from './entities/WeaponPickups.js';
 import { WallNuts, RemoteShield } from './entities/WallNuts.js';
 import { RemotePlayer } from './entities/RemotePlayer.js';
+import { CloudCombat } from './entities/CloudCombat.js';
 import { Sfx } from './audio/Sfx.js';
 import { HUD } from './ui/HUD.js';
 import { Controls } from './input/Controls.js';
-import { TUNING, WEAPONS, DUO, SUN_SKY, BOUNTY, AIRDROP } from './config.js';
+import { TUNING, WEAPONS, DUO, SUN_SKY, BOUNTY, AIRDROP, CLOUD } from './config.js';
 import { outdoorEnvironment } from './world/materials.js';
 import { clamp, lerp, segmentSphereT } from './utils.js';
 import { sweepWalls } from './weapons/HitWalls.js';
@@ -121,6 +122,12 @@ export class Game {
     this.projectiles = new ProjectileSystem(ctx);
     ctx.projectiles = this.projectiles;
 
+    // 云上发条游乐园的公共战斗对象（敲钟冷却、茶滴、报时圈）。
+    // 其它地图上 enabled=false，所有方法直接空转，不进任何热路径分支。
+    ctx.game = this;
+    this.cloud = new CloudCombat(ctx);
+    ctx.cloud = this.cloud;
+
     ctx.spendSun = (n) => this.spendSun(n);
     ctx.shake = (a) => this.shake(a);
     ctx.onHit = (head) => this.hud.hitmarker(head);
@@ -135,6 +142,7 @@ export class Game {
     ctx.onGuestAoe = (weaponId, pos) => {
       if (this.duoSession) this.duoSession.sendAoe(weaponId, pos);
     };
+    ctx.onBellHit = (id, weaponId, dir, origin) => this.onBellHit(id, weaponId, dir, origin);
     ctx.onWaveStart = (n) => this.onWaveStart(n);
     ctx.onWaveClear = (n) => this.onWaveClear(n);
     ctx.onZombieAttack = (z) => this.onZombieAttack(z);
@@ -335,6 +343,8 @@ export class Game {
     if (this.pickups) this.pickups.setMap(map);
     this.sunOrbs.setMap(map.id);
     this.weapons.setMapAppearance(map.id);
+    // 公共钟冷却跟着地图走：换图后不该带着上一张图的冷却进新局。
+    if (this.cloud) this.cloud.reset();
     this.forestAmbienceT = 0;
   }
 
@@ -876,6 +886,86 @@ export class Game {
     this.zombies.damageArea(new THREE.Vector3(x, Math.max(0.4, y), z), def.radius, def.damage, null, 1, 1);
   }
 
+  // 敲钟的唯一入口：本机（单人 / host）直接裁决，guest 只发请求。
+  // origin 是开火那一刻的枪口，dir 是弹道方向；两者一起用来在 host 侧重算视线。
+  onBellHit(id, weaponId, dir, origin) {
+    if (!this.cloud || this.mapId !== 'cloud') return false;
+    if (this.duo && this.seat === 1) {
+      if (this.duoSession) this.duoSession.sendBell(id, weaponId, dir, origin);
+      return false;
+    }
+    return this.cloud.ringBell(id);
+  }
+
+  // host 裁决 guest 的敲钟请求。全部按「开火时」的历史位置重算，不用 guest 的当前位姿：
+  // 网络延迟里 guest 可能已经跑开，用当前位姿会把合法的一枪判死，也会让伪造的枪蒙混过关。
+  applyGuestBell(d) {
+    if (!d || !this.duo || this.seat !== 0 || !this.netGuest || !this.cloud) return;
+    if (this.mapId !== 'cloud') return;
+    if (this.netGuest.downed || this.netGuest.dead) return;
+    if (this.netGuest.shield && this.netGuest.shield.active) return;
+    const def = WEAPONS.find((w) => w.id === d.w);
+    // 只有直线弹种能敲钟：抛掷物和瞬时爆炸的弹道是另一套解算，不该拿射击线冒充。
+    if (!def || def.arc || def.kind === 'lob' || !def.speed) return;
+    if (!Number.isInteger(d.id) || !CLOUD.bell.positions[d.id]) return;
+    if (!Number.isInteger(d.seq) || d.seq <= 0) return;
+    const pose = this.duoSession && this.duoSession.getGuestAt(d.seq);
+    if (!pose) return;
+    const origin = new THREE.Vector3(
+      Number(d.origin && d.origin[0]),
+      Number(d.origin && d.origin[1]),
+      Number(d.origin && d.origin[2])
+    );
+    if (!Number.isFinite(origin.x) || !Number.isFinite(origin.y) || !Number.isFinite(origin.z)) return;
+    const dir = new THREE.Vector3(
+      Number(d.dir && d.dir[0]),
+      Number(d.dir && d.dir[1]),
+      Number(d.dir && d.dir[2])
+    );
+    if (dir.lengthSq() < 1e-4) return;
+    dir.normalize();
+    // 枪口必须贴着 guest 那一刻的头部，方向必须落在它那一刻的视线锥里。
+    const eye = new THREE.Vector3(pose.x, pose.y + TUNING.playerHeight, pose.z);
+    if (origin.distanceTo(eye) > 0.6) return;
+    const cp = Math.cos(pose.pitch);
+    const fx = -Math.sin(pose.yaw) * cp;
+    const fy = Math.sin(pose.pitch);
+    const fz = -Math.cos(pose.yaw) * cp;
+    if (fx * dir.x + fy * dir.y + fz * dir.z < Math.cos(0.4)) return;
+    // 和历史快照里的同一把武器共享射速，否则一枪能敲两次钟。
+    const now = Date.now();
+    const key = 'bell:' + def.id;
+    const rec = this.guestHit.get(key) || { t: 0, n: 0 };
+    if (now - rec.t < (def.cooldown || 0.2) * 800) return;
+    rec.t = now;
+    rec.n = 1;
+    this.guestHit.set(key, rec);
+    // 射线必须真的打中它报的那口钟，而且那口钟得是**最近**的一口：
+    // 拿 A 钟的方向去报 B 钟，在 host 这边不成立。
+    const [bx, bz] = CLOUD.bell.positions[d.id];
+    const target = new THREE.Vector3(bx, CLOUD.bell.y, bz);
+    const end = origin.clone().addScaledVector(dir, 80);
+    const t = segmentSphereT(origin, end, target, CLOUD.bell.hitRadius);
+    if (t < 0) return;
+    const nearest = this.cloud.bellIntersection(origin, end);
+    if (!nearest || nearest.id !== d.id) return;
+    const n = new THREE.Vector3();
+    const bounds = this.map.bounds || { x: 36, z: 36 };
+    if (sweepWalls(this.map.walls || [], bounds.x, bounds.z, origin, target, 0.05, n) >= 0) return;
+    // 开火那一帧里敌人已经挡在钟前面 → 这一枪该打敌人，不该敲钟。
+    const reach = origin.distanceTo(target);
+    const snap = this.duoSession && this.duoSession.history && this.duoSession.history[0];
+    if (snap && Array.isArray(snap.z)) {
+      for (const s of snap.z) {
+        if (s.st === 3 || s.ab) continue;
+        const sc = new THREE.Vector3(s.x, s.y + 1.02 * (s.ys ?? 1), s.z);
+        const tc = segmentSphereT(origin, end, sc, 0.46 + 0.14);
+        if (tc >= 0 && tc <= t && origin.distanceTo(sc) <= reach + 0.5) return;
+      }
+    }
+    this.cloud.ringBell(d.id);
+  }
+
   // 客人本地预测 + 房主权威位置软校正：0.2m 内不动，0.2~1.5m 平滑拉回，>1.5m 直接吸附。
   applyGuestAuth(g) {
     const p = this.player;
@@ -1057,6 +1147,7 @@ export class Game {
       z: this.zombies && this.zombies.zombies ? this.zombies.zombies.map((z) => z.serialize()) : [],
       pickups: this.pickups ? this.pickups.netList() : [],
       orbs: this.sunOrbs ? this.sunOrbs.serialize() : [],
+      c: this.mapId === 'cloud' && this.cloud ? this.cloud.serialize() : undefined,
     };
   }
 
@@ -1152,6 +1243,7 @@ export class Game {
     this.particles.clear();
     this.sunOrbs.clear();
     this.skySun.reset();
+    this.cloud.reset();
     // 双人：guest 不本地刷补给，只镜像 host 的列表（见 §5.3 全队唯一、先到先得）
     this.pickups.setShared(!!this.duo && this.seat === 1);
     this.pickups.reset();
@@ -1344,7 +1436,7 @@ export class Game {
   }
 
   requestNextWave() {
-    if (this.state !== 'playing' || this.mapId !== 'forest') return;
+    if (this.state !== 'playing' || (this.mapId !== 'forest' && this.mapId !== 'cloud')) return;
     if (this.duo && this.seat === 1) {
       this.duoSession.sendNextWave();
       return;
@@ -1427,6 +1519,7 @@ export class Game {
       this.updateDuoRescue(dt);
     }
     this.projectiles.update(dt);
+    this.cloud.update(dt);
     if (!this.isGuestWorld()) {
       this.skySun.ctx.map = this.map;
       this.skySun.update(dt);
@@ -1445,7 +1538,7 @@ export class Game {
     if (this.duoSession) this.duoSession.update(dt);
     this.particles.update(dt);
 
-    this.hud.setIntermission(this.mapId === 'forest' && this.zombies.state === 'intermission' ? this.zombies.intermission : 0);
+    this.hud.setIntermission((this.mapId === 'forest' || this.mapId === 'cloud') && this.zombies.state === 'intermission' ? this.zombies.intermission : 0);
     if (this.mapId === 'forest') {
       this.forestAmbienceT -= dt;
       if (this.forestAmbienceT <= 0) {

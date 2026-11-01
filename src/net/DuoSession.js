@@ -241,6 +241,8 @@ export class DuoSession {
       if (this.game.applyGuestHit) this.game.applyGuestHit(msg.d);
     } else if (msg.t === 'aoe') {
       if (this.game.applyGuestAoe) this.game.applyGuestAoe(msg.d);
+    } else if (msg.t === 'bell') {
+      if (this.host && this.game.applyGuestBell) this.game.applyGuestBell(msg.d);
     } else if (msg.t === 'nextwave') {
       if (this.host && this.game.applyNextWaveRequest) this.game.applyNextWaveRequest();
     } else if (msg.t === 'claim') {
@@ -347,7 +349,7 @@ export class DuoSession {
     const zs = g.zombies && g.zombies.zombies ? g.zombies.zombies.map((z) => z.serialize()) : [];
     const boss = g.zombies ? g.zombies.boss : null;
     const seq = ++this.snapSeq;
-    this.history.push({ seq, z: zs });
+    this.history.push({ seq, z: zs, g: gs });
     if (this.history.length > 20) this.history.shift();
     this.net.relay(
       encode('pstate', {
@@ -363,6 +365,7 @@ export class DuoSession {
         wt: g.zombies ? round(g.zombies.intermission || 0, 1) : 0,
         bossHp: boss ? Math.max(0, boss.hp / boss.maxHp) : 0,
         o: g.sunOrbs ? g.sunOrbs.serialize() : [],
+        c: g.mapId === 'cloud' && g.cloud ? g.cloud.serialize() : undefined,
       })
     );
   }
@@ -375,6 +378,30 @@ export class DuoSession {
       return h.z.find((x) => x.id === zid) || null;
     }
     return null;
+  }
+
+  getGuestAt(seq) {
+    for (let i = this.history.length - 1; i >= 0; i--) {
+      const h = this.history[i];
+      if (h.seq === seq) return h.g || null;
+    }
+    return null;
+  }
+
+  sendBell(weaponId, bellId, dir, origin) {
+    if (this.host || this.state !== 'playing' || !this.net || !dir || !origin) return;
+    if (typeof weaponId !== 'string' || !weaponId) return;
+    if ((typeof bellId !== 'string' || !bellId) && (!Number.isSafeInteger(bellId) || bellId < 0)) return;
+    if (![dir.x, dir.y, dir.z, origin.x, origin.y, origin.z].every(Number.isFinite)) return;
+    const len = Math.hypot(dir.x, dir.y, dir.z);
+    if (!(len > 0) || !Number.isFinite(len)) return;
+    // 舍入后还要再验一次：1.7e308 这种有限但会溢出成 Infinity 的分量，发出去 host 一律拒收。
+    const d = [round(dir.x / len, 3), round(dir.y / len, 3), round(dir.z / len, 3)];
+    const o = [round(origin.x), round(origin.y), round(origin.z)];
+    if (![...d, ...o].every(Number.isFinite)) return;
+    this.net.relay(
+      encode('bell', { w: weaponId, id: bellId, dir: d, origin: o, seq: this.game.lastWorldSeq || 0 })
+    );
   }
 
   sendHit(weaponId, zid, dir) {
