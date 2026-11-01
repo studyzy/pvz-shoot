@@ -344,3 +344,69 @@ Blender 4.2 headless（同 alchemist，`bpy==4.2.23` + 本地 `libSM/libICE`）�
 - **上游 SKIN_SKELETON_INVALID**：aigc 部分模型（pink-slime/green-blob 等）skins[*].skeleton 不指向关节公共根，validate 报 error。bake-texture.mjs 已内置修复（重指关节最低公共祖先），重烘不丢。
 - 盒式投影在投影轴切换处有贴图接缝，有机材质（毛发/凝胶）下不明显；逐面随机偏移会让图案碎裂，**默认关**（--jitter 可开）。
 - 体积：贴图版 glb 比白模大 0.5～4 MB/个，启动全量加载（initZombieModel）约多 14 MB。后续如需再压，把内嵌 PNG 转 WebP/KTX2（三页应用均读 glb 内嵌，改管线即可，无需动 src/）。
+
+---
+
+## 附：僵尸博士（`public/models/zombie-doctor.glb`，项目内 AIGC 资产）
+
+第五套模型，由仓库所有者提供的 AIGC 模型 `aigc/僵尸博士.fbx`（Kaydara FBX 7400，42.9 MB）转制。
+**授权与 alchemist / football 一样由仓库所有者确认**，不是 CC0 素材。
+
+### 原始规格（实测）
+
+| 项 | 值 |
+| --- | --- |
+| 三角面 | **50,034**（24,899 顶点，单个蒙皮网格、单材质） |
+| 骨骼 | **28 根**（Mixamo 命名：`Hips/Spine/Spine1/Spine2/Neck/Head/Left{Arm,ForeArm,Hand,UpLeg,Leg,Foot,ToeBase}…`） |
+| 动画 | **0 段**（FBX 里没有 AnimStack，只有绑定姿态） |
+| 贴图 | 4 × 4096²（baseColor / normal / roughness / metallic） |
+| 原始高 | 1.834 m（脚底 y≈-0.008，Blender 里面朝 -Y） |
+| Armature | **对象缩放 0.01**（FBX 厘米单位） |
+
+### 处理管线（可复现）
+
+`python3 tools/build-boss-model.py <in.fbx> <tmp>.glb` → `gltf-transform resize --width 1024 --height 1024` → `gltf-transform webp`。
+
+1. **修 0.01 缩放**：unparent → 对 armature 与 mesh 各做一次 `transform_apply(scale)`，再挂回骨骼。
+   不 apply 这一下，导出的 glTF 在 three.js 里蒙皮会塌缩/浮空（football 踩过同一个坑）。
+2. **抽面**：`Decimate(COLLAPSE, ratio = 12000/50034, use_collapse_triangulate)` → **12,000 面**，保留 22 个顶点组与 UV。
+   `gltf-transform simplify` 会破坏 `JOINTS_0/WEIGHTS_0`，不能用。
+3. **转朝向**：源 FBX 的脚趾顶点在 **−Y**（mean y = −0.19），绕 Z 转 180° 让它面朝 +Z，与其它模型一致。
+4. **贴图**：baseColor 1024、normal 512，都转 WebP 内嵌（baseColor 要导出 PNG 再转，源 PNG 的无损不会多一层损失）；
+   metallic/roughness 丢掉改常量 `metalness 0 / roughness 0.72`。
+   搬运坑：**别让 `gltf-transform resize` 决定谁是 baseColor**——它按图片顺序 resize，本模型 normal 恰好是 image[0]，
+   第一次做出来 baseColor 变成纯蓝（实际是 normal 贴图），整个模型发黑。
+5. **导出**：`export_yup=True`、GLB 内嵌贴图，结果 **12,000 面 / 28 骨骼 / 1 draw call / 901 KB**。
+
+### 动画：走程序化骨架（不要重定向其它模型的 clip）
+
+源 FBX 没有动画。试过从 `skeleton.glb`（KayKit）重定向，结论是**不可行**，别再试：
+
+- 两套骨架的骨轴与摆平面完全不同（KayKit 骨头朝 +Y、骨架 45° 侧身；博士骨头朝 +Z，脊柱/腿各带 ±90° 绑定旋转）。
+- 直接搬局部四元数：脚被抬到 1.3 米；共轭到世界系、按骨方向映射、加摆幅系数，最好也只做到「腿整体离地 0.3 米」。
+- glTF 节点名保留点号（`upperleg.l`），但 three.js/GLTFLoader **运行时会去掉点**（`upperlegl`）——
+  按名匹配时两边口径不一致会静默丢通道，曾经只映射到 4 根骨头（左腿全丢）。
+
+所以它走 **`Zombie.updateProcAnim`**：`buildProcRig()` 按名字抓 13 根骨骼的绑定旋转当基准，
+每帧在绑定姿势上叠角度（大腿/小腿绕局部 Z 前后摆、手臂绕 X/Z 摆动、躯干呼吸与左右晃），永不累积。
+- `PROC_RIG_MODELS = new Set(['zombieDoctor'])` 是唯一开关，
+  `ZombieModel.loadSlot` 会为这类模型**丢掉任何 clip**（带了 clip 就会去建 AnimationMixer、不走程序化路径，模型站桩滑动）。
+- 单位测试 `tests/unit/zombie.test.js › 程序化骨架` 和 E2E `bossdoctor` 场景都断言「骨骼帧间角度在变」。
+
+### 接入约定
+
+- **归属**：`ZOMBIES.zombieDoctor.model = 'zombieDoctor'`；`MODELS.zombieDoctor = { url: 'models/zombie-doctor.glb', scale: 0.9, height: 1.95 }`。
+  1.834 × 0.9 ≈ 1.65（归一化高），再乘类型 scale **1.36** ≈ **2.25 米**。
+- **只在后花园第 10 波出现**：`config.js` 的 `MAP_BOSSES = { backyard: { 10: 'zombieDoctor' } }`，
+  在 `bossForWave` 里**先于**通用轮换判定，其它地图第 10 波仍是骷髅王，森林/云园的轮换完全不动。
+  `wavePlan` 与 `Game.onWaveStart` 的横幅都走 `bossForWave`，不会出现「刷出来的和报出来的不一致」。
+- **命中球**：`HIT.zombieDoctor = { chest: 1.0, head: 1.5, radius: 1 }`（归一化世界米，调用方再乘类型 scale 1.36）。
+  头球半径 0.36 仍小于胸球 0.46，爆头判定成立。
+- **数值**对齐骷髅王（hp 1450 / damage 26 / score 2500 / sun 7），同为第 10 波压力：
+  hp 1450、speed 1.3、damage 26、score 2500、sun 7、radius 0.64。
+- 性能：单只 **1 draw call / 12,000 三角面**（E2E 实测；同场地的普通僵尸是 1 万面）。每波只有 1 只，不占同屏配额。
+
+### 来源与许可
+
+见 [public/models/LICENSE-zombie-doctor.txt](public/models/LICENSE-zombie-doctor.txt)。授权由仓库所有者确认，**不是 CC0**，
+别当成可自由再分发的素材。

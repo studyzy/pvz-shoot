@@ -646,14 +646,33 @@ Object.assign(ZOMBIES, {
       jumpHeight: 0.35, thickness: 0.18, recover: 2, bodyMul: 1.5, repeatDelay: 1.2 },
     charge: { telegraph: 0.9, recover: 0.9, period: 8, speed: 4.2, range: 7, width: 1.2 },
   },
+  // 僵尸博士（项目内 AIGC 资产 aigc/僵尸博士.fbx，见 docs/ZOMBIE-MODELS.md）。
+  // 源资产没有动画片段，动作由 Zombie.updateProcAnim 程序化摆动骨骼（zombieDoctor 在 PROC_RIG_MODELS 里）。
+  // 模型原始高 1.834 × DOCTOR_SCALE 0.9 ≈ 1.65 归一化高，再乘这里的 1.36 ≈ 2.25 米。
+  // 数值对齐骷髅王（同为第 10 波压力），只是体型比它小一圈。
+  zombieDoctor: {
+    hp: 1450, speed: 1.3, damage: 26, score: 2500,
+    scale: 1.36, model: 'zombieDoctor', acc: null, radius: 0.64,
+    boss: true, title: '僵尸博士',
+    sun: 7,
+  },
 });
 
 // 每 5 波出一个 BOSS，按这张表轮换（第 5/25/45… 波 = 巨人，第 10 波 = 骷髅王 …）。
 export const BOSS_ROTATION = ['gargantuar', 'boss', 'mushroomKing', 'dragon'];
 
+// 地图专属 BOSS：插在通用轮换**之前**判定，其余地图完全不受影响。
+// 后花园第 10 波是僵尸博士（其余地图第 10 波仍是骷髅王）。
+export const MAP_BOSSES = {
+  backyard: { 10: 'zombieDoctor' },
+};
+
 // 第 n 波该出哪只 BOSS；不是 BOSS 波返回 null。
+// wavePlan 与 Game.onWaveStart 的横幅都必须走这一个出口，否则「刷出来的」和「报出来的」会不一致。
 export function bossForWave(n, mapId) {
   if (n < 5 || n % 5 !== 0) return null;
+  const override = MAP_BOSSES[mapId] && MAP_BOSSES[mapId][n];
+  if (override) return override;
   if (mapId === 'cloud') return 'clockRabbit';
   return BOSS_ROTATION[(Math.floor(n / 5) - 1) % BOSS_ROTATION.length];
 }
@@ -764,13 +783,13 @@ function forestWavePlan(n) {
     while (selected.length < count) selected.push(base);
     list.push(...selected);
   }
-  return withBoss(shuffle(list), n);
+  return withBoss(shuffle(list), n, 'forest');
 }
 
 // BOSS 洗牌后插到队首：否则它排在十几个普通怪后面，玩家要等很久才见到，
 // 甚至因为同屏上限一直排不上（实测：不加这条第 5 波打了 20 秒 BOSS 还没出来）。
-function withBoss(list, n) {
-  const boss = bossForWave(n);
+function withBoss(list, n, mapId) {
+  const boss = bossForWave(n, mapId);
   if (!boss) return list;
   return [boss].concat(list);
 }
@@ -823,7 +842,7 @@ export function wavePlan(n, mapId) {
   for (let i = 0; i < skeletons; i++) list.push('skeleton');
   for (let i = 0; i < footballs; i++) list.push('football');
   for (let i = 0; i < balloons; i++) list.push('balloon');
-  return withBoss(shuffle(list), n);
+  return withBoss(shuffle(list), n, mapId);
 }
 
 // 双人波次：把非 Boss 条目循环补到 countMul 倍，Boss 保持 1 只。

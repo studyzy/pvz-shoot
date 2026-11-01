@@ -93,6 +93,32 @@ describe('ZombieModel.initZombieModel', () => {
     vi.resetModules();
   });
 
+  it('僵尸博士有自己的模型槽，且不借用别的模型的动画片段', async () => {
+    const THREE = await import('three');
+    const gltfScene = new THREE.Group();
+    gltfScene.add(new THREE.Mesh(new THREE.BoxGeometry(1, 2, 1), new THREE.MeshBasicMaterial()));
+    vi.resetModules();
+    vi.doMock('three/examples/jsm/loaders/GLTFLoader.js', () => ({
+      GLTFLoader: class {
+        load(url, onLoad) {
+          // 真实 zombie-doctor.glb 里没有 animation；这里给一条也不该被采用
+          onLoad({ scene: gltfScene, animations: [{ name: 'Bogus' }] });
+        }
+      },
+    }));
+    const mod = await import('../../src/entities/ZombieModel.js');
+    expect(mod.MODELS.zombieDoctor.url).toBe('models/zombie-doctor.glb');
+    mod.initZombieModel();
+    const slot = mod.zombieModel.zombieDoctor;
+    expect(slot.ready).toBe(true);
+    // 走程序化骨架的模型不能带 clip（带了 Zombie 就不会走 updateProcAnim，会停住）
+    expect(slot.clips).toEqual([]);
+    // 老模型的口径不受影响
+    expect(mod.zombieModel.alchemist.scale).toBe(mod.ALCHEMIST_SCALE);
+    vi.doUnmock('three/examples/jsm/loaders/GLTFLoader.js');
+    vi.resetModules();
+  });
+
   it('加载失败时置 failed 并给出警告', async () => {
     vi.resetModules();
     vi.doMock('three/examples/jsm/loaders/GLTFLoader.js', () => ({

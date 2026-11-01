@@ -38,8 +38,12 @@ beforeAll(async () => {
 
 async function boot() {
   const { game } = await createGame();
-  // stubGltfLoader 是异步的：等模型槽 ready，host 的 spawnOne 才不会一直返回 null。
-  await new Promise((r) => setTimeout(r, 50));
+  // stubGltfLoader 只给每个槽回调一次（异步），而且**第 1 波的队列是 normal**——
+  // 必须等 alchemist 槽 ready（普通僵尸的模型），只等顶层 zombieModel.ready 不够：
+  // spawnOne 会因为没有可刷的类型一直返回 null。
+  const { zombieModel } = await import('../../src/entities/ZombieModel.js');
+  const ready = () => zombieModel.ready && zombieModel.alchemist.ready;
+  for (let i = 0; i < 200 && !ready(); i++) await new Promise((r) => setTimeout(r, 5));
   return game;
 }
 

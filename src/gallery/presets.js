@@ -45,6 +45,12 @@ export const GALLERY_TYPES = [
     subtitle: '骷髅王 Boss',
     desc: '约 4.48 米高，手持带钉木棒；每 5 波轮换出现。',
   },
+  {
+    id: 'zombieDoctor',
+    name: '僵尸博士',
+    subtitle: '后花园第 10 波 Boss',
+    desc: '约 2.24 米的红衣博士；只守后花园第 10 波，之后轮换仍按原表走。',
+  },
 
   // ── 夜之森林 · 奇幻单位 ──
   {

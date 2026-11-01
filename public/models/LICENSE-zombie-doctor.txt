@@ -1,0 +1,42 @@
+Zombie Doctor model — provenance and licence
+
+  Source file: aigc/僵尸博士.fbx
+  Original:    Kaydara FBX 7400, 42.9 MB, 50,034 triangles, 28 bones, 0 animation clips
+  Supplied by: the repository owner (AIGC-generated asset)
+
+  Output file: public/models/zombie-doctor.glb
+
+  Licence
+  -------
+  This is an AIGC asset provided by the repository owner, the same situation as
+  alchemist.glb and football.glb. It is NOT a CC0 asset. The owner is responsible
+  for confirming that the generating platform's terms allow redistributing the
+  result alongside this public repository.
+
+  If this asset is ever replaced with a third-party model, check that model's own
+  licence before committing it: this repository is public and public/models/ is
+  published to GitHub Pages verbatim.
+
+Local modification (reproducible)
+---------------------------------
+  python3 tools/build-boss-model.py aigc/僵尸博士.fbx <tmp>.glb
+  node node_modules/.bin/gltf-transform resize --width 1024 --height 1024 <tmp>.glb s1.glb
+  node node_modules/.bin/gltf-transform webp s1.glb public/models/zombie-doctor.glb
+
+  1. Decimated 50,034 -> 12,000 triangles with Blender's Decimate (COLLAPSE,
+     triangulate). Vertex groups and UVs were preserved so the skin weights stay
+     valid; gltf-transform simplify would have destroyed JOINTS_0/WEIGHTS_0.
+  2. The FBX armature object carries a 0.01 scale (centimetre units). It is applied
+     to both the armature and the mesh before export — otherwise three.js renders
+     the skinned mesh collapsed or floating.
+  3. Rotated to face +Z (the FBX came in facing -Y) so it matches every other
+     model in the game.
+  4. Textures: baseColor 4096 -> 1024, normal 4096 -> 512, both converted to
+     embedded WebP. The metallic/roughness maps are dropped and replaced with
+     constants (metalness 0, roughness 0.72), matching the alchemist/football
+     pipeline.
+  5. No animation clips exist in the source. The boss is animated procedurally at
+     run time (Zombie.updateProcAnim); see docs/ZOMBIE-MODELS.md.
+
+  Result: 12,000 triangles, 1 skinned mesh (1 draw call), 28 joints,
+  0 clips, ~900 KB (geometry 774 KB + WebP textures).

@@ -4,13 +4,14 @@ import { describe, it, expect } from 'vitest';
 import {
   ZOMBIES,
   BOSS_ROTATION,
+  MAP_BOSSES,
   bossForWave,
   wavePlan,
   waveTotal,
   FANTASY_PLAN,
   SKELETON_MAPS,
 } from '../../src/config.js';
-import { ANIM_FAMILIES, ANIM_NAMES } from '../../src/entities/Zombie.js';
+import { ANIM_FAMILIES, ANIM_NAMES, PROC_RIG_MODELS } from '../../src/entities/Zombie.js';
 import { MODELS } from '../../src/entities/ZombieModel.js';
 
 const FANTASY_IDS = [
@@ -71,10 +72,15 @@ describe('奇幻单位 · 数值与模型', () => {
 });
 
 describe('奇幻单位 · 动画族', () => {
-  it('每个带模型的僵尸类型都挂了一个动画族', () => {
+  it('每个带模型的僵尸类型都挂了动画族，或明确走程序化骨架', () => {
     for (const [id, def] of Object.entries(ZOMBIES)) {
       const modelId = def.model || 'zombie';
-      expect(ANIM_FAMILIES[modelId], `${id} 的模型 ${modelId} 没挂动画族`).toBeTruthy();
+      // 二选一：有 clip 的走动画族；没有 clip 的（僵尸博士）必须挂进 PROC_RIG_MODELS，
+      // 否则模型会停在绑定姿势——这正是「加了新模型却站桩滑动」的老坑。
+      const covered = !!ANIM_FAMILIES[modelId] || PROC_RIG_MODELS.has(modelId);
+      expect(covered, `${id} 的模型 ${modelId} 既没挂动画族也不在 PROC_RIG_MODELS 里`).toBe(true);
+      expect(!!ANIM_FAMILIES[modelId] && PROC_RIG_MODELS.has(modelId),
+        `${id} 的模型 ${modelId} 同时挂了动画族和程序化骨架，只能选一个`).toBe(false);
     }
   });
 
@@ -136,6 +142,37 @@ describe('BOSS 轮换', () => {
     expect(bossForWave(20)).toBe('dragon');
     expect(bossForWave(25)).toBe('gargantuar'); // 循环回第一只
     expect(bossForWave(30)).toBe('boss');
+  });
+
+  it('后花园第 10 波换成僵尸博士，其余地图与波次不变', () => {
+    // MAP_BOSSES 是地图专属覆盖表：只有插了 key 的那张图那一波会变
+    expect(MAP_BOSSES.backyard[10]).toBe('zombieDoctor');
+    expect(bossForWave(10, 'backyard')).toBe('zombieDoctor');
+    // 同一波在别的图上仍是轮换表里的骷髅王
+    for (const map of ['snow', 'dust', 'forest', undefined]) {
+      expect(bossForWave(10, map), String(map)).toBe('boss');
+    }
+    // 后花园其它 BOSS 波不受影响（第 5/15/20/25 波仍是轮换）
+    expect(bossForWave(5, 'backyard')).toBe('gargantuar');
+    expect(bossForWave(15, 'backyard')).toBe('mushroomKing');
+    expect(bossForWave(20, 'backyard')).toBe('dragon');
+    expect(bossForWave(25, 'backyard')).toBe('gargantuar');
+  });
+
+  it('僵尸博士的数值与其它 BOSS 同档，且走程序化骨架', () => {
+    const doc = ZOMBIES.zombieDoctor;
+    expect(doc.boss).toBe(true);
+    expect(doc.title).toBe('僵尸博士');
+    expect(PROC_RIG_MODELS.has(doc.model)).toBe(true);
+    // 和骷髅王同为第 10 波压力，数值对齐
+    expect(doc.hp).toBe(ZOMBIES.boss.hp);
+    expect(doc.damage).toBe(ZOMBIES.boss.damage);
+    // 有够大的体型（>2 米）但不是挡半个屏幕的巨人
+    const height = 1.834 * 0.9 * doc.scale;
+    expect(height).toBeGreaterThan(2);
+    expect(height).toBeLessThan(3.4);
+    // 比普通僵尸高一头，远处一眼认得出
+    expect(height).toBeGreaterThan(2.2);
   });
 
   it('非 5 的倍数永远不出 BOSS', () => {
@@ -216,5 +253,29 @@ describe('森林波次', () => {
     expect(ZOMBIES.bones.model).toBe('bones');
     // 两者是不同的 type，避免新版 3dc 骷髅被旧版 9dc 的限流误伤
     expect(ZOMBIES.bones).not.toBe(ZOMBIES.skeleton);
+  });
+});
+describe('后花园第 10 波的波次计划', () => {
+  it('wavePlan 把僵尸博士排在第 10 波队首，其它地图第 10 波仍是骷髅王', async () => {
+    const { wavePlan } = await import('../../src/config.js');
+    for (let round = 0; round < 20; round++) {
+      const yard = wavePlan(10, 'backyard');
+      // BOSS 必须排队首：否则玩家要等十几只普通怪才见到它
+      expect(yard[0]).toBe('zombieDoctor');
+      expect(yard.filter((t) => t === 'zombieDoctor')).toHaveLength(1);
+      // 别的图第 10 波不受影响
+      expect(wavePlan(10, 'snow')[0]).toBe('boss');
+      expect(wavePlan(10, 'dust')[0]).toBe('boss');
+    }
+    // 后花园第 5/15/20 波的 BOSS 仍然是轮换表里的那几只
+    expect(wavePlan(5, 'backyard')[0]).toBe('gargantuar');
+    expect(wavePlan(15, 'backyard')[0]).toBe('mushroomKing');
+    expect(wavePlan(20, 'backyard')[0]).toBe('dragon');
+  });
+
+  it('总只数不受覆盖表影响（换 Boss 不改难度曲线）', () => {
+    for (const n of [5, 10, 15, 20, 30]) {
+      expect(wavePlan(n, 'backyard').length).toBe(wavePlan(n, 'snow').length);
+    }
   });
 });

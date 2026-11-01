@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { PROC_RIG_MODELS } from './Zombie.js';
 
 const BASE = (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.BASE_URL) ? import.meta.env.BASE_URL : '/';
 
@@ -20,6 +21,11 @@ export const ALCHEMIST_SCALE = 1.72;
 // 原始高 1.938（T-pose），按 FOOTBALL_SCALE 0.95 → 1.84 米；类型 scale 1.12 后约 2.06 米。
 export const FOOTBALL_SCALE = 0.95;
 
+// 僵尸博士（项目内 AIGC 资产 aigc/僵尸博士.fbx，见 docs/ZOMBIE-MODELS.md）：28 骨骼、**0 段动画**。
+// 原始高 1.834，按 DOCTOR_SCALE 0.9 → 约 1.65 米归一化高；类型 scale 1.36 后约 2.25 米。
+// 没有动画片段，动作由 Zombie.updateProcAnim 程序化摆动骨骼。
+export const DOCTOR_SCALE = 0.9;
+
 // 模型定义：id -> { url, scale, height }。Zombie.buildRig 按 def.model 取。
 // 新模型一律用 targetHeight：加载后按包围盒算 scale，不用逐个手量原始高，
 // 也绕开 aigc 素材普遍带 100 倍 Armature 缩放的坑（见 aigc/README.md）。
@@ -28,6 +34,7 @@ export const MODELS = {
   skeleton: { url: 'models/skeleton.glb', scale: SKELETON_SCALE, height: 1.95 },
   alchemist: { url: 'models/alchemist.glb', scale: ALCHEMIST_SCALE, height: 1.85 },
   football: { url: 'models/football.glb', scale: FOOTBALL_SCALE, height: 1.84 },
+  zombieDoctor: { url: 'models/zombie-doctor.glb', scale: DOCTOR_SCALE, height: 1.65 },
 
   // ── 夜之森林的奇幻单位（aigc/monsters，全部 CC0 1.0，见 public/models/LICENSE-cc0.txt）──
   // targetHeight 是该模型**未乘类型 scale 时**的身高；类型自己的 scale 再乘上去。
@@ -72,6 +79,8 @@ export const zombieModel = {
   alchemist: { ready: false, failed: false, scene: null, clips: [], scale: ALCHEMIST_SCALE },
   // 橄榄球模型：只给橄榄球僵尸用，加载失败时这个类型会一直留在队列里
   football: { ready: false, failed: false, scene: null, clips: [], scale: FOOTBALL_SCALE },
+  // 僵尸博士：源资产没有动画，clips 恒为空，Zombie 会走程序化骨架（PROC_RIG_MODELS）
+  zombieDoctor: { ready: false, failed: false, scene: null, clips: [], scale: DOCTOR_SCALE },
 };
 
 // 新模型（targetHeight 那一批）的槽按需挂上来，与老四套同一套接口。
@@ -160,7 +169,9 @@ function loadSlotNow(loader, id, mod, onDone, done) {
       // 归一化过的模型才量包围盒（老四套的命中球口径是手写标定过的，别动）
       if (mod.targetHeight) measureRaw(slot, scene);
       slot.scene = scene;
-      slot.clips = gltf.animations || [];
+      // 程序化骨架的模型不能带 clip：带了 Zombie 就会去建 AnimationMixer、不走 updateProcAnim，
+      // 结果停在绑定姿势站桩滑动（zombie-doctor.glb 本身也是 0 段动画）
+      slot.clips = PROC_RIG_MODELS.has(id) ? [] : (gltf.animations || []);
       slot.ready = true;
       if (onDone) onDone(slot);
       // 必须在 ready 之后才算这一个结束：done 会立刻拉起队里的下一个，
@@ -188,7 +199,8 @@ export function initZombieModel() {
     zombieModel.clips = slot.clips;
     zombieModel.ready = true;
   });
-  for (const id of ['skeleton', 'alchemist', 'football']) {
+  // 老四套 + 僵尸博士（后花园第 10 波用）：手写 scale，加载后不量包围盒
+  for (const id of ['skeleton', 'alchemist', 'football', 'zombieDoctor']) {
     loadSlot(loader, id, MODELS[id]);
   }
   // 奇幻单位：加载失败只让对应类型刷不出来，不影响主流程

@@ -71,7 +71,7 @@ npm run duo       # build 后直接起双人服务器
 | `src/input/Controls.js` | 键鼠 + 触屏输入、平台识别、虚拟摇杆、指针锁定 |
 | `src/ui/HUD.js` | DOM HUD、**5 个角色槽底栏**、蓄力条、横幅、命中标记、开始/暂停/结算界面 |
 | `src/style.css` | 全部界面样式与响应式/安全区适配 |
-| `public/models/` | `zombie.glb`（660 KB：7.8k 三角面、50 骨骼、16 段动画）+ `skeleton.glb`（1.4 MB：5.3k 三角面、41 骨骼、13 段动画）+ `alchemist.glb`（1.3 MB：1 万三角面、22 骨骼、5 段动画）+ `football.glb`（1.4 MB：1 万三角面、22 骨骼、5 段动画）+ `farmer.glb`（1.3 MB：3.7k 三角面、24 段动画，队友用）+ `LICENSE-*.txt`，构建时原样拷贝到 `dist/models/`。**普通僵尸用 alchemist，橄榄球用 football，其余地面僵尸用 zombie；队友用 farmer** |
+| `public/models/` | `zombie.glb`（660 KB：7.8k 三角面、50 骨骼、16 段动画）+ `skeleton.glb`（1.4 MB：5.3k 三角面、41 骨骼、13 段动画）+ `alchemist.glb`（1.3 MB：1 万三角面、22 骨骼、5 段动画）+ `football.glb`（1.4 MB：1 万三角面、22 骨骼、5 段动画）+ `zombie-doctor.glb`（0.9 MB：1.2 万三角面、28 骨骼、**0 段动画**→ 程序化骨架，后花园第 10 波 Boss）+ `farmer.glb`（1.3 MB：3.7k 三角面、24 段动画，队友用）+ `LICENSE-*.txt`，构建时原样拷贝到 `dist/models/`。**普通僵尸用 alchemist，橄榄球用 football，僵尸博士用 zombieDoctor，其余地面僵尸用 zombie；队友用 farmer** |
 | `src/net/protocol.js` | 双人消息类型、版本、名字/token/地图/relay 清洗（客户端与服务器共用） |
 | `src/net/NetClient.js` | 浏览器 WebSocket：hello、token（`sessionStorage`，同一浏览器两个标签页不串号）、心跳/RTT、断线重连 |
 | `src/net/DuoSession.js` | 双人会话状态机：自动配对消息 → `Game.startDuo` / `applyRemoteState` / `pause` / `endDuo` |
@@ -79,6 +79,7 @@ npm run duo       # build 后直接起双人服务器
 | `server/index.js` / `static.js` | HTTP 静态托管 + `/ws` 升级 + 心跳 + `/api/health` |
 | `tools/bake-texture.mjs` | 白模贴图烘焙：盒式投影 UV + 把 PNG 以 baseColorTexture 内嵌进 glb（蒙皮/动画保留，含上游 skeleton 修复）；用法见 [docs/ZOMBIE-MODELS.md](docs/ZOMBIE-MODELS.md) |
 | `tools/build-weapon-models.mjs` | 离线原创植物曲面建模，生成 12 款独立 GLB；Y-up、朝 -Z、保留武器本地坐标，来源见 `public/models/weapons/PROVENANCE.txt` |
+| `tools/build-boss-model.py` | 僵尸博士 FBX → GLB：Blender 抽面 12k（保留顶点组/UV）、修 0.01 armature 缩放、转 +Z 朝向、贴图 1024/512 + WebP；见 [docs/ZOMBIE-MODELS.md](docs/ZOMBIE-MODELS.md) |
 | `tools/preview-glb.mjs` | glb 预览截图：本地 HTTP + Chromium 渲染单个模型出 jpg，烘焙后人工目检用 |
 | `server/README.md` | 服务器启动、环境变量、systemd/Caddy 部署 |
 | `docs/design/DESIGN-duo-online.md` | 双人玩法设计稿（M0/M1 已实现，M2 僵尸同步未开始） |
@@ -226,7 +227,18 @@ npm run duo       # build 后直接起双人服务器
 - **头盔仍然是程序化的**：新模型没有头盔、但自带白色护肩和红球衣；`buildHat` 的 helmet 分支挂在 `Head` 骨骼、本地 Y 1.76，**不要再补护肩**（会和模型自带的白色护肩打架）。
 - 模型未就绪时 `spawnOne` 改刷别的类型、它留在队首（`modelReady` 查 `zombieModel.football` 槽）。
 
-### 5.3.4 队友模型（RemotePlayer）
+### 5.3.4 僵尸博士（第五个模型 → 后花园第 10 波 Boss）
+
+- `public/models/zombie-doctor.glb`：仓库所有者提供的 AIGC 资产（`aigc/僵尸博士.fbx` 42.9 MB 转制，管线见 [docs/ZOMBIE-MODELS.md](docs/ZOMBIE-MODELS.md)）。**授权同 alchemist/football，由仓库所有者确认**。
+- **归属**：`ZOMBIES.zombieDoctor.model = 'zombieDoctor'`、`MODELS.zombieDoctor = { scale: 0.9, height: 1.95 }` → 1.834 × 0.9 × 类型 scale 1.36 ≈ **2.25 米**。
+- 规格：**12,000 三角面、1 个蒙皮网格（1 draw call）、28 骨骼（Mixamo 命名）、0 段动画、约 900 KB**；贴图是内嵌 WebP（baseColor 1024 + normal 512）。
+- **它没有动画片段**，走 `Zombie.updateProcAnim` 程序化骨架：`buildProcRig()` 抓 13 根骨骼的绑定旋转做基准，每帧叠角度。`PROC_RIG_MODELS` 是唯一开关，`loadSlot` 对这类模型会**丢掉一切 clip**（有 clip 就会去建 mixer、不走程序化路径，模型站桩滑动）。
+- 别再从 skeleton.glb 重定向动作：两套骨架骨轴/摆平面不同，搬四元数会把脚抬到 1.3 米（试过，见文档）。
+- **出场**：`config.js` 的 `MAP_BOSSES = { backyard: { 10: 'zombieDoctor' } }`，在 `bossForWave` 里**先于**轮换表判定。其它地图第 10 波 / 所有地图第 5/15/20/25 波都不变。
+- 命中球：`HIT.zombieDoctor = { chest: 1.0, head: 1.5, radius: 1 }`（归一化世界米，再乘类型 scale）。
+- **`wavePlan` 与 `Game.onWaveStart` 的横幅必须都走 `bossForWave`**，否则「刷出来的」和「播报的」会不一致（第 10 波曾在这里错过一次）。
+
+### 5.3.5 队友模型（RemotePlayer）
 
 - `public/models/farmer.glb`：**Quaternius Farmer（CC0 1.0）**，Poly Pizza 2022-02-22 发布（早于 QAL v1.0），1.3 MB / 3,716 面 / 24 段动画 / 1.823 米。**只在创建 RemotePlayer 时懒加载**，单人模式不下载。
 - 骨骼：`Head`、`WristR`（glTF 里是 `Wrist.R`，GLTFLoader 会把点去掉）。帽子/胡子/枪用程序化补件，通过 `Object3D.attach()` 挂到骨骼；**不要手算 CharacterArmature 的 100 倍缩放**。
@@ -485,6 +497,7 @@ CI（`.github/workflows/ci.yml`）在每次 push 到 main 和每个 PR 上跑三
 - **普通**骷髅只在雪地图出现、同屏最多 3 只——它单只 9 个 draw call（僵尸 2 个），详见 5.3.1。想提高上限先想办法合并它的蒙皮网格。巨型骷髅 Boss 不受此限（每波 1 只）。
 - 僵尸用的是 Quaternius `Idle/Walk/Idle_Attack/Death/HitReact` 五段动画，攻击节奏由代码控制（`attackTimer` 1.28 秒）而不是动画事件对齐；没有 IK、没有动画事件回调，脚在急转弯时仍会轻微滑步。要完全贴合得接 IK 或动画事件。
 - Boss（巨型骷髅，约 4.48 米，手持带钉木棒）只有高血量/高伤害/大攻击距离，没有专属技能；木棒只是外观，不单独计算护甲或伤害。
+- 僵尸博士（后花园第 10 波，约 2.25 米）同样是纯近战、无技能；它的动作是**程序化骨骼摆动**（源资产没有动画），不是重定向的真人动作，幅度偏卡通。
 - 爆炸位置本身不判遮挡（范围伤害照算），但豌豆和投掷物会被地图 `walls` 挡住；辅助瞄准不预判移动。
 - 僵尸默认不做网格寻路；雪地用 1 米网格流场绕开田字四柱（`IceWorld.updateNav`），其他地图仍是直线追击 + 分离 + 碰撞推出，并带贴墙滑动。
 - 割草机是装饰，不会触发清场。

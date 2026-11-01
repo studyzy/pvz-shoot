@@ -137,6 +137,8 @@ vi.mock('../../src/entities/ZombieModel.js', async (importOriginal) => {
       spider: slotFor('spider'),
       rat: slotFor('rat'),
       bat: slotFor('bat'),
+      // 僵尸博士：源资产没有动画片段（没有 AnimStack），clips 为空 → 走程序化骨架
+      zombieDoctor: { ready: true, failed: false, scene, clips: [] },
     },
   };
 });
@@ -936,6 +938,49 @@ describe('Zombie · 与 Game 的联动', () => {
     z.update(DT, game.player, []);
     expect(game.player.hp).toBe(hp0 - 26);
     expect(game.shakeAmp).toBeGreaterThan(0.3);
+  });
+
+  it('僵尸博士：没有动画片段时不建 mixer；骨骼不全时安全降级成静止', () => {
+    const z = makeZombie('zombieDoctor');
+    expect(z.modelId).toBe('zombieDoctor');
+    // 源资产没有动画片段（只有绑定姿态）→ 不走 AnimationMixer，否则会停在 bind pose 站桩滑动
+    expect(z.mixer).toBeNull();
+    expect(z.actions).toEqual({});
+    // 替身模型只有 Root/Hips/Head 三根骨头，缺大腿与手臂 → buildProcRig 返回 null，
+    // 此时 update 不摆骨骼，但也不能抛错（真实 glb 有 28 根，是齐全的）
+    expect(z.procRig).toBeNull();
+    expect(() => z.update(DT, game.player, [])).not.toThrow();
+  });
+
+  it('程序化骨架：模拟完整骨骼后，行走会摆腿、攻击会抬手、走路不把脚抬离地面', () => {
+    const z = makeZombie('zombieDoctor');
+    // 用一套和真实 glb 同名的骨骼重建 body，验证 updateProcAnim 的角度确实作用到骨头上
+    const THREE2 = THREE;
+    const body = new THREE2.Group();
+    const mk = (name, y) => { const b = new THREE2.Bone(); b.name = name; b.position.y = y; return b; };
+    const hips = mk('Hips', 0.8);
+    const spine = mk('Spine', 0.1); const spine1 = mk('Spine1', 0.1); const head = mk('Head', 0.2);
+    const armL = mk('LeftArm', 0.1); const armR = mk('RightArm', 0.1);
+    const foreL = mk('LeftForeArm', 0.2); const foreR = mk('RightForeArm', 0.2);
+    const thighL = mk('LeftUpLeg', -0.1); const thighR = mk('RightUpLeg', -0.1);
+    const shinL = mk('LeftLeg', -0.3); const shinR = mk('RightLeg', -0.3);
+    hips.add(spine); spine.add(spine1); spine1.add(head); spine1.add(armL); spine1.add(armR);
+    armL.add(foreL); armR.add(foreR);
+    hips.add(thighL); hips.add(thighR); thighL.add(shinL); thighR.add(shinR);
+    body.add(hips);
+    z.body = body;
+    z.procRig = z.buildProcRig();
+    expect(z.procRig).toBeTruthy();
+    const q0 = thighL.quaternion.clone();
+    for (let i = 0; i < 30; i++) z.updateProcAnim(DT, true, false);
+    // 走起来后大腿角度必须变（不是站桩）
+    expect(thighL.quaternion.angleTo(q0)).toBeGreaterThan(0.05);
+    // 攻击：右手抬起
+    z.attackAnim = 0.3;
+    z.updateProcAnim(DT, false, false);
+    expect(armR.quaternion.angleTo(new THREE2.Quaternion())).toBeGreaterThan(0.05);
+    // 死亡：四肢松垂，不抛错
+    z.updateProcAnim(DT, false, true);
   });
 
   it('命中球比例：boss 胸口 2.07、头部 3.864（骷髅口径 0.90/1.68 × scale 2.3）', () => {

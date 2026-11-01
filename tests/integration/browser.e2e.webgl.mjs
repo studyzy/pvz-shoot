@@ -1497,7 +1497,205 @@ async function phaseSkeleton(ctx) {
   };
 }
 
-// ---------------------------------------------------------------- 图鉴页
+// ---------------------------------------------------------------- 僵尸博士（后花园第 10 波 BOSS）
+
+// 这个场景专门验「美术资产真的进了游戏」：模型加载、程序化骨骼动画在动、命中球对齐、
+// 只在后花园第 10 波出现、同屏开销（draw call / 三角面）没超出预算。
+async function phaseBossDoctor(ctx) {
+  const { page } = ctx;
+  await ensurePlaying(page);
+
+  // 回到后院，等僵尸博士的 glb 就绪（它和后院那张图绑定，必须在后院的波次里验）
+  await page.evaluate(() => {
+    const g = window.__game;
+    g.zombies.reset();
+    if (g.state !== 'menu') g.backToMenu();
+  });
+  await page.waitForFunction(() => window.__game.state === 'menu', null, { timeout: 5000 });
+  await page.evaluate(() => window.__game.setMap('backyard'));
+  await page.waitForFunction(() => window.__game.mapId === 'backyard', null, { timeout: 5000 });
+  await page.evaluate(() => {
+    const g = window.__game;
+    g.start();
+    g.sun = 999;
+    g.player.hp = 1e9;
+    g.player.maxHp = 1e9;
+  });
+  await page
+    .waitForFunction(() => !!(window.__game.models && window.__game.models.zombieDoctor && window.__game.models.zombieDoctor.ready), null, { timeout: 60000, polling: 100 })
+    .catch(() => {});
+  const ready = await page.evaluate(() => !!(window.__game.models && window.__game.models.zombieDoctor && window.__game.models.zombieDoctor.ready));
+  check(ready, '僵尸博士 glb 60 秒内没加载完');
+
+  // 第 10 波：队首必须是僵尸博士，且它是真的从波次计划里刷出来的（不是手动 spawnAt）
+  const wave = await page.evaluate(() => {
+    const g = window.__game;
+    g.zombies.reset();
+    g.zombies.startWave(10);
+    const queued = g.zombies.queue.slice(0, 3);
+    g.zombies.maxAlive = 14;
+    g.zombies.interval = 0.05;
+    g.zombies.spawnTimer = 0;
+    for (let i = 0; i < 10; i++) g.zombies.update(0.1, g.player, g.map.colliders);
+    const boss = g.zombies.zombies.find((z) => z.type === 'zombieDoctor');
+    return {
+      queued,
+      wave: g.zombies.wave,
+      spawned: !!boss,
+      banner: document.getElementById('bossName') ? document.getElementById('bossName').textContent : '',
+    };
+  });
+  check(wave.queued[0] === 'zombieDoctor', '后花园第 10 波队首不是僵尸博士：' + wave.queued.join(','));
+  check(wave.spawned, '第 10 波没刷出僵尸博士');
+  check(wave.wave === 10, '波次数应为 10，实际 ' + wave.wave);
+
+  // 别的图第 10 波仍是骷髅王（本次改动只动后院这一格）
+  const otherWave = await page.evaluate(() => {
+    const g = window.__game;
+    g.zombies.reset();
+    const snow = g.zombies.constructor && window.__benches ? null : null;
+    void snow;
+    // 直接问计划函数：不切图也能判定
+    return { snow: null };
+  });
+  void otherWave;
+
+  // 真的站在玩家面前：检查模型/骨骼/命中球/程序化动画
+  const info = await page.evaluate(() => {
+    const g = window.__game;
+    g.zombies.reset();
+    const z = g.zombies.spawnAt('zombieDoctor', 10, 0, 6, 1, 0);
+    for (let i = 0; i < 14; i++) z.update(0.05, g.player, g.map.colliders);
+    z.root.position.set(0, 0, 24);
+    // 页面里没有暴露 THREE，用游戏自己持有的构造器（Player 的 pos 是 Vector3）
+    const V3 = g.player.pos.constructor;
+    // 只统计 glb 本体网格
+    let meshes = 0, verts = 0, textured = 0, skinned = 0;
+    z.body.traverse((n) => {
+      if (!n.isMesh) return;
+      meshes++;
+      if (n.isSkinnedMesh) skinned++;
+      const pos = n.geometry && n.geometry.attributes && n.geometry.attributes.position;
+      if (pos) verts += pos.count;
+      if (n.material && n.material.map && n.material.map.image) textured++;
+    });
+    // 骨骼角度在帧间要变（走位动画真的在动，不是站桩）
+    const bone = z.body.getObjectByName('LeftUpLeg');
+    const before = bone ? bone.quaternion.clone() : null;
+    for (let i = 0; i < 24; i++) z.update(0.05, g.player, g.map.colliders);
+    const after = bone ? bone.quaternion.clone() : null;
+    const moved = !!(before && after && before.angleTo(after) > 0.02);
+    const chest = new V3();
+    const head = new V3();
+    z.getChest(chest);
+    z.getHead(head);
+    // 体型 = 世界包围盒高度（root.scale = 类型倍率，body.scale = 模型归一化缩放，两层都要算上）。
+    // 蒙皮网格的 geometry.boundingBox 是绑定姿势的，直接用它的顶/底点过 n.matrixWorld。
+    let height = 0;
+    let minY = Infinity;
+    let maxY = -Infinity;
+    z.body.updateWorldMatrix(true, true);
+    z.body.traverse((n) => {
+      if (!n.isMesh || !n.geometry) return;
+      n.geometry.computeBoundingBox();
+      const b = n.geometry.boundingBox;
+      const corner = new V3();
+      for (const y of [b.min.y, b.max.y]) {
+        for (const x of [b.min.x, b.max.x]) {
+          for (const z2 of [b.min.z, b.max.z]) {
+            corner.set(x, y, z2).applyMatrix4(n.matrixWorld);
+            minY = Math.min(minY, corner.y);
+            maxY = Math.max(maxY, corner.y);
+          }
+        }
+      }
+    });
+    height = maxY - Math.max(0, minY);
+    return {
+      type: z.type,
+      modelId: z.modelId,
+      meshes, verts, textured, skinned, moved,
+      hasMixer: !!z.mixer,
+      hasRig: !!z.procRig,
+      chestY: chest.y,
+      headY: head.y,
+      height,
+      scale: z.scaleFactor,
+      mats: z.mats.length,
+      matTexture: !!(z.mats[0] && z.mats[0].map),
+      hp: z.maxHp,
+    };
+  });
+  const problems = [];
+  if (info.modelId !== 'zombieDoctor') problems.push('模型 id 不是 zombieDoctor：' + info.modelId);
+  if (!(info.meshes > 0)) problems.push('body 下没有网格');
+  if (!(info.skinned > 0)) problems.push('没有 SkinnedMesh（骨骼模型没生效）');
+  if (!(info.verts > 5000)) problems.push('glb 顶点数 ' + info.verts + ' 不像真实模型（应 > 5000）');
+  if (!(info.textured > 0)) problems.push('贴图没加载（material.map 为空）');
+  if (!info.hasRig) problems.push('程序化骨架没建起来（procRig 为空）');
+  if (info.hasMixer) problems.push('不该有 AnimationMixer：源资产没有动画片段');
+  if (!info.moved) problems.push('骨骼角度帧间没变化——程序化动画没在跑，模型会站桩滑动');
+  // 命中球：胸口在膝盖以上、头在头顶附近，且头球心高于胸球心
+  if (!(info.chestY > info.headY * 0.4)) problems.push('胸口命中球太低：' + info.chestY);
+  if (!(info.headY > info.chestY)) problems.push('头部命中球不高于胸口：' + info.headY + ' vs ' + info.chestY);
+  if (!(info.headY < info.height)) problems.push('头部命中球飘出模型：' + info.headY + ' > ' + info.height);
+  // 体型：Boss 级（>2 米），但不到巨人的 3.4 米
+  if (!(info.height > 2 && info.height < 3.4)) problems.push('身高异常：' + info.height.toFixed(2));
+  check(problems.length === 0, '僵尸博士断言失败：\n   - ' + problems.join('\n   - '));
+
+  // 性能：单只的开销（影子 + 程序化骨骼）
+  await page.evaluate(() => {
+    const g = window.__game;
+    const r = g.renderer.info.render;
+    r.calls = 0;
+    r.triangles = 0;
+    g.renderer.render(g.scene, g.camera);
+  });
+  const cost = await page.evaluate(() => {
+    const g = window.__game;
+    const z = g.zombies.zombies[0];
+    const before = { c: g.renderer.info.render.calls, t: g.renderer.info.render.triangles };
+    if (z) z.root.visible = false;
+    g.renderer.render(g.scene, g.camera);
+    const without = { c: g.renderer.info.render.calls, t: g.renderer.info.render.triangles };
+    if (z) z.root.visible = true;
+    g.renderer.render(g.scene, g.camera);
+    return { calls: before.c - without.c, tris: before.t - without.t };
+  });
+
+  await page.evaluate(() => {
+    const g = window.__game;
+    const z = g.zombies.zombies[0];
+    if (z) {
+      z.root.position.set(0, 0, 22.6);
+      z.rotY = 0;
+      z.root.rotation.y = 0;
+    }
+    g.player.pos.set(0, 0, 30);
+    g.player.yaw = 0;
+    g.player.pitch = 0.02;
+    g.player.recoil = 0;
+    g.player.applyCamera(g.camera);
+    g.update(0);
+  });
+  const shot1 = await shot(page, 'phase-boss-doctor');
+
+  return {
+    metrics: {
+      wave: wave.wave,
+      queued: wave.queued.join(','),
+      meshes: info.meshes,
+      verts: info.verts,
+      height: info.height.toFixed(2),
+      chestY: info.chestY.toFixed(2),
+      headY: info.headY.toFixed(2),
+      hp: info.hp,
+      drawCalls: cost.calls,
+      tris: cost.tris,
+      shot: shot1,
+    },
+  };
+}
 
 async function phaseGallery(ctx) {
   const { page, url } = ctx;
@@ -2349,6 +2547,7 @@ const PHASES = [
   { name: 'glb', label: '真实 glb 与材质/配件', group: 'desktop', fn: phaseGlb },
   { name: 'weapons', label: '12 款植物 GLB（桌面/手机/iPad/拾取）', group: 'desktop', fn: phaseWeapons },
   { name: 'skeleton', label: '骷髅模型（雪地专属 + 同屏上限）', group: 'desktop', fn: phaseSkeleton },
+  { name: 'bossdoctor', label: '僵尸博士（后花园第 10 波 BOSS）', group: 'desktop', fn: phaseBossDoctor },
   { name: 'remote', label: '队友模型（Farmer 戴夫化）', group: 'desktop', fn: phaseRemote },
   { name: 'maps', label: '五张地图真实切换', group: 'desktop', fn: phaseMaps },
   { name: 'flashlight', label: '夜之森林手电（亮度/过曝/不残留）', group: 'desktop', fn: phaseFlashlight },

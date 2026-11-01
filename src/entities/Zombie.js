@@ -9,6 +9,9 @@ import { clamp, rand, TAU } from '../utils.js';
 const ICE = new THREE.Color(0x9fe4ff);
 const WHITE = new THREE.Color(0xffffff);
 const tmpV = new THREE.Vector3();
+// 程序化骨骼动画复用的临时量（每帧给十几根骨头设角度，不能每帧 new）
+const tmpQ = new THREE.Quaternion();
+const tmpE = new THREE.Euler(0, 0, 0, 'YXZ');
 const hatQuat = new THREE.Quaternion();
 const shadowGeometry = new THREE.PlaneGeometry(1.5, 1.5);
 const skillGeometry = new THREE.RingGeometry(0.86, 1, 48);
@@ -86,6 +89,10 @@ const HIT = {
   // 蘑菇王/巨龙按**飞行/站立姿态实测**：蘑菇的伞盖占上半身，巨龙走 Flying 姿态
   // （身体抬高、双翼展开），胸口球都要按姿态重心给，不能按 bind pose 猜
   'mushroom-king': { chest: 1.0, head: 1.5, radius: 1 },
+  // 僵尸博士：模型原始高 1.834，DOCTOR_SCALE 0.9 → 归一化高 1.651（脚底 y≈0）。
+  // 下面填归一化后的世界米，调用方再乘类型 scale 1.36。胸心取身高 0.60（宽肩躯干中段）、
+  // 头心 0.91（颅骨中心）。头球半径 0.36 仍小于胸球 0.46，爆头判定成立。
+  zombieDoctor: { chest: 1.0, head: 1.5, radius: 1 },
   dragon: { chest: 1.4, head: 1.75, radius: 1.15 },
 };
 
@@ -228,6 +235,10 @@ export const ANIM_NAMES = {
     hit: ['hitreact', 'hitrecieve'],
   },
 };
+
+// 走**程序化骨骼动画**的模型：源资产没有动画片段（僵尸博士的 FBX 只有绑定姿态），
+// 由 Zombie.updateProcAnim 逐帧摆骨骼，所以不需要动画族。加进这里的模型必须真的没有 clip。
+export const PROC_RIG_MODELS = new Set(['zombieDoctor']);
 
 export const ANIM_FAMILIES = {
   zombie: 'quaternius',
@@ -471,6 +482,9 @@ export class Zombie {
     this.mixer = clips.length ? new THREE.AnimationMixer(this.body) : null;
     this.actions = {};
     this.current = null;
+    // 没有动画片段的模型（僵尸博士的源 FBX 没有 AnimStack）走程序化骨骼摆动：
+    // 骨骼是真实存在的，只是逐帧由代码定角度，不走 AnimationMixer。
+    this.procRig = !clips.length ? this.buildProcRig() : null;
     if (!this.mixer) return;
 
     const pick = (names) => {
@@ -509,6 +523,8 @@ export class Zombie {
   }
 
   play(name, fade) {
+    // 程序化骨架不走进这里：它每帧由 updateProcAnim 重新摆，切「动作」没有意义
+    if (this.procRig) return;
     const next = this.actions[name];
     if (!next || this.current === name) return;
     const prev = this.current ? this.actions[this.current] : null;
@@ -519,6 +535,74 @@ export class Zombie {
     if (prev && prev !== next && fade) prev.crossFadeTo(next, fade, false);
     else if (prev && prev !== next) prev.stop();
     this.current = name;
+  }
+
+  // ── 程序化骨骼动画（仅用于没有动画片段的模型，目前是僵尸博士）─────────────
+  // 源 FBX 只有绑定姿态，没有 AnimStack。与其硬套别的骨架的旋转（两套骨轴/摆平面不同，
+  // 搬过来腿会绕错轴、脚被抬到 1.3 米——试过，见 docs/ZOMBIE-MODELS.md），
+  // 不如按「关节绕哪个轴会往哪动」的实测结果直接摆动：
+  //   大腿/小腿：局部 Z（前后摆）、局部 X（左右开合）
+  //   手臂：局部 X（前后）、局部 Z（外展）；小臂：局部 Z（屈肘）
+  //   脊柱/头：局部 X（前后点头）、局部 Z（侧倾）
+  // 基准 = 每个骨骼克隆时的绑定局部旋转，每帧在它上面叠角度，永不累积。
+  buildProcRig() {
+    const get = (n) => this.body.getObjectByName(n) || null;
+    const bones = {
+      hips: get('Hips'), spine: get('Spine'), spine1: get('Spine1'), head: get('Head'),
+      armL: get('LeftArm'), armR: get('RightArm'), foreL: get('LeftForeArm'), foreR: get('RightForeArm'),
+      thighL: get('LeftUpLeg'), thighR: get('RightUpLeg'), shinL: get('LeftLeg'), shinR: get('RightLeg'),
+    };
+    if (!bones.thighL || !bones.armL) return null;
+    const rest = {};
+    for (const k in bones) if (bones[k]) rest[k] = bones[k].quaternion.clone();
+    return { bones, rest, t: 0, walk: 0, gait: 0 };
+  }
+
+  // 每帧调用：moving 决定迈步幅度，attackAnim/死亡分别给手臂与整体姿态加权。
+  updateProcAnim(dt, moving, dead) {
+    const rig = this.procRig;
+    if (!rig) return;
+    rig.t += dt;
+    // 迈步相位：走路时按速度推进，站住时缓慢衰减（避免突然定格）
+    rig.gait = moving ? rig.gait + dt * (3.1 + this.speed * 1.5) : rig.gait + dt * 0.6;
+    rig.walk += ((moving ? 1 : 0) - rig.walk) * Math.min(1, dt * 8);
+    const t = rig.t;
+    const s = Math.sin(rig.gait);
+    const c = Math.cos(rig.gait);
+    const w = rig.walk;
+    const breathe = Math.sin(t * 1.8) * 0.02;
+    const atk = this.attackAnim > 0 ? Math.sin((1 - this.attackAnim / 0.4) * Math.PI) : 0;
+    const set = (key, ax, ay, az) => {
+      const b = rig.bones[key];
+      if (!b) return;
+      tmpQ.setFromEuler(tmpE.set(ax, ay, az));
+      b.quaternion.copy(rig.rest[key]).multiply(tmpQ);
+    };
+    if (dead) {
+      // 死亡：整体后仰倒地由上层负责下沉，这里让四肢松下来
+      set('spine', 0.25, 0, 0);
+      set('head', 0.3, 0, 0);
+      set('armL', -0.5, 0, 0.4);
+      set('armR', -0.5, 0, -0.4);
+      set('thighL', 0, 0, 0.3);
+      set('thighR', 0, 0, -0.3);
+      return;
+    }
+    // 腿：前后交替迈步；抬腿时膝盖屈
+    set('thighL', 0, 0, s * 0.5 * w);
+    set('thighR', 0, 0, -s * 0.5 * w);
+    set('shinL', 0, 0, Math.max(0, -s) * 0.6 * w + 0.05);
+    set('shinR', 0, 0, Math.max(0, s) * 0.6 * w + 0.05);
+    // 手臂：与腿反相摆动；攻击时右手抬高砸下
+    set('armL', -s * 0.45 * w + breathe, 0, 0.12);
+    set('armR', s * 0.45 * w - atk * 1.5, 0, -0.12);
+    set('foreL', 0, 0, 0.35 + Math.max(0, s) * 0.35 * w);
+    set('foreR', 0, 0, -0.35 - Math.max(0, s) * 0.35 * w - atk * 0.8);
+    // 躯干：行走时左右轻晃 + 上下起伏交给 model.position.y（已有逻辑）
+    set('hips', 0, c * 0.08 * w, c * 0.05 * w);
+    set('spine', breathe - atk * 0.25, 0, -c * 0.04 * w);
+    set('spine1', breathe * 0.6, 0, 0);
+    set('head', -breathe * 0.8 + atk * 0.3, Math.sin(t * 0.9) * 0.08, 0);
   }
 
   // 交通锥 / 铁桶：加在 glb 头顶（模型单位，Y 向上，头骨顶约 1.0）
@@ -1534,6 +1618,7 @@ export class Zombie {
         this.root.position.y = -k * 0.95;
         this.model.scale.setScalar(Math.max(0.02, 1 - k * 0.35));
       }
+      if (this.procRig) this.updateProcAnim(dt, false, true);
       if (this.deathT > 1.55) this.dead = true;
       return;
     }
@@ -1804,6 +1889,9 @@ export class Zombie {
       // 走快时动画也放快，脚步才不会打滑
       this.mixer.timeScale = moving ? clamp(0.75 + this.speed * 0.22, 0.8, 1.7) : 1;
       this.mixer.update(dt);
+    } else if (this.procRig) {
+      // 没有动画片段的模型：骨骼角度由代码逐帧摆（不受 mixer 的 timeScale 影响）
+      this.updateProcAnim(dt, moving, false);
     }
 
     if (!special) {
