@@ -1639,8 +1639,8 @@ async function phaseBossDoctor(ctx) {
   if (!(info.chestY > info.headY * 0.4)) problems.push('胸口命中球太低：' + info.chestY);
   if (!(info.headY > info.chestY)) problems.push('头部命中球不高于胸口：' + info.headY + ' vs ' + info.chestY);
   if (!(info.headY < info.height)) problems.push('头部命中球飘出模型：' + info.headY + ' > ' + info.height);
-  // 体型：Boss 级（>2 米），但不到巨人的 3.4 米
-  if (!(info.height > 2 && info.height < 3.4)) problems.push('身高异常：' + info.height.toFixed(2));
+  // 体型：Boss 级（与蘑菇王同档，约 3.2 米），但不到巨人的 3.4 米
+  if (!(info.height > 3 && info.height < 3.4)) problems.push('身高异常：' + info.height.toFixed(2));
   check(problems.length === 0, '僵尸博士断言失败：\n   - ' + problems.join('\n   - '));
 
   // 性能：单只的开销（影子 + 程序化骨骼）

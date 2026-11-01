@@ -396,14 +396,14 @@ Blender 4.2 headless（同 alchemist，`bpy==4.2.23` + 本地 `libSM/libICE`）�
 ### 接入约定
 
 - **归属**：`ZOMBIES.zombieDoctor.model = 'zombieDoctor'`；`MODELS.zombieDoctor = { url: 'models/zombie-doctor.glb', scale: 0.9, height: 1.95 }`。
-  1.834 × 0.9 ≈ 1.65（归一化高），再乘类型 scale **1.36** ≈ **2.25 米**。
+  1.834 × 0.9 ≈ 1.65（归一化高），再乘类型 scale **1.94** ≈ **3.2 米**（与蘑菇王同档，明显压过普通僵尸）。
 - **只在后花园第 10 波出现**：`config.js` 的 `MAP_BOSSES = { backyard: { 10: 'zombieDoctor' } }`，
   在 `bossForWave` 里**先于**通用轮换判定，其它地图第 10 波仍是骷髅王，森林/云园的轮换完全不动。
   `wavePlan` 与 `Game.onWaveStart` 的横幅都走 `bossForWave`，不会出现「刷出来的和报出来的不一致」。
-- **命中球**：`HIT.zombieDoctor = { chest: 1.0, head: 1.5, radius: 1 }`（归一化世界米，调用方再乘类型 scale 1.36）。
+- **命中球**：`HIT.zombieDoctor = { chest: 1.0, head: 1.5, radius: 1 }`（归一化世界米，调用方再乘类型 scale 1.94）。
   头球半径 0.36 仍小于胸球 0.46，爆头判定成立。
 - **数值**对齐骷髅王（hp 1450 / damage 26 / score 2500 / sun 7），同为第 10 波压力：
-  hp 1450、speed 1.3、damage 26、score 2500、sun 7、radius 0.64。
+  hp 1450、speed 1.3、damage 26、score 2500、sun 7、radius 0.88（体型放大后同步加宽碰撞，避免玩家陷进身体里）。
 - 性能：单只 **1 draw call / 12,000 三角面**（E2E 实测；同场地的普通僵尸是 1 万面）。每波只有 1 只，不占同屏配额。
 
 ### 来源与许可

@@ -648,11 +648,11 @@ Object.assign(ZOMBIES, {
   },
   // 僵尸博士（项目内 AIGC 资产 aigc/僵尸博士.fbx，见 docs/ZOMBIE-MODELS.md）。
   // 源资产没有动画片段，动作由 Zombie.updateProcAnim 程序化摆动骨骼（zombieDoctor 在 PROC_RIG_MODELS 里）。
-  // 模型原始高 1.834 × DOCTOR_SCALE 0.9 ≈ 1.65 归一化高，再乘这里的 1.36 ≈ 2.25 米。
-  // 数值对齐骷髅王（同为第 10 波压力），只是体型比它小一圈。
+  // 模型原始高 1.834 × DOCTOR_SCALE 0.9 ≈ 1.65 归一化高，再乘这里的 1.94 ≈ 3.2 米。
+  // 数值对齐骷髅王（同为第 10 波压力），体型取蘑菇王（约 3.4 米）同档，明显压过普通僵尸。
   zombieDoctor: {
     hp: 1450, speed: 1.3, damage: 26, score: 2500,
-    scale: 1.36, model: 'zombieDoctor', acc: null, radius: 0.64,
+    scale: 1.94, model: 'zombieDoctor', acc: null, radius: 0.88,
     boss: true, title: '僵尸博士',
     sun: 7,
   },

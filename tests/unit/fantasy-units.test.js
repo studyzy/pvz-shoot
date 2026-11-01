@@ -167,12 +167,12 @@ describe('BOSS 轮换', () => {
     // 和骷髅王同为第 10 波压力，数值对齐
     expect(doc.hp).toBe(ZOMBIES.boss.hp);
     expect(doc.damage).toBe(ZOMBIES.boss.damage);
-    // 有够大的体型（>2 米）但不是挡半个屏幕的巨人
+    // Boss 级体型：和蘑菇王同档（约 3.2 米），但不是挡半个屏幕的巨人
     const height = 1.834 * 0.9 * doc.scale;
-    expect(height).toBeGreaterThan(2);
+    expect(height).toBeGreaterThan(3);
     expect(height).toBeLessThan(3.4);
-    // 比普通僵尸高一头，远处一眼认得出
-    expect(height).toBeGreaterThan(2.2);
+    // 比普通僵尸（1.85 米）高出一大截，远处一眼认得出
+    expect(height).toBeGreaterThan(2.8);
   });
 
   it('非 5 的倍数永远不出 BOSS', () => {
