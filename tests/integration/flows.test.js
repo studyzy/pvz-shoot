@@ -4,18 +4,27 @@ import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vite
 
 // 用 doMock（模块级、不提升）而不是 hoisted 的 vi.mock：后面的重置模块生命周期用例
 // 要重新安装一次，才能把 three 的 WebGLRenderer 替身重新打回新建的模块图。
-async function installThreeMock() {
-  vi.doMock('three', async (importOriginal) => {
-    const actual = await importOriginal();
-    const { makeFakeRenderer } = await import('../helpers/game.js');
-    class FakeWebGLRenderer {
-      constructor(opts) {
-        Object.assign(this, makeFakeRenderer());
-        this.domElement = (opts && opts.canvas) || null;
-      }
+// 替身工厂里不能 await importOriginal()：afterEach 的 restoreAllMocks / resetModules
+// 期间还没结算的工厂会拿到半成品的 three（"No DataTexture export is defined"）。
+// 改成在 install 时就同步取好 actual 再展开，工厂本身同步返回。
+function threeMockFactory() {
+  const actual = THREE_ACTUAL;
+  class FakeWebGLRenderer {
+    constructor(opts) {
+      Object.assign(this, makeFakeRendererRef());
+      this.domElement = (opts && opts.canvas) || null;
     }
-    return { ...actual, WebGLRenderer: FakeWebGLRenderer };
-  });
+  }
+  return { ...actual, WebGLRenderer: FakeWebGLRenderer };
+}
+
+let THREE_ACTUAL = null;
+let makeFakeRendererRef = null;
+async function installThreeMock() {
+  const { makeFakeRenderer } = await import('../helpers/game.js');
+  makeFakeRendererRef = makeFakeRenderer;
+  THREE_ACTUAL = THREE_ACTUAL || await import('three');
+  vi.doMock('three', threeMockFactory);
 }
 await installThreeMock();
 
