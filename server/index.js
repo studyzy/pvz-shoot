@@ -118,6 +118,10 @@ export function createDuoServer(opts = {}) {
       send(type, data) {
         if (ws.readyState === 1) ws.send(encode(type, data));
       },
+      // 二进制直发：快照与事件帧走这里，不经过 JSON
+      sendRaw(bytes) {
+        if (ws.readyState === 1) ws.send(bytes);
+      },
       close() {
         try {
           ws.close();
@@ -126,8 +130,15 @@ export function createDuoServer(opts = {}) {
         }
       },
     };
-    ws.on('message', (raw) => {
+    ws.on('message', (raw, isBinary) => {
       if (raw.length > MAX_MESSAGE) return;
+      // 二进制帧 = 客户端输入（见 src/sim/snapshot.js 的 INPUT 帧）。
+      // 注意：ws 收到的文本帧也是 Buffer，而 Buffer 本身是 Uint8Array 子类，
+      // 所以只能用 ws 给的 isBinary 标志判断，不能用 instanceof。
+      if (isBinary) {
+        matchmaker.onInputFrame(conn, new Uint8Array(raw.buffer, raw.byteOffset, raw.length));
+        return;
+      }
       const msg = decode(raw.toString());
       if (!msg) return;
       matchmaker.handle(conn, msg);

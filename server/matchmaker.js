@@ -7,6 +7,20 @@ import {
   MSG,
   ERR,
 } from '../src/net/protocol.js';
+import { Room } from './room.js';
+import { MatchSim } from '../src/sim/MatchSim.js';
+import { headlessMap, duoStartSpawns } from '../src/sim/headlessMap.js';
+import { decodeInput } from '../src/sim/snapshot.js';
+
+// 输入帧清洗：长度不对/类型不对一律丢，绝不让脏数据进模拟
+function decodeInputSafe(bytes) {
+  if (!bytes || !(bytes instanceof Uint8Array) || bytes.byteLength !== 12) return null;
+  try {
+    return decodeInput(bytes);
+  } catch (e) {
+    return null;
+  }
+}
 
 let matchSeq = 0;
 let joinSeq = 0;
@@ -259,6 +273,8 @@ export class Matchmaker {
         seed: seat.match.seed,
         t0: seat.match.startedAt,
       });
+      // 重连回座：重新挂上 Room，下个 tick 就能收到快照
+      if (seat.match.room) this.bindSeat(seat, seat.match.room);
     }
     this.log('reconnect', seat.match.id, seat.name);
   }
@@ -269,6 +285,7 @@ export class Matchmaker {
     clearTimeout(match.waitTimer);
     match.waitTimer = null;
     this.byJoin.delete(match.joinToken);
+    this.startRoom(match);
     for (const seat of match.seats) {
       if (seat.connected && seat.conn) {
         seat.conn.send(MSG.START, {
@@ -279,6 +296,56 @@ export class Matchmaker {
       }
     }
     this.log('start', match.id, match.seats.map((s) => s.name).join(' / '));
+  }
+
+  // 服务器权威：每场起一个 MatchSim，由 Room 以 30Hz 推进并广播二进制快照。
+  // 从这一刻起，客户端不再是模拟器，只负责发送输入 + 渲染。
+  startRoom(match) {
+    if (match.room) return match.room;
+    let map;
+    try {
+      map = headlessMap(match.mapId);
+    } catch (e) {
+      this.log('room-map-fail', match.id, e && e.message);
+      return null;
+    }
+    const sim = new MatchSim({
+      map,
+      duo: true,
+      seed: match.seed || 0,
+      spawns: duoStartSpawns(map),
+    });
+    const room = new Room(match.id, sim);
+    match.room = room;
+    for (const seat of match.seats) {
+      if (seat.conn) this.bindSeat(seat, room);
+    }
+    room.start();
+    this.log('room-start', match.id, match.mapId);
+    return room;
+  }
+
+  bindSeat(seat, room) {
+    // 每次都从 seat.conn 现取：重连会换一个 conn 对象，闭包里不能缓存旧的
+    room.attach(seat.index, {
+      connected: true,
+      send(snap, evPkt) {
+        const conn = seat.conn;
+        if (!conn || !conn.sendRaw) return;
+        conn.sendRaw(snap);
+        if (evPkt) conn.sendRaw(evPkt);
+      },
+    });
+  }
+
+  // 客户端输入（二进制帧）：直接喂给该座位的权威模拟
+  onInputFrame(conn, bytes) {
+    const seat = conn.seat;
+    if (!seat || !seat.match || !seat.match.room) return;
+    const inp = decodeInputSafe(bytes);
+    if (!inp) return;
+    seat.match.room.pushInput(seat.index, inp);
+    seat.lastInputSeq = inp.seq;
   }
 
   onRelay(conn, d) {
@@ -369,6 +436,8 @@ export class Matchmaker {
       return;
     }
 
+    // 服务器权威：掉线只是该座位暂停输入，世界照常推进（房主掉线不再终结对局）
+    if (match.room) match.room.detach(seat.index);
     const peer = match.seats.find((s) => s !== seat);
     if (peer && peer.connected && peer.conn) {
       peer.conn.send(MSG.PEER, {
@@ -388,6 +457,10 @@ export class Matchmaker {
   end(match, reason) {
     if (match.state === 'ended') return;
     match.state = 'ended';
+    if (match.room) {
+      match.room.stop();
+      match.room = null;
+    }
     clearTimeout(match.waitTimer);
     match.waitTimer = null;
     clearTimeout(match.rematchTimer);

@@ -4,9 +4,9 @@
 //   1. 不再有「房主」这个身份。谁掉线都只是该座位暂停输入，世界照常推进。
 //   2. 模拟与渲染帧率彻底解耦 —— 房主手机掉到 20fps，客人看到的世界仍然是 30Hz。
 //   3. 每 tick 广播二进制快照（约 300B），事件单独走 JSON（只做表现）。
-import { TICK_RATE } from '../sim/MatchSim.js';
-import { encodeSnapshot, encodeEvents, setZombieTypes } from '../sim/snapshot.js';
-import { ZOMBIES } from '../config.js';
+import { TICK_RATE } from '../src/sim/MatchSim.js';
+import { encodeSnapshot, encodeEvents, setZombieTypes } from '../src/sim/snapshot.js';
+import { ZOMBIES } from '../src/config.js';
 
 // 类型表只需注册一次：服务器与客户端用同一份 config，索引天然对齐
 setZombieTypes(Object.keys(ZOMBIES));
