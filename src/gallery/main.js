@@ -20,7 +20,6 @@ const angleBar = document.getElementById('angleBar');
 const loading = document.getElementById('loading');
 const errorBox = document.getElementById('error');
 
-const MODEL_SLOTS = ['zombie', 'skeleton', 'alchemist', 'football'];
 let renderer = null;
 let scene = null;
 let camera = null;
@@ -312,11 +311,23 @@ function buildTypeList() {
   updateActiveButton();
 }
 
+// 等**全部**模型槽落定（ready 或 failed）再建列表：列表里的按钮一旦按「模型未加载」
+// 建成 disabled，就不会再刷新，后面才加载完的类型会永久点不动。
+// 超时（慢网络）也照常建列表，只是慢的那些类型显示为未加载。
+function allModelsSettled() {
+  for (const id of Object.keys(zombieModel)) {
+    const slot = modelSlot(id);
+    if (!slot || slot.constructor !== Object) continue;
+    if (typeof slot.ready !== 'boolean') continue;
+    if (!slot.ready && !slot.failed) return false;
+  }
+  return true;
+}
+
 async function waitForModels() {
   const started = performance.now();
   while (performance.now() - started < 30000) {
-    const settled = MODEL_SLOTS.every((id) => isModelReady(id) || modelSlot(id).failed);
-    if (settled) break;
+    if (allModelsSettled()) break;
     await sleep(100);
   }
 }

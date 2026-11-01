@@ -126,8 +126,31 @@ function measureRaw(slot, scene) {
   slot.box = { min: box.min, max: box.max, size: box.getSize(new THREE.Vector3()) };
 }
 
+// 同时在飞的 glb 加载数上限。30 个模型合计约 22 MB，全部并发会把每个请求挤成龟速
+// （慢 runner 上单个模型能拖到 60 s 以上），限流后先到的先进、整体更快。
+const MAX_CONCURRENT_SLOTS = 6;
+const slotQueue = [];
+let slotRunning = 0;
+
+function runNextSlot() {
+  while (slotRunning < MAX_CONCURRENT_SLOTS && slotQueue.length) {
+    const job = slotQueue.shift();
+    slotRunning++;
+    job(() => {
+      slotRunning--;
+      runNextSlot();
+    });
+  }
+}
+
 // 加载一个模型进它的槽。新模型在加载完成后算归一化缩放。
 function loadSlot(loader, id, mod, onDone) {
+  const slot = zombieModel[id];
+  slotQueue.push((done) => loadSlotNow(loader, id, mod, onDone, done));
+  runNextSlot();
+}
+
+function loadSlotNow(loader, id, mod, onDone, done) {
   const slot = zombieModel[id];
   loader.load(
     BASE + mod.url,
@@ -140,6 +163,9 @@ function loadSlot(loader, id, mod, onDone) {
       slot.clips = gltf.animations || [];
       slot.ready = true;
       if (onDone) onDone(slot);
+      // 必须在 ready 之后才算这一个结束：done 会立刻拉起队里的下一个，
+      // 提前调用会让队列空转、图鉴以为「全部加载完」而把后面的类型永久禁用。
+      done();
     },
     undefined,
     (err) => {
@@ -147,6 +173,7 @@ function loadSlot(loader, id, mod, onDone) {
       // 根模型（zombie）的失败同时反映到顶层标志上：老逻辑一直这么判
       if (id === 'zombie') zombieModel.failed = true;
       console.warn(id + ' glb failed', err);
+      done();
     }
   );
 }
