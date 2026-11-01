@@ -78,6 +78,7 @@ let Arena;
 let IceWorld;
 let DustYard;
 let NightForest;
+let CloudCarnival;
 let FlowField;
 let PerspectiveCamera;
 
@@ -91,14 +92,15 @@ beforeAll(async () => {
   ({ IceWorld } = await import('../../src/world/IceWorld.js'));
   ({ DustYard } = await import('../../src/world/DustYard.js'));
   ({ NightForest } = await import('../../src/world/NightForest.js'));
+  ({ CloudCarnival } = await import('../../src/world/CloudCarnival.js'));
   ({ FlowField } = await import('../../src/world/FlowField.js'));
   ({ PerspectiveCamera } = THREE);
 }, SECONDS);
 
 describe('地图注册表 maps.js', () => {
   it('MAPS 元数据完整：id 唯一、名字/描述/开始按钮文案就位、create 是工厂函数', () => {
-    expect(MAPS.length).toBe(4);
-    expect(MAPS.map((m) => m.id)).toEqual(['backyard', 'snow', 'dust', 'forest']);
+    expect(MAPS.length).toBe(5);
+    expect(MAPS.map((m) => m.id)).toEqual(['backyard', 'snow', 'dust', 'forest', 'cloud']);
     expect(new Set(MAPS.map((m) => m.id)).size).toBe(MAPS.length);
     for (const m of MAPS) {
       expect(typeof m.name).toBe('string');
@@ -119,7 +121,7 @@ describe('地图注册表 maps.js', () => {
   it('createMaps(scene) 建出 3 张地图，meta/id/startLabel 一一对应，且全部挂在 scene 上', () => {
     const scene = new THREE.Scene();
     const maps = createMaps(scene);
-    expect(maps.length).toBe(4);
+    expect(maps.length).toBe(5);
     maps.forEach((map, i) => {
       expect(map.meta).toBe(MAPS[i]);
       expect(map.id).toBe(MAPS[i].id);
@@ -150,7 +152,7 @@ describe('地图注册表 maps.js', () => {
 
   it('未知地图 id 回落到第一张；Game.setMap 切图后只有当前地图可见', async () => {
     const { game } = await createGame();
-    expect(game.maps.length).toBe(4);
+    expect(game.maps.length).toBe(5);
     game.setMap('nope');
     expect(game.mapId).toBe(MAPS[0].id);
     for (const id of ['snow', 'dust', 'backyard']) {
@@ -174,14 +176,14 @@ async function createGame() {
 
 // describe.each 在收集阶段同步执行；three/maps 只能 await import，
 // 所以用一组静态 id 驱动参数化（下面的“注册表”用例会断言它和 MAPS 完全一致）。
-const MAP_IDS = ['backyard', 'snow', 'dust', 'forest'];
+const MAP_IDS = ['backyard', 'snow', 'dust', 'forest', 'cloud'];
 
 describe.each(MAP_IDS)('地图契约：%s', (id) => {
   let scene;
   let map;
 
   beforeAll(() => {
-    const names = { backyard: Arena, snow: IceWorld, dust: DustYard, forest: NightForest };
+    const names = { backyard: Arena, snow: IceWorld, dust: DustYard, cloud: CloudCarnival, forest: NightForest };
     scene = new THREE.Scene();
     map = new names[id](scene);
   }, SECONDS);
@@ -951,6 +953,8 @@ describe('materials.js 程序化材质与贴图', () => {
     ['iceTexture', true],
     ['snowSkyTexture', false],
     ['desertSkyTexture', false],
+    ['carnivalSkyTexture', false],
+    ['carnivalFloorTexture', true],
     ['blobShadowTexture', false],
     ['glowTexture', false],
     ['cloudTexture', false],
@@ -983,14 +987,15 @@ describe('materials.js 程序化材质与贴图', () => {
       backyard: materials.outdoorEnvironment(renderer, 'backyard'),
       snow: materials.outdoorEnvironment(renderer, 'snow'),
       dust: materials.outdoorEnvironment(renderer, 'dust'),
+      cloud: materials.outdoorEnvironment(renderer, 'cloud'),
     };
-    for (const id of ['backyard', 'snow', 'dust']) {
+    for (const id of ['backyard', 'snow', 'dust', 'cloud']) {
       expect(envs[id]).toBeInstanceOf(THREE.Texture);
       // 第二次调用必须返回同一个引用（Game 频率很高地取 env）
       expect(materials.outdoorEnvironment(renderer, id)).toBe(envs[id]);
     }
     // 三张地图的环境贴图互不相同
-    expect(new Set(Object.values(envs)).size).toBe(3);
+    expect(new Set(Object.values(envs)).size).toBe(4);
     // 未知 id 落到后院
     expect(materials.outdoorEnvironment(renderer, 'nope')).toBe(envs.backyard);
     expect(materials.outdoorEnvironment(renderer, undefined)).toBe(envs.backyard);

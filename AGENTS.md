@@ -49,6 +49,9 @@ npm run duo       # build 后直接起双人服务器
 | `src/world/IceWorld.js` | 雪地场景：按 fy_iceworld 复刻的田字四根 3.6 米高柱、两侧 0.85 米高（1.3 米宽）可跳矮墙、两端基地、四角砖台、11.4 米高冰墙与雪山；`platforms` 做落脚/侧碰撞、`colliders` 给僵尸绕行 |
 | `src/world/DustYard.js` | 沙城场景：动线致敬 de_dust2（南广场 → B 长廊 / 中路 / 长 A 三线，中段由 B 门与 A 短道互通 → 北横道 → A、B 点与 CT 出生点），几何与配色全部自绘；`solid()` 统一生成盒体 + `platforms` + 僵尸用圆形 `colliders` |
 | `src/world/FlowField.js` | 1 米网格流场（BFS）：`blockPlatforms()` 标记障碍、`update()` 按玩家位置重算、`flowAt()` 给僵尸方向；雪地与沙城共用 |
+| `src/world/CloudCarnival.js` | 云上发条游乐园：72 × 72 米云海、钟楼/旋转木马/茶杯花园/云桥/礼帽草坪、三只可击落铜钟（`overhead` 壁挂 + `walls` 弹道体），发条玩具出生点 |
+| `src/entities/CloudCombat.js` | 云园公共战斗对象：钟冷却/半径冻结、茶滴抛物线、报时圈扫过判定、host/guest 快照序列化；其它地图 `enabled=false` 全部空转 |
+| `tools/build-toy-models.mjs` | 离线原创发条玩具 GLB 生成器（玩具兵/发条鸭/茶精灵/纸飞机/弹簧玩偶/报时兔），顶点色 + 蒙皮 + 动画，输出到 `public/models/toys/` |
 | `src/world/maps.js` | 地图注册表 `MAPS`（菜单元数据）与 `createMaps()`；新增地图从这里挂 |
 | `src/world/materials.js` | Toon 材质、程序化草地/雪地/冰面/沙地/天空/沙漠天空/云/光晕/污渍贴图、PMREM 户外环境贴图（`outdoorEnvironment`，支持 backyard/snow/dust） |
 | `src/entities/Player.js` | 第一人称移动、跳跃、平台落脚/踏步、碰撞、生命/回血、镜头位置与后坐力 |
@@ -474,7 +477,7 @@ CI（`.github/workflows/ci.yml`）在每次 push 到 main 和每个 PR 上跑三
 
 ## 8. 已知限制（是设计取舍，不要当 bug 修）
 
-- 后院 / 雪地 / 沙城 / 夜之森林四张无尽地图，没有关卡章节/剧情。
+- 后院 / 雪地 / 沙城 / 夜之森林 / 云上发条游乐园五张无尽地图，没有关卡章节/剧情。
 - 没有通用地形/斜坡系统：地图只有轴对齐的平顶平台（雪地的田字四柱/矮墙/砖台、沙城的 A/B 点观景台），靠 `platforms` 采样支撑；没有斜坡、楼梯、可破坏物。
 - **僵尸不会跳**：能站上去的高台必须给僵尸留活路——沙城观景台只有 0.4 米且不挂 `colliders`；`FlowField.blockPlatforms` 的阈值统一用 `config.js` 的 `PLAYER_PERCH = 0.6`（= 跳跃能上的最高台阶 0.42 + 余量），低于它的平台不封流场，玩家跳上去也还是能被打到。**改这个阈值前先确认没有新的可站平台低于它。**
 - 拾取植物是弹匣制（打空用阳光续弹），但**没有手动换弹键**；豌豆常驻 1 号槽、坚果常驻 5 号槽，其它植物靠捡、打完用阳光续。

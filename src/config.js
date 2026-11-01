@@ -28,6 +28,19 @@ export const FOREST = {
   nearSound: 18,
 };
 
+export const CLOUD = {
+  intermission: 15,
+  bossIntermission: 20,
+  nearSound: 18,
+  bell: { radius: 8, duration: 1.6, cooldown: 18, hitRadius: 0.575, y: 1.7,
+    positions: [[-16, 3], [16, 3], [0, -17]], postOffset: [0, -1.5] },
+  teaMax: 6,
+  waveMax: 4,
+  teaMaxAlive: 2,
+  gliderMaxAlive: 2,
+  attackMax: 2,
+};
+
 // 天降阳光：小福利，主收入仍然靠击杀掉落
 export const SUN_SKY = {
   interval: 30,
@@ -597,12 +610,51 @@ export const ZOMBIES = {
   },
 };
 
+// 云上发条游乐园：玩具只在 cloud 专属波次出现。
+Object.assign(ZOMBIES, {
+  toySoldier: {
+    family: 'toy', hp: 50, speed: 2, damage: 8, score: 90, sun: 1,
+    scale: 1, model: 'toySoldier', acc: 'chestArmor', radius: 0.42,
+    armor: { material: 'plastic', hp: 18 },
+  },
+  springDuck: {
+    family: 'toy', hp: 45, speed: 2.4, damage: 10, score: 100, sun: 1,
+    scale: 1, model: 'springDuck', acc: null, radius: 0.4,
+    charge: { telegraph: 0.65, recover: 0.9, period: 3.2, speed: 4.8, range: 6, width: 1.2 },
+  },
+  teaSprite: {
+    family: 'toy', hp: 75, speed: 1.6, damage: 8, score: 140, sun: 2,
+    scale: 1, model: 'teaSprite', acc: null, radius: 0.5,
+    tea: { telegraph: 0.85, period: 3.6, speed: 8, radius: 0.75, range: 14, height: 1.2, gravity: 12 },
+  },
+  paperGlider: {
+    family: 'toy', hp: 35, speed: 2.8, damage: 9, score: 100, sun: 1,
+    scale: 1, model: 'paperGlider', acc: null, radius: 0.4,
+    airborne: true, airHeight: 2.6,
+    flight: { cruise: 4, telegraph: 0.7, descent: 0.45, groundTime: 2.4, ascent: 0.6, high: 2.6, range: 6, width: 1.2 },
+  },
+  jackBox: {
+    family: 'toy', hp: 140, speed: 1.7, damage: 15, score: 220, sun: 3,
+    scale: 1, model: 'jackBox', acc: null, radius: 0.55,
+    punch: { telegraph: 0.7, range: 2.2, recover: 1.1, period: 3.8 },
+  },
+  clockRabbit: {
+    family: 'toy', hp: 1400, speed: 1.35, damage: 24, score: 3000, sun: 7,
+    scale: 1, model: 'clockRabbit', acc: null, radius: 0.8,
+    boss: true, title: '暴走报时兔',
+    clock: { telegraph: 0.9, period: 8, startRadius: 2, radius: 10, speed: 6, damage: 18,
+      jumpHeight: 0.35, thickness: 0.18, recover: 2, bodyMul: 1.5, repeatDelay: 1.2 },
+    charge: { telegraph: 0.9, recover: 0.9, period: 8, speed: 4.2, range: 7, width: 1.2 },
+  },
+});
+
 // 每 5 波出一个 BOSS，按这张表轮换（第 5/25/45… 波 = 巨人，第 10 波 = 骷髅王 …）。
 export const BOSS_ROTATION = ['gargantuar', 'boss', 'mushroomKing', 'dragon'];
 
 // 第 n 波该出哪只 BOSS；不是 BOSS 波返回 null。
-export function bossForWave(n) {
+export function bossForWave(n, mapId) {
   if (n < 5 || n % 5 !== 0) return null;
+  if (mapId === 'cloud') return 'clockRabbit';
   return BOSS_ROTATION[(Math.floor(n / 5) - 1) % BOSS_ROTATION.length];
 }
 
@@ -733,8 +785,27 @@ function shuffle(list) {
   return list;
 }
 
+function cloudWavePlan(n) {
+  const types = ['toySoldier', 'springDuck', 'teaSprite', 'paperGlider', 'jackBox'];
+  const opening = [[3, 2, 0, 0, 0], [4, 3, 0, 0, 0], [5, 4, 2, 0, 0],
+    [6, 5, 2, 2, 0], [10, 5, 2, 2, 0], [11, 6, 2, 2, 4]];
+  let counts = opening[n - 1];
+  if (!counts) {
+    const tea = Math.min(4, 2 + Math.floor((n - 7) / 4));
+    const remainder = waveTotal(n) - tea - 2 - 4;
+    const primary = Math.round(remainder * 0.55);
+    counts = n % 2 ? [primary, remainder - primary, tea, 2, 4]
+      : [remainder - primary, primary, tea, 2, 4];
+  }
+  const list = [];
+  types.forEach((id, i) => { for (let j = 0; j < counts[i]; j++) list.push(id); });
+  const boss = bossForWave(n, 'cloud');
+  return boss ? [boss, ...shuffle(list)] : shuffle(list);
+}
+
 // mapId 可选：传 'forest' 走奇幻波次，其余地图保持原来的僵尸波次（零回归）。
 export function wavePlan(n, mapId) {
+  if (mapId === 'cloud') return cloudWavePlan(n);
   if (mapId === 'forest') return forestWavePlan(n);
   const list = [];
   const normals = 4 + Math.floor(n * 1.45);

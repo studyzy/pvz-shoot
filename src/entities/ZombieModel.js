@@ -44,6 +44,15 @@ export const MODELS = {
   rat: { url: 'models/rat.glb', targetHeight: 0.42 },
   bat: { url: 'models/bat.glb', targetHeight: 0.55 },
 
+  // ── 云上发条游乐园的原创玩具（tools/build-toy-models.mjs 离线生成，见 public/models/toys/PROVENANCE.txt）──
+  // 单材质 + 顶点色，成人身高 1.8~3.4 米，动作名对齐 Quaternius。
+  toySoldier: { url: 'models/toys/toySoldier.glb', targetHeight: 1.8 },
+  springDuck: { url: 'models/toys/springDuck.glb', targetHeight: 1.1 },
+  teaSprite: { url: 'models/toys/teaSprite.glb', targetHeight: 1.3 },
+  paperGlider: { url: 'models/toys/paperGlider.glb', targetHeight: 0.65 },
+  jackBox: { url: 'models/toys/jackBox.glb', targetHeight: 1.6 },
+  clockRabbit: { url: 'models/toys/clockRabbit.glb', targetHeight: 3.4 },
+
   // ── BOSS ──
   giant: { url: 'models/giant.glb', targetHeight: 1.85 },
   'mushroom-king': { url: 'models/mushroom-king.glb', targetHeight: 1.85 },

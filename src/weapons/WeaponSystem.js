@@ -3,6 +3,7 @@ import { WEAPONS, WEAPON_SLOTS, SLOT_KEYS, GRENADE, PEA_ID, AIR_HIGH_GROUND, FOR
 import { toon } from '../world/materials.js';
 import { clamp, segmentSphereT, damp } from '../utils.js';
 import { loadWeaponModel } from './WeaponModels.js';
+import { sweepWalls } from './HitWalls.js';
 
 const tmpFwd = new THREE.Vector3();
 const tmpOrigin = new THREE.Vector3();
@@ -1272,6 +1273,24 @@ export class WeaponSystem {
     this.camera.getWorldDirection(tmpFwd);
     tmpOrigin.copy(this.camera.position);
     const hit = this.raycastZombies();
+    if (this.ctx.map && this.ctx.map.id === 'cloud') {
+      tmpSegEnd.copy(tmpOrigin).addScaledVector(tmpFwd, 90);
+      const bell = this.ctx.cloud.bellIntersection(tmpOrigin, tmpSegEnd);
+      const bounds = this.ctx.map.bounds;
+      const wallT = sweepWalls(this.ctx.map.walls || [], bounds.x, bounds.z, tmpOrigin, tmpSegEnd, .05, tmpTo);
+      const enemyT = hit ? hit.dist / 90 : 2;
+      if (bell && bell.t < enemyT && (wallT < 0 || bell.t < wallT)) {
+        this.ctx.onBellHit(bell.id, def.id, tmpFwd, tmpOrigin);
+        this.ctx.sfx.cannon();
+        return;
+      }
+      if (wallT >= 0 && wallT <= enemyT) {
+        tmpAim.copy(tmpOrigin).lerp(tmpSegEnd, wallT);
+        this.ctx.projectiles.explodeAt(tmpAim, def.radius, def.damage, true, null, false, def.id);
+        this.ctx.sfx.cannon();
+        return;
+      }
+    }
     const impact = hit ? hit.pos : this.groundRange(tmpAim).point;
     this.ctx.projectiles.explodeAt(impact, def.radius, def.damage, true, hit && hit.zombie, !!hit && hit.head, def.id);
     this.ctx.sfx.cannon();

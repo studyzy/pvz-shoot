@@ -457,6 +457,183 @@ describe('DuoSession', () => {
   });
 });
 
+describe('DuoSession · 云上联机', () => {
+  const playing = (host = false) => {
+    const { game, session } = makeSession();
+    session.start({ mapId: 'cloud' });
+    session.onMessage(WELCOME({ host, seat: host ? 0 : 1, mapId: 'cloud' }));
+    session.onMessage({ t: MSG.START, d: { mapId: 'cloud', seed: 7, t0: 0 } });
+    game.mapId = 'cloud';
+    return { game, session, net: FakeNet.last };
+  };
+
+  it('cloud 地图保持 start / MAP / sendMap 的 id', () => {
+    const { game, session, net } = playing();
+    expect(net.opts.mapId).toBe('cloud');
+    expect(game.calls.startDuo[0].mapId).toBe('cloud');
+    game.state = 'menu';
+    session.onMessage({ t: MSG.MAP, d: { id: 'cloud' } });
+    expect(game.calls.maps).toEqual(['cloud']);
+    session.sendMap('cloud');
+    expect(net.maps).toEqual(['cloud']);
+  });
+
+  it('guest bell 请求编码方向、origin 与最后世界 seq，不修改领域状态', () => {
+    const { game, session, net } = playing();
+    const cloud = { cooldown: 18, lastBell: null };
+    game.cloud = cloud;
+    game.lastWorldSeq = 12;
+    const dir = { x: 3, y: 0, z: -4 };
+    const origin = { x: 1.234, y: 1.666, z: -2.345 };
+    expect(session.sendBell).toBeTypeOf('function');
+    session.sendBell('pea', 'west', dir, origin);
+    expect(net.relays).toHaveLength(1);
+    expect(decode(net.relays[0])).toEqual({
+      t: 'bell',
+      d: { w: 'pea', id: 'west', dir: [0.6, 0, -0.8], origin: [1.23, 1.67, -2.35], seq: 12 },
+    });
+    expect(game.cloud).toBe(cloud);
+    expect(cloud).toEqual({ cooldown: 18, lastBell: null });
+    expect(game.sun).toBe(60);
+    expect(dir).toEqual({ x: 3, y: 0, z: -4 });
+    expect(origin).toEqual({ x: 1.234, y: 1.666, z: -2.345 });
+  });
+
+  it('bell 保留数字 id 0，缺少世界 seq 时编码 0 交给 host 裁决', () => {
+    const { session, net } = playing();
+    expect(session.sendBell).toBeTypeOf('function');
+    session.sendBell('pea', 0, { x: 0, y: 0, z: -2 }, { x: 0, y: 1.66, z: 0 });
+    expect(decode(net.relays[0]).d).toEqual({ w: 'pea', id: 0, dir: [0, 0, -1], origin: [0, 1.66, 0], seq: 0 });
+  });
+
+  it('host、非 playing 或无网络时不发 bell', () => {
+    const { session, net } = playing(true);
+    const args = ['pea', 'west', { x: 0, y: 0, z: -1 }, { x: 0, y: 1.66, z: 0 }];
+    expect(session.sendBell).toBeTypeOf('function');
+    session.sendBell(...args);
+    session.host = false;
+    session.state = 'waiting';
+    session.sendBell(...args);
+    session.state = 'playing';
+    session.net = null;
+    session.sendBell(...args);
+    expect(net.relays).toHaveLength(0);
+  });
+
+  it.each([
+    ['缺 weapon', null, 'west', { x: 0, y: 0, z: -1 }, { x: 0, y: 1.66, z: 0 }],
+    ['空 weapon', '', 'west', { x: 0, y: 0, z: -1 }, { x: 0, y: 1.66, z: 0 }],
+    ['非字符串 weapon', 2, 'west', { x: 0, y: 0, z: -1 }, { x: 0, y: 1.66, z: 0 }],
+    ['缺 id', 'pea', null, { x: 0, y: 0, z: -1 }, { x: 0, y: 1.66, z: 0 }],
+    ['空 id', 'pea', '', { x: 0, y: 0, z: -1 }, { x: 0, y: 1.66, z: 0 }],
+    ['负 id', 'pea', -1, { x: 0, y: 0, z: -1 }, { x: 0, y: 1.66, z: 0 }],
+    ['非标量 id', 'pea', {}, { x: 0, y: 0, z: -1 }, { x: 0, y: 1.66, z: 0 }],
+    ['非整数 id', 'pea', 0.5, { x: 0, y: 0, z: -1 }, { x: 0, y: 1.66, z: 0 }],
+    ['缺 dir', 'pea', 'west', null, { x: 0, y: 1.66, z: 0 }],
+    ['零 dir', 'pea', 'west', { x: 0, y: 0, z: 0 }, { x: 0, y: 1.66, z: 0 }],
+    ['NaN dir', 'pea', 'west', { x: NaN, y: 0, z: -1 }, { x: 0, y: 1.66, z: 0 }],
+    ['Infinity dir', 'pea', 'west', { x: 0, y: 0, z: Infinity }, { x: 0, y: 1.66, z: 0 }],
+    ['缺 dir 分量', 'pea', 'west', { x: 0, z: -1 }, { x: 0, y: 1.66, z: 0 }],
+    ['溢出 dir', 'pea', 'west', { x: 1.7e308, y: 1.7e308, z: 0 }, { x: 0, y: 1.66, z: 0 }],
+    ['缺 origin', 'pea', 'west', { x: 0, y: 0, z: -1 }, null],
+    ['缺 origin 分量', 'pea', 'west', { x: 0, y: 0, z: -1 }, { x: 0, z: 0 }],
+    ['非数字 origin', 'pea', 'west', { x: 0, y: 0, z: -1 }, { x: '0', y: 1.66, z: 0 }],
+    ['Infinity origin', 'pea', 'west', { x: 0, y: 0, z: -1 }, { x: 0, y: 1.66, z: Infinity }],
+    ['舍入溢出 origin', 'pea', 'west', { x: 0, y: 0, z: -1 }, { x: 1.7e308, y: 1.66, z: 0 }],
+  ])('无效 bell 参数不发包：%s', (_name, weaponId, bellId, dir, origin) => {
+    const { session, net } = playing();
+    expect(session.sendBell).toBeTypeOf('function');
+    session.sendBell(weaponId, bellId, dir, origin);
+    expect(net.relays).toHaveLength(0);
+  });
+
+  it('bell relay 只在 host 转交 Game，领域验证不在 session 执行', () => {
+    const { game, session } = playing();
+    game.applyGuestBell = vi.fn();
+    const d = { w: 'not-a-weapon', id: 'not-a-bell', dir: [0, 0, -1], origin: [999, 1.66, 0], seq: -1 };
+    session.onRelay(encode('bell', d));
+    expect(game.applyGuestBell).not.toHaveBeenCalled();
+    session.host = true;
+    session.onRelay(encode('bell', d));
+    expect(game.applyGuestBell).toHaveBeenCalledExactlyOnceWith(d);
+    game.applyGuestBell = null;
+    expect(() => session.onRelay(encode('bell', d))).not.toThrow();
+  });
+
+  it('host pstate 传 cloud.serialize 的 c，guest 接收不改写快照', () => {
+    const host = playing(true);
+    const c = { cooldown: 12.5, stopped: [1, 2], hazards: [{ id: 3, x: 5, y: 1, z: -6 }] };
+    host.game.cloud = { serialize: () => c };
+    host.session.sendHostState();
+    const ps = decode(host.net.relays[0]);
+    expect(ps.d.c).toEqual(c);
+    expect(ps.d.z).toEqual([{ id: 1, t: 'normal' }]);
+    expect(ps.d.sun).toBe(60);
+    const guest = playing();
+    guest.session.onRelay(host.net.relays[0]);
+    expect(guest.game.calls.peer).toEqual([ps.d]);
+  });
+
+  it('旧图即使有 cloud 也不序列化 c，旧 fixture 缺 cloud 时保持可用', () => {
+    const { game, session, net } = playing(true);
+    session.sendHostState();
+    expect(decode(net.relays[0]).d).not.toHaveProperty('c');
+    const serialize = vi.fn(() => ({ cooldown: 1 }));
+    game.cloud = { serialize };
+    game.mapId = 'snow';
+    session.sendHostState();
+    expect(decode(net.relays[1]).d).not.toHaveProperty('c');
+    expect(serialize).not.toHaveBeenCalled();
+  });
+
+  it('history.g 固定权威 guest 旧位置与视线，getGuestAt 只认准确 seq', () => {
+    const { game, session, net } = playing(true);
+    game.netGuest = { pos: { x: 3.456, y: 0.5, z: -4.567 }, yaw: 0.3333, pitch: -0.2222, hp: 100, moveAmt: 0.5 };
+    game.lastGuestSeq = 9;
+    session.sendHostState();
+    const ps = decode(net.relays[0]);
+    expect(session.history[0].g).toEqual(ps.d.g);
+    expect(session.getGuestAt).toBeTypeOf('function');
+    const snapshot = session.getGuestAt(ps.d.seq);
+    expect(snapshot).toMatchObject({ seq: 9, x: 3.46, y: 0.5, z: -4.57, yaw: 0.333, pitch: -0.222 });
+    game.netGuest.pos.x = 10;
+    game.netGuest.yaw = 1;
+    session.sendHostState();
+    expect(session.getGuestAt(ps.d.seq)).toEqual(snapshot);
+    expect(session.getGuestAt(ps.d.seq + 1)).toMatchObject({ x: 10, yaw: 1 });
+    expect(session.getGuestAt(0)).toBeNull();
+    expect(session.getGuestAt(99)).toBeNull();
+    expect(session.getGuestAt(String(ps.d.seq))).toBeNull();
+    expect(session.getZombieAt(1, ps.d.seq)).toEqual({ id: 1, t: 'normal' });
+  });
+
+  it('guest 历史沿用 20 帧窗口，缺代理与旧历史字段返回 null', () => {
+    const { game, session } = playing(true);
+    expect(session.getGuestAt).toBeTypeOf('function');
+    session.history = [{ seq: 1, z: [] }];
+    expect(session.getGuestAt(1)).toBeNull();
+    session.history = [];
+    session.sendHostState();
+    expect(session.getGuestAt(session.snapSeq)).toBeNull();
+    game.netGuest = { pos: { x: 3, y: 0, z: 4 }, yaw: 0, pitch: 0, hp: 100 };
+    for (let i = 0; i < 21; i++) session.sendHostState();
+    expect(session.history).toHaveLength(20);
+    expect(session.getGuestAt(2)).toBeNull();
+    expect(session.getGuestAt(3)).toMatchObject({ x: 3, z: 4 });
+  });
+
+  it('完整 resync 的 cloud 数据保持透明传输', () => {
+    const host = playing(true);
+    const d = { seq: 7, wave: 3, c: { cooldown: 8, hazards: [{ id: 1 }] } };
+    host.session.sendResync(d);
+    expect(decode(host.net.relays[0])).toEqual({ t: 'resync', d });
+    const guest = playing();
+    guest.game.applyResync = vi.fn();
+    guest.session.onRelay(host.net.relays[0]);
+    expect(guest.game.applyResync).toHaveBeenCalledExactlyOnceWith(d);
+  });
+});
+
 describe('邀请链接', () => {
   it('start 把 join 传给 NetClient', () => {
     const { session } = makeSession();

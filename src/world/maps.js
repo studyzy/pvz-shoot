@@ -2,6 +2,7 @@ import { Arena } from './Arena.js';
 import { IceWorld } from './IceWorld.js';
 import { DustYard } from './DustYard.js';
 import { NightForest } from './NightForest.js';
+import { CloudCarnival } from './CloudCarnival.js';
 
 export const MAPS = [
   {
@@ -40,6 +41,15 @@ export const MAPS = [
     startLabel: '进入夜之森林',
     // 夜之森林要相机引用：手电是相机的子节点，跟视角走（TECH-flashlight.md §4）
     create: (scene, camera) => new NightForest(scene, camera),
+  },
+  {
+    id: 'cloud',
+    name: '云上发条游乐园',
+    short: '云园',
+    tag: 'CLOUD CARNIVAL',
+    desc: '72 米云海上的发条游乐园：钟楼报时停住所有发条玩具',
+    startLabel: '登上云上发条游乐园',
+    create: (scene) => new CloudCarnival(scene),
   },
 ];
 
