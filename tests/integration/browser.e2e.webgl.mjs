@@ -1699,15 +1699,31 @@ async function phaseWeapons(ctx) {
   ];
   let checked = 0;
   let maxCalls = 0;
-  for (const view of views) {
-    const context = await ctx.browser.newContext({
-      viewport: { width: view.width, height: view.height },
-      isMobile: view.touch, hasTouch: view.touch,
-    });
-    try {
-      const { page, consoleErrors } = await openPage(context, ctx.url);
-      await waitUntil(page, () => window.__game.weapons.models.every((m) => m.loaded), 30000, '12 款植物 GLB 加载完成');
+  // 只开一个上下文：每开一次都要重新下载 1.4 MB 主包 + 12 款植物 GLB，
+  // CI 的慢 runner 上第三轮会直接卡到启动超时。视口/触屏按 view 来回改就行。
+  const context = await ctx.browser.newContext({
+    viewport: { width: views[0].width, height: views[0].height },
+    isMobile: views[0].touch, hasTouch: views[0].touch,
+  });
+  try {
+    const { page, consoleErrors } = await openPage(context, ctx.url);
+    await waitUntil(page, () => window.__game.weapons.models.every((m) => m.loaded), 30000, '12 款植物 GLB 加载完成');
+    for (const view of views) {
+      await page.setViewportSize({ width: view.width, height: view.height });
+      // 改视口会触发手柄/暂停判定，必须重新确认回到 playing；GLB 只加载一次，不必再等。
       await ensurePlaying(page);
+      // 停掉墙钟循环：否则两次 render 之间 loop 会重新摆枪并覆盖当前帧，
+      // 「有没有挡住准星」就变成跟帧序赛跑的随机结果。
+      await page.evaluate(() => {
+        const g = window.__game;
+        g.running = false;
+        g.resize();
+        g.player.applyCamera(g.camera);
+        g.renderer.render(g.scene, g.camera);
+      });
+      // 视口刚变时 WebGL 后备缓冲还是旧尺寸，toDataURL 会读到上一张整帧（差 7 万个采样点）；
+      // 等两帧合成后再测。
+      await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
       const ids = await page.evaluate(() => {
         const g = window.__game;
         g.running = false;
@@ -1717,6 +1733,13 @@ async function phaseWeapons(ctx) {
         g.player.yaw = 0;
         g.player.pitch = 0;
         g.player.applyCamera(g.camera);
+        // 同一页面连跑三个视口时，上一轮残留的摇摆/后坐/换枪动画会把枪推到准星上；
+        // 以前每个视口都新开页面，这些量天然是 0。
+        g.weapons.swayX = 0;
+        g.weapons.swayY = 0;
+        g.weapons.recoil = 0;
+        g.weapons.swapAnim = 0;
+        g.player.bob = 0;
         g.weapons.root.visible = true;
         return g.weapons.models.map((m) => m.visual.children[0].name);
       });
@@ -1790,9 +1813,9 @@ async function phaseWeapons(ctx) {
       check(consoleErrors.length === 0, '武器页控制台错误：' + consoleErrors.join('\n'));
       const errors = await drainErrors(page);
       check(errors.length === 0, '武器页未处理错误：' + errors.join('\n'));
-    } finally {
-      await context.close();
     }
+  } finally {
+    await context.close();
   }
   check(maxCalls < 350, '武器 GLB 使绘制调用超过预算：' + maxCalls);
   return { metrics: { checked, maxCalls, screenshots: ARTIFACTS } };
