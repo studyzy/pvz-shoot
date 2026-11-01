@@ -138,8 +138,11 @@ async function openPage(context, url) {
     if (m.type() === 'error') consoleErrors.push(m.text());
   });
   page.on('pageerror', (e) => consoleErrors.push('pageerror: ' + ((e && e.message) || e)));
-  await page.goto(url, { waitUntil: 'load' });
-  await waitUntil(page, () => !!window.__game, 30000, 'window.__game 出现').catch(async (error) => {
+  // CI runner 冷启动要现拉 1.4 MB 主包 + 几 MB glb，默认 30 秒的 goto 会超；放宽到 90 秒。
+  await page.goto(url, { waitUntil: 'load', timeout: 90000 });
+  // 慢 runner（CI 冷启动 / 连续开多个上下文）偶尔要 30 秒以上才跑到 window.__game，
+  // 这里给到 60 秒；超时才是真的启动失败。
+  await waitUntil(page, () => !!window.__game, 60000, 'window.__game 出现').catch(async (error) => {
     const size = page.viewportSize();
     const file = await shot(page, 'boot-FAIL-' + size.width + 'x' + size.height);
     const errors = [...consoleErrors, ...await drainErrors(page)];
@@ -719,7 +722,8 @@ async function phaseMobile(ctx) {
   });
   page.on('pageerror', (e) => consoleErrors.push('pageerror: ' + ((e && e.message) || e)));
   try {
-    await page.goto(url, { waitUntil: 'load' });
+    // CI runner 冷启动要现拉 1.4 MB 主包 + 几 MB glb，默认 30 秒的 goto 会超；放宽到 90 秒。
+  await page.goto(url, { waitUntil: 'load', timeout: 90000 });
     await waitUntil(page, () => !!window.__game, 30000, 'window.__game');
     await waitUntil(page, () => window.__game.renderer.info.render.calls > 0, 30000, '渲染循环');
 
@@ -1477,7 +1481,7 @@ async function phaseSkeleton(ctx) {
 async function phaseGallery(ctx) {
   const { page, url } = ctx;
   const galleryUrl = new URL('gallery.html', url).toString();
-  await page.goto(galleryUrl, { waitUntil: 'load' });
+  await page.goto(galleryUrl, { waitUntil: 'load', timeout: 90000 });
   await waitUntil(page, () => window.__gallery && window.__gallery.ready, 45000, '图鉴加载');
   await waitUntil(page, () => window.__gallery.renderer.info.render.calls > 0, 8000, '图鉴渲染第一帧');
 
@@ -1571,7 +1575,7 @@ async function phaseGallery(ctx) {
 
 async function phaseStress(ctx) {
   const { page, url } = ctx;
-  await page.goto(new URL('stress.html', url).toString(), { waitUntil: 'load' });
+  await page.goto(new URL('stress.html', url).toString(), { waitUntil: 'load', timeout: 90000 });
   await waitUntil(page, () => window.__stress && window.__stress.ready, 45000, '压测页加载');
   await waitUntil(page, () => window.__stress.renderer.info.render.calls > 0, 10000, '压测页渲染第一帧');
 
