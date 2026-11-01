@@ -520,10 +520,158 @@ export function cloudTexture() {
   return tex;
 }
 
+let _glass = null;
+// 玻璃幕墙：深蓝灰底 + 随机亮/灭的暖橙窗格。发光靠 MeshStandardMaterial 的 emissiveMap 复用同一张贴图，
+// 亮格接近纯暖橙（自发光强）、灭格接近底色（几乎不发光）。repeat 在贴图里烘焙好，多栋塔共享一份。
+export function glassTexture() {
+  if (_glass) return _glass;
+  const size = 256;
+  const c = document.createElement('canvas');
+  c.width = c.height = size;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#1d2531';
+  ctx.fillRect(0, 0, size, size);
+  const bay = 64;
+  for (let gy = 0; gy < 4; gy++) {
+    for (let gx = 0; gx < 4; gx++) {
+      const x = gx * bay;
+      const y = gy * bay;
+      // 楼层框与竖梃
+      ctx.fillStyle = '#121822';
+      ctx.fillRect(x, y + bay - 7, bay, 7);
+      ctx.fillRect(x, y, 5, bay);
+      // 窗格：亮灭随机，亮格暖橙、灭格深蓝灰
+      const px = x + 7;
+      const py = y + 4;
+      const pw = bay - 14;
+      const ph = bay - 13;
+      if (Math.random() < 0.28) {
+        const g = ctx.createLinearGradient(px, py, px, py + ph);
+        const warm = Math.random() < 0.5 ? '255,166,84' : '255,196,120';
+        g.addColorStop(0, 'rgba(' + warm + ',0.95)');
+        g.addColorStop(1, 'rgba(' + warm + ',0.55)');
+        ctx.fillStyle = g;
+      } else {
+        ctx.fillStyle = Math.random() < 0.5 ? '#2c3848' : '#253140';
+      }
+      ctx.fillRect(px, py, pw, ph);
+      // 窗格内的横向分隔（窗扇）
+      ctx.fillStyle = 'rgba(10,14,20,0.45)';
+      ctx.fillRect(px, py + ph * 0.5, pw, 2);
+    }
+  }
+  // 微噪点
+  for (let i = 0; i < 500; i++) {
+    ctx.fillStyle = Math.random() < 0.5 ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.05)';
+    ctx.fillRect(Math.random() * size, Math.random() * size, 2, 2);
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(3, 6);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
+  _glass = tex;
+  return tex;
+}
+
+let _asphalt = null;
+// 沥青地面：深灰底 + 微噪点 + 淡淡的车道虚线（平铺后正好衬出街区网格）。
+export function asphaltTexture() {
+  if (_asphalt) return _asphalt;
+  const size = 256;
+  const c = document.createElement('canvas');
+  c.width = c.height = size;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#2c2f36';
+  ctx.fillRect(0, 0, size, size);
+  for (let i = 0; i < 26; i++) {
+    const x = Math.random() * size;
+    const y = Math.random() * size;
+    const r = 16 + Math.random() * 52;
+    const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+    g.addColorStop(0, Math.random() < 0.5 ? 'rgba(64,70,82,0.20)' : 'rgba(22,24,30,0.22)');
+    g.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(x - r, y - r, r * 2, r * 2);
+  }
+  for (let i = 0; i < 1500; i++) {
+    const a = 0.05 + Math.random() * 0.12;
+    ctx.fillStyle = Math.random() < 0.6 ? 'rgba(150,155,168,' + a + ')' : 'rgba(8,9,12,' + a + ')';
+    const s = 1 + Math.random() * 2;
+    ctx.fillRect(Math.random() * size, Math.random() * size, s, s);
+  }
+  // 车道虚线（横竖各一条，极淡）；手工铺短段——测试环境的 canvas 替身没有 setLineDash
+  ctx.fillStyle = 'rgba(210,214,224,0.07)';
+  for (let i = 0; i < 5; i++) {
+    ctx.fillRect(i * 52 + 6, size / 2 - 2, 30, 4);
+    ctx.fillRect(size / 2 - 2, i * 52 + 6, 4, 30);
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(22, 22);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
+  _asphalt = tex;
+  return tex;
+}
+
+let _duskSky = null;
+// 黄昏天空：顶部暮紫 → 地平线暖橙，叠两层楼群剪影与一枚低垂的太阳光晕。非平铺。
+export function duskSkyTexture() {
+  if (_duskSky) return _duskSky;
+  const w = 1024;
+  const h = 512;
+  const c = document.createElement('canvas');
+  c.width = w;
+  c.height = h;
+  const ctx = c.getContext('2d');
+  const grd = ctx.createLinearGradient(0, 0, 0, h);
+  grd.addColorStop(0, '#241d3d');
+  grd.addColorStop(0.34, '#46345c');
+  grd.addColorStop(0.54, '#7c4658');
+  grd.addColorStop(0.7, '#b8613e');
+  grd.addColorStop(0.84, '#e08a48');
+  grd.addColorStop(1, '#f0a458');
+  ctx.fillStyle = grd;
+  ctx.fillRect(0, 0, w, h);
+  // 低垂的太阳
+  const sun = ctx.createRadialGradient(w * 0.7, h * 0.74, 6, w * 0.7, h * 0.74, 150);
+  sun.addColorStop(0, 'rgba(255,232,190,0.9)');
+  sun.addColorStop(0.3, 'rgba(255,176,102,0.5)');
+  sun.addColorStop(1, 'rgba(255,150,80,0)');
+  ctx.fillStyle = sun;
+  ctx.fillRect(w * 0.7 - 160, h * 0.74 - 160, 320, 320);
+  // 远近两层楼群剪影
+  let seed = 0x9e3779b9;
+  const random = () => {
+    seed ^= seed << 13;
+    seed ^= seed >>> 17;
+    seed ^= seed << 5;
+    return (seed >>> 0) / 4294967296;
+  };
+  const skyline = (base, color, minH, maxH) => {
+    ctx.fillStyle = color;
+    let x = -10;
+    while (x < w + 10) {
+      const bw = 24 + random() * 70;
+      const bh = minH + random() * (maxH - minH);
+      ctx.fillRect(x, base - bh, bw, bh);
+      if (random() < 0.3) ctx.fillRect(x + bw * 0.4, base - bh - 14 - random() * 22, 3, 16 + random() * 22);
+      x += bw + 6 + random() * 26;
+    }
+  };
+  skyline(h * 0.86, 'rgba(64,46,88,0.75)', 60, 190);
+  skyline(h * 0.98, 'rgba(30,22,46,0.95)', 40, 130);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  _duskSky = tex;
+  return tex;
+}
+
 let _envs = null;
 // 程序化户外环境贴图（PMREM）：只给 PBR 材质提供反射与高光，不参与场景雾/背景。
 export function outdoorEnvironment(renderer, mapId) {
-  const key = mapId === 'snow' ? 'snow' : mapId === 'dust' ? 'dust' : mapId === 'forest' ? 'forest' : mapId === 'cloud' ? 'cloud' : 'backyard';
+  const key = mapId === 'snow' ? 'snow' : mapId === 'dust' ? 'dust' : mapId === 'forest' ? 'forest' : mapId === 'cloud' ? 'cloud' : mapId === 'downtown' ? 'downtown' : 'backyard';
   if (_envs && _envs[key]) return _envs[key];
   if (!_envs) _envs = {};
 
@@ -554,6 +702,12 @@ export function outdoorEnvironment(renderer, mapId) {
     sky.addColorStop(0.5, '#1b2b4d');
     sky.addColorStop(0.82, '#3b4a6b');
     sky.addColorStop(1, '#55627e');
+  } else if (key === 'downtown') {
+    // 摩天街区：黄昏 CBD——暮紫天顶、暖橙地平线，反射里带一点街谷的暖光
+    sky.addColorStop(0, '#181430');
+    sky.addColorStop(0.5, '#3a2c50');
+    sky.addColorStop(0.82, '#b06a3e');
+    sky.addColorStop(1, '#e8a058');
   } else {
     sky.addColorStop(0, '#2b6ab8');
     sky.addColorStop(0.45, '#8ecdf5');
@@ -576,6 +730,9 @@ export function outdoorEnvironment(renderer, mapId) {
   } else if (key === 'forest') {
     ground.addColorStop(0, '#24401f');
     ground.addColorStop(1, '#0d1a0b');
+  } else if (key === 'downtown') {
+    ground.addColorStop(0, '#4a4050');
+    ground.addColorStop(1, '#191422');
   } else {
     ground.addColorStop(0, '#7ba24a');
     ground.addColorStop(1, '#3d5320');

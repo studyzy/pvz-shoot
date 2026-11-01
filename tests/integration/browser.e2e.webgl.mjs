@@ -654,9 +654,9 @@ async function phaseMaps(ctx) {
   }, 5000, '主菜单重新出现');
 
   const cards = await page.$$('#mapSelect .map-card');
-  check(cards.length === 5, '菜单应有五张地图卡片，实际 ' + cards.length);
+  check(cards.length === 6, '菜单应有六张地图卡片，实际 ' + cards.length);
   const seen = [];
-  const seq = ['snow', 'dust', 'forest', 'cloud', 'backyard'];
+  const seq = ['snow', 'dust', 'forest', 'cloud', 'backyard', 'downtown'];
   for (const id of seq) {
     const before = await page.evaluate(() => {
       const g = window.__game;
@@ -704,9 +704,9 @@ async function phaseMaps(ctx) {
     check(visibleCount === 1, id + '：应只有 1 张地图 root 可见，实际 ' + visibleCount);
     seen.push({ id, fogNear: after.fogNear, fogFar: after.fogFar, bg: after.bgColor });
   }
-  // 五张地图的雾参数必须互不相同，否则切图只是“换了 id”
+  // 六张地图的雾参数必须互不相同，否则切图只是“换了 id”
   const fogKeys = new Set(seen.map((s) => s.fogNear + '/' + s.fogFar));
-  check(fogKeys.size === 5, '五张地图的雾参数应各不相同，实际 ' + JSON.stringify(seen));
+  check(fogKeys.size === 6, '六张地图的雾参数应各不相同，实际 ' + JSON.stringify(seen));
   return {
     metrics: { maps: seen.map((s) => s.id).join('→'), distinctFog: fogKeys.size },
   };
@@ -2706,7 +2706,7 @@ const PHASES = [
   { name: 'skeleton', label: '骷髅模型（雪地专属 + 同屏上限）', group: 'desktop', fn: phaseSkeleton },
   { name: 'bossdoctor', label: '僵尸博士（后花园第 10 波 BOSS）', group: 'desktop', fn: phaseBossDoctor },
   { name: 'remote', label: '队友模型（Farmer 戴夫化）', group: 'desktop', fn: phaseRemote },
-  { name: 'maps', label: '五张地图真实切换', group: 'desktop', fn: phaseMaps },
+  { name: 'maps', label: '六张地图真实切换', group: 'desktop', fn: phaseMaps },
   { name: 'flashlight', label: '夜之森林手电（亮度/过曝/不残留）', group: 'desktop', fn: phaseFlashlight },
   { name: 'forest-rework', label: '月光森林（全图/技能/触屏/联机快照）', group: 'desktop', fn: phaseForestRework },
   { name: 'mobile', label: '手机模拟（横屏 UI + 竖屏拦截）', group: 'mobile', fn: phaseMobile },

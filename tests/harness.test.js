@@ -15,11 +15,11 @@ vi.mock('three', async (importOriginal) => {
 // 这条用例保护测试基础设施本身：createGame() 必须把真实结构的僵尸模型准备好，
 // 否则所有依赖 spawnZombieAt 的测试都会以 "Cannot read properties of null (reading 'clone')" 挂掉。
 describe('integration harness', () => {
-  it('boots into menu with three maps built', async () => {
+  it('boots into menu with six maps built', async () => {
     const { createGame } = await import('./helpers/game.js');
     const { game } = await createGame();
     expect(game.state).toBe('menu');
-    expect(game.maps.map((m) => m.id)).toEqual(['backyard', 'snow', 'dust', 'forest', 'cloud']);
+    expect(game.maps.map((m) => m.id)).toEqual(['backyard', 'snow', 'dust', 'forest', 'cloud', 'downtown']);
   });
 
   it('ZombieModel 就绪（gltf 替身已按真实 glb 结构注入）', async () => {
