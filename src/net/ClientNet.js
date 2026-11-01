@@ -38,6 +38,51 @@ function now() {
   return typeof performance !== 'undefined' ? performance.now() : Date.now();
 }
 
+// 邀请链接：?join=<token> 进来自动配对。
+// 房主自己刷新时地址栏也带着 ?join=，要靠 sessionStorage 的房主标记区分，
+// 否则房主刷新会变成「加入自己那一场」。
+const HOST_FLAG = 'pvz-duo-host';
+
+export function readJoinParam(loc) {
+  const l = loc === undefined ? (typeof location !== 'undefined' ? location : null) : loc;
+  if (!l || !l.search) return null;
+  try {
+    return new URLSearchParams(l.search).get('join');
+  } catch (e) {
+    return null;
+  }
+}
+
+export function shareUrlFor(token, loc) {
+  const l = loc === undefined ? (typeof location !== 'undefined' ? location : null) : loc;
+  if (!l || !token) return '';
+  return l.origin + l.pathname + '?join=' + encodeURIComponent(token);
+}
+
+export function readHostFlag() {
+  try {
+    return typeof sessionStorage !== 'undefined' && sessionStorage.getItem(HOST_FLAG) === '1';
+  } catch (e) {
+    return false;
+  }
+}
+
+export function writeHostFlag(v) {
+  try {
+    if (typeof sessionStorage === 'undefined') return;
+    if (v) sessionStorage.setItem(HOST_FLAG, '1');
+    else sessionStorage.removeItem(HOST_FLAG);
+  } catch (e) {
+    // 隐私模式忽略
+  }
+}
+
+// 页面启动时要不要自动进双人（邀请链接 / 房主刷新）
+export function shouldAutoJoin() {
+  if (readHostFlag()) return true;
+  return !!readJoinParam();
+}
+
 export class ClientNet {
   constructor(game, opts = {}) {
     this.game = game;
@@ -78,10 +123,11 @@ export class ClientNet {
       mapId: cleanMapId(mapId),
       build: env.VITE_BUILD_ID || 'dev',
       access: env.VITE_ACCESS_CODE || null,
-      join,
+      join: join !== undefined ? join : readHostFlag() ? null : readJoinParam(),
       onMessage: (m) => this.onMessage(m),
       onStatus: (s, info) => this.onStatus(s, info),
     });
+    this.net.onBinary = (bytes) => this.onBinary(bytes);
     this.net.connect();
     return true;
   }
@@ -106,6 +152,7 @@ export class ClientNet {
         this.seed = d.seed || 0;
         if (d.peer) this.peerName = d.peer;
         this.state = d.state === 'playing' ? 'playing' : 'waiting';
+        writeHostFlag(!!d.host);
         if (d.host && d.joinToken) {
           this.joinToken = d.joinToken;
           const loc = typeof location !== 'undefined' ? location : null;
@@ -285,6 +332,17 @@ export class ClientNet {
     return this.rtt;
   }
 
+  // 暂停：服务器权威下「暂停」只影响本地表现，不通过网络锁住队友。
+  // 单人对局本来就是本地暂停。这里保留空实现是为了兼容旧调用点，不发任何包。
+  sendPause() {}
+
+  // 本地改地图：告诉服务器下一局用哪张图
+  sendMap(id) {
+    if (!this.net) return false;
+    this.matchMapId = cleanMapId(id);
+    return this.net.setMap(this.matchMapId);
+  }
+
   replaceUrl(url) {
     if (!url) return;
     try {
@@ -297,6 +355,7 @@ export class ClientNet {
   close() {
     if (this.state === 'closed' && !this.net) return;
     this.state = 'closed';
+    writeHostFlag(false);
     const net = this.net;
     this.net = null;
     this.buffer.clear();

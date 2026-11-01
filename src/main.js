@@ -13,6 +13,8 @@ try {
   const game = new Game(canvas);
   window.__game = game;
   requestAnimationFrame(game.loop);
+  // 邀请链接 / 房主刷新：自动进入双人（单人不受影响，见 Game.autoJoinDuo）
+  game.autoJoinDuo();
 } catch (err) {
   console.error(err);
   fail('启动失败：' + (err && err.message ? err.message : '浏览器不支持 WebGL'));

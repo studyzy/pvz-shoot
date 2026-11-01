@@ -474,6 +474,22 @@ export class Game {
     this.pickups.onDrop = null;
   }
 
+  // 邀请链接（?join=）或房主刷新：进菜单后自动连服务器。
+  // 单人模式不会走到这里（地址栏没有 join 参数、也没有房主标记）。
+  async autoJoinDuo() {
+    if (this.state !== 'menu' || this.duoSession || this.duoPending) return false;
+    let auto = false;
+    try {
+      const { shouldAutoJoin } = await import('./net/ClientNet.js');
+      auto = shouldAutoJoin();
+    } catch (e) {
+      return false;
+    }
+    if (!auto) return false;
+    await this.toggleDuo();
+    return true;
+  }
+
   async toggleDuo() {
     if (this.state !== 'menu') return;
     if (this.duoSession) {
@@ -1600,12 +1616,14 @@ export class Game {
   update(dt) {
     this.controls.update();
     this.player.update(dt, this.controls, this.map, this.zombies.zombies);
-    if (this.duoSession) this.duoSession.captureInput();
     this.player.applyCamera(this.camera);
     this.applyShake(dt);
     if (!this.player.downed) this.weapons.update(dt, this.controls);
     this.wallNuts.update(dt);
-    if (this.map.updateNav && !this.isGuestWorld()) this.map.updateNav(this.player, dt);
+    // 双人：僵尸 AI / 寻路全部由服务器算，本地一行都不跑。
+    // ZombieManager 处于 remote 模式时，update() 只推进动画与插值，不做 AI 决策。
+    // 单人：本地即权威，invokeNav + AI 正常跑。
+    if (!this.duo && this.map.updateNav) this.map.updateNav(this.player, dt);
     this.zombies.update(dt, this.player, this.map.colliders, this.netGuest ? [this.player, this.netGuest] : null);
     if (this.netGuest && this.netControls) {
       // 客人掉线/卡住时 input 会停；300ms 没新包就把移动与开火归零，别让代理一直往前走。

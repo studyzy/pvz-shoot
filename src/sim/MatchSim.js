@@ -75,7 +75,7 @@ export class MatchSim {
       onKill: (z, score, headshot, by) => this.onKill(z, score, headshot, by),
       onBossSpawn: (z) => this.emit({ t: 'boss', name: (z.def && z.def.title) || 'BOSS' }),
       onBossDead: (z) => this.emit({ t: 'bossDead', name: (z.def && z.def.title) || 'BOSS' }),
-      onZombieAttack: (z) => this.onZombieAttack(z),
+      onZombieAttack: (z) => (this.onAttackHook || this.onZombieAttack).call(this, z),
     };
 
     this.zombies = new ZombieManager(this.ctx);
@@ -134,7 +134,12 @@ export class MatchSim {
     // Player.damage() 自己处理倒地（duoDown 时归零进入 downed）与单人死亡，
     // 这里只负责事件与团灭判定，不要重复实现一遍状态机。
     const wasDowned = target.downed;
+    const hpBefore = target.hp;
     target.damage(z.def.damage, { airborne: !!z.airborne });
+    // 受击事件：客户端要靠它播闪光/震屏/音效（伤害数字以服务器为准）
+    if (target.hp !== hpBefore) {
+      this.emit({ t: 'hitPlayer', seat, dmg: Math.round(hpBefore - target.hp) });
+    }
     if (!wasDowned && target.downed) {
       target.downTimer = 30;
       this.emit({ t: 'down', seat });
