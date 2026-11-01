@@ -47,12 +47,29 @@ export async function realGltfLoader() {
   GLTFLoader.prototype.__testStubbed = true; // 拦掉 createGame() 里的 stub
   // 解析是异步的：先让出一次事件循环，createGame() 里 "load() 后立刻 initZombieModel 之后" 的
   // 等待循环才等得到 ready。
+  // 每个原型只排一次延迟解析：用例可能在解析回调之前就结束（fake timers / 超时），
+  // 多排的定时器会在整个测试进程收尾时才触发，Throwing 成未捕获异常（CI 上见过
+  // "Unsupported asset" 把全部用例判红）。这里把 inflight 的 parse 结果缓存起来复用。
+  let pending = null;
+  const parseOnce = () => {
+    if (!pending) {
+      pending = new Promise((resolve, reject) => {
+        setTimeout(() => {
+          try {
+            new GLTFLoader().parse(ab, '', (g) => resolve(g), (e) => reject(e));
+          } catch (e) {
+            reject(e);
+          }
+        }, 0);
+      });
+    }
+    return pending;
+  };
   GLTFLoader.prototype.load = function (url, onLoad) {
     if (url.includes('/models/weapons/')) return buildStubWeaponScene(url).then((scene) => onLoad({ scene }));
-    return new Promise((resolve) => {
-      setTimeout(() => {
-        new GLTFLoader().parse(ab, '', (g) => { onLoad(g); resolve('real'); }, (e) => { throw e; });
-      }, 0);
+    return parseOnce().then((g) => {
+      onLoad(g);
+      return 'real';
     });
   };
 }
