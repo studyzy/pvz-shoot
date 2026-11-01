@@ -1991,12 +1991,44 @@ async function phaseRemote(ctx) {
   });
   check(downInfo.down && downInfo.current === 'down', '倒地状态没有生效：' + downInfo.current);
   check(downInfo.rotX > 1.3, '倒地后模型没有躺下：rotation.x=' + downInfo.rotX.toFixed(3));
-  // 躺下后最低点要贴在地面上（±0.15 米），既不能陷进地里，也不能浮在半空。
+  // 躺下后最低点要贴地：偏上就是「浮在半空」，偏下就是「陷进地里」。
+  // 容差收到 0.05 米——原来的 0.35 米太松，连「整体悬空 0.1 米」都放过去了。
   const sink = downInfo.minY - downInfo.rootY;
-  check(sink > -0.15 && sink < 0.35, '倒地后身体没有贴地，最低点离地 ' + sink.toFixed(3) + ' 米');
+  check(sink > -0.05 && sink < 0.05, '倒地后身体没有贴地，最低点离地 ' + sink.toFixed(3) + ' 米');
   const downShot = await shot(page, 'phase-remote-downed');
 
+  // 爬起过程也不能悬空：抬升量必须跟着姿态走（曾经按 dk 线性插值，中途悬空 0.38 米）。
   await page.evaluate(() => window.__game.remotes[0].setDown(false));
+  let worstGap = 0;
+  for (let i = 0; i < 12; i++) {
+    await page.waitForTimeout(45);
+    const g = await page.evaluate(() => {
+      const r = window.__game.remotes[0];
+      if (!(r.downK > 0.02)) return null;
+      r.root.updateMatrixWorld(true);
+      let V3 = null;
+      r.model.traverse((m) => {
+        if (!V3 && m.position && m.position.isVector3) V3 = m.position.constructor;
+      });
+      const tmp = new V3();
+      let minY = Infinity;
+      r.model.traverse((m) => {
+        if (!m.isMesh || !m.geometry || !m.geometry.attributes.position) return;
+        const pos = m.geometry.attributes.position;
+        const e = m.matrixWorld.elements;
+        const step = Math.max(1, Math.floor(pos.count / 300));
+        for (let j = 0; j < pos.count; j += step) {
+          if (m.isSkinnedMesh && m.getVertexPosition) m.getVertexPosition(j, tmp);
+          else tmp.set(pos.getX(j), pos.getY(j), pos.getZ(j));
+          const y = e[1] * tmp.x + e[5] * tmp.y + e[9] * tmp.z + e[13];
+          if (y < minY) minY = y;
+        }
+      });
+      return minY - r.root.position.y;
+    });
+    if (g !== null && Math.abs(g) > Math.abs(worstGap)) worstGap = g;
+  }
+  check(Math.abs(worstGap) < 0.12, '爬起过程中身体悬空/穿地 ' + worstGap.toFixed(3) + ' 米');
   await waitUntil(page, () => window.__game.remotes[0].downK === 0, 8000, '队友站起');
   const upInfo = await page.evaluate(() => {
     const r = window.__game.remotes[0];

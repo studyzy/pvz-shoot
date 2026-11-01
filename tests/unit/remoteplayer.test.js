@@ -430,7 +430,8 @@ describe('RemotePlayer', () => {
     for (let i = 0; i < 40; i++) r.update(0.05);
     expect(r.downK).toBe(1);
     expect(r.model.rotation.x).toBeCloseTo(1.5);
-    expect(r.model.position.y).toBeCloseTo(0.22);
+    // 抬起量不再是写死的常量，而是每帧按真实姿态压到地面；这里只要求「抬起来了」。
+    expect(r.model.position.y).toBeGreaterThan(0);
     expect(r.plate.position.y).toBeCloseTo(PLATE_Y - 1);
 
     // 躺着的时候再收到走路/开火也不会抽搐：姿势保持不变
@@ -469,6 +470,37 @@ describe('RemotePlayer', () => {
     expect(r.current).toBe('die');
     r.update(0.05);
     expect(r.model.rotation.x).toBeCloseTo(-1.5);
+    r.dispose();
+  });
+
+  // 回归：倒地/爬起过程中整只人悬空。抬升量必须每帧按当前姿态重算，
+  // 不能拿「躺平时的常量」按 downK 线性插值（两者不同步，中途会飘在半空）。
+  it('倒地与爬起的每一帧，模型抬升量都随姿态变化（不会悬空）', () => {
+    const r = new RemotePlayer({ scene: new THREE.Scene() });
+    const lifts = [];
+    r.setDown(true);
+    for (let i = 0; i < 30; i++) {
+      r.update(0.05);
+      lifts.push(r.model.position.y);
+      // 倒地过程中抬升量不能是 0（0 = 没做贴地补偿，直接陷进地里）
+      expect(r.model.position.y).not.toBe(0);
+    }
+    const lyingLift = r.model.position.y;
+    // 刚开始倒时姿态还没躺平，抬升量必须比躺平时小，说明它是跟着姿态走的
+    expect(lifts[0]).not.toBeCloseTo(lyingLift);
+    expect(lifts[lifts.length - 1]).toBeCloseTo(lyingLift);
+
+    r.setDown(false);
+    const riseLifts = [];
+    for (let i = 0; i < 30; i++) {
+      r.update(0.05);
+      if (r.downK > 0.02) riseLifts.push(r.model.position.y);
+    }
+    // 爬起过程中抬升量必须逐帧重算（跟着角度变），而不是一直停在躺平的高度
+    expect(riseLifts.length).toBeGreaterThan(2);
+    expect(riseLifts[riseLifts.length - 1]).not.toBeCloseTo(riseLifts[0]);
+    expect(r.downK).toBe(0);
+    expect(r.model.position.y).toBe(0);
     r.dispose();
   });
 

@@ -224,7 +224,6 @@ export class RemotePlayer {
     this.deadT = 0;
     this.down = false;
     this.downK = 0;
-    this.downLift = undefined;
     this.current = null;
     this.weaponId = null;
     this.weaponReq = 0;
@@ -495,34 +494,59 @@ export class RemotePlayer {
       dy = 0.16 * ease;
       plate = 1.15 * ease;
     } else if (dk > 0) {
-      // 前扑趴下：模型朝 +Z，正角度 = 往前倒。抬起量按「躺平后的最低点」反解，
-      // 不能拍脑袋写死：不同模型的躯干厚度不一样，抬少了整只人陷进地面（实测陷 0.47 米）。
+      // 前扑趴下：模型朝 +Z，正角度 = 往前倒。
       dx = 1.5 * dk;
-      dy = this.measureDownLift() * dk;
       plate = 1.0 * dk;
     }
     this.model.rotation.x = dx;
     this.model.position.y = dy;
+    // 贴地补偿：**每一帧**按当前真实姿态（含蒙皮变形）把最低点压到脚底高度。
+    // 不能用「躺平时的常量」按 dk 线性插值：旋转是连续变化的，两者不同步，
+    // 爬起中途会整只人悬空（实测离地 0.38 米）。也不能用 Box3.setFromObject：
+    // 它量的是绑定姿势包围盒、不含骨骼变形，趴下时少算约 0.1 米。
+    // 死亡分支自带后仰 + 抬高（dy 已写入），不在这里补偿。
+    if (!this.dead) {
+      if (dk > 0) this.groundSnap();
+      // 站立：模型本来就是脚底对齐的，不做补偿（否则会把模型自身的原点偏移当成穿地）。
+      else this.model.position.y = 0;
+    }
     if (this.plate) this.plate.position.y = PLATE_Y - plate;
   }
 
-  // 趴下时要抬多高：把模型转 90° 量一次包围盒的最低点，抬到刚好贴地。
-  // 站姿时先量一次缓存，之后趴下/站起都复用同一个值（模型不会中途换）。
-  measureDownLift() {
-    if (this.downLift !== undefined) return this.downLift;
+  // 把模型抬/压到最低点正好落在 root 脚底平面上（root.position.y 就是脚底）。
+  // 每帧都按「当前真实姿态」重算，所以爬起过程中不会悬空、也不会陷地。
+  groundSnap() {
     const model = this.model;
-    if (!model) return 0;
-    const keep = model.rotation.x;
-    const keepY = model.position.y;
-    model.rotation.x = 1.5;
+    if (!model) return;
+    // 先清零再量：量到的差就是「当前姿态下最低点相对自身原点」的值，直接赋绝对值，
+    // 不在旧值上累加——否则量到的世界坐标里已经含着上一帧的偏移，误差会越滚越大。
     model.position.y = 0;
-    model.updateMatrixWorld(true);
-    const box = new THREE.Box3().setFromObject(model);
-    model.rotation.x = keep;
-    model.position.y = keepY;
-    const span = box.isEmpty() ? 0 : -box.min.y;
-    this.downLift = span > 0 && Number.isFinite(span) ? span + 0.02 : 0;
-    return this.downLift;
+    // 从 root 刷新，而不是只刷 model：root 的 matrixWorld 可能还没更新（位置是网络写入的）。
+    this.root.updateMatrixWorld(true);
+    const rootY = this.root.position.y;
+    let min = Infinity;
+    model.traverse((mesh) => {
+      if (!mesh.isMesh || !mesh.geometry) return;
+      const pos = mesh.geometry.attributes.position;
+      if (!pos) return;
+      if (!this._v3) {
+        // 打包后没有全局 THREE，借模型自带的向量类型建一个临时向量。
+        this._v3 = mesh.position && mesh.position.isVector3 ? new mesh.position.constructor() : null;
+        if (!this._v3) return;
+      }
+      const v = this._v3;
+      const e = mesh.matrixWorld.elements;
+      // 蒙皮网格的顶点是骨骼变换后的，包围盒量不到，必须逐顶点取。
+      const step = mesh.isSkinnedMesh ? Math.max(1, Math.floor(pos.count / 96)) : 1;
+      for (let i = 0; i < pos.count; i += step) {
+        if (mesh.isSkinnedMesh && mesh.getVertexPosition) mesh.getVertexPosition(i, v);
+        else v.set(pos.getX(i), pos.getY(i), pos.getZ(i));
+        const y = e[1] * v.x + e[5] * v.y + e[9] * v.z + e[13];
+        if (y < min) min = y;
+      }
+    });
+    if (!Number.isFinite(min)) return;
+    model.position.y = rootY - min;
   }
 
   play(name) {
