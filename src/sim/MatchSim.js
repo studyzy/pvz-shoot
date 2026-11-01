@@ -131,20 +131,18 @@ export class MatchSim {
     const seat = z.targetSeat === 1 ? 1 : 0;
     const target = this.players[seat];
     if (!target || target.dead || target.downed) return;
+    // Player.damage() 自己处理倒地（duoDown 时归零进入 downed）与单人死亡，
+    // 这里只负责事件与团灭判定，不要重复实现一遍状态机。
+    const wasDowned = target.downed;
     target.damage(z.def.damage, { airborne: !!z.airborne });
-    this.emit({ t: 'hitPlayer', seat, dmg: z.def.damage });
-    if (target.hp <= 0 && !target.downed) {
-      if (this.duo) {
-        // 双人：倒地而不是直接死，等队友救
-        target.downed = true;
-        target.downTimer = 0;
-        this.emit({ t: 'down', seat });
-      } else {
-        target.dead = true;
-        this.over = true;
-        this.overReason = 'DEAD';
-        this.emit({ t: 'over', reason: 'DEAD' });
-      }
+    if (!wasDowned && target.downed) {
+      target.downTimer = 30;
+      this.emit({ t: 'down', seat });
+      this.checkWipe();
+    } else if (target.dead) {
+      this.over = true;
+      this.overReason = 'DEAD';
+      this.emit({ t: 'over', reason: 'DEAD' });
     }
   }
 
@@ -205,6 +203,17 @@ export class MatchSim {
     p.update(dt, ctl, this.map, this.zombies.zombies);
   }
 
+  // 两人同时倒地 = 团灭。在倒地发生的那一刻就判，别等下一帧扫描。
+  checkWipe() {
+    if (!this.duo || this.over) return;
+    if (this.players.length < 2) return;
+    if (this.players[0].downed && this.players[1].downed) {
+      this.over = true;
+      this.overReason = 'WIPE';
+      this.emit({ t: 'over', reason: 'WIPE' });
+    }
+  }
+
   updateRescue(dt) {
     const a = this.players[0];
     const b = this.players[1];
@@ -227,12 +236,7 @@ export class MatchSim {
     } else {
       this.rescueAcc = 0;
     }
-    // 两个人都倒地 = 团灭
-    if (a.downed && b.downed) {
-      this.over = true;
-      this.overReason = 'WIPE';
-      this.emit({ t: 'over', reason: 'WIPE' });
-    }
+    this.checkWipe();
   }
 
   // ---- 对外只读状态：快照编码从这里取数 ----

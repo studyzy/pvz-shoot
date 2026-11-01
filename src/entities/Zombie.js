@@ -1071,8 +1071,9 @@ export class Zombie {
   }
 
   setBounty(on) {
-    if (this.ctx.headless) return;
+    // 逻辑字段是权威状态（进快照、影响计分），必须无条件写
     this.bounty = !!on;
+    if (this.ctx.headless) return;
     if (on && !this.markBounty) {
       const m = new THREE.Sprite(
         new THREE.SpriteMaterial({

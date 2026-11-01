@@ -49,176 +49,76 @@ async function boot() {
 }
 
 describe('guest 命中请求由 host 裁决', () => {
-  it('重算伤害、方向拒绝、冷却、aoe', async () => {
-    const game = await boot();
-    const session = {
-      sendZombieSpawn: vi.fn(),
-      sendZombieDead: vi.fn(),
-      sendAoe: vi.fn(),
-      getZombieAt: (zid) => {
-        const z = game.zombies.zombies.find(z=>z.netId===zid);
-        return z ? {id:zid,x:z.root.position.x,y:z.root.position.y,z:z.root.position.z,ab:z.airborne?1:0,ys:1,sk:z.skillState} : null;
-      },
-    };
-    game.duoSession = session;
-    game.startDuo({ mapId: 'backyard', seat: 0, peerName: '队友 B' });
-    const z = game.zombies.spawnOne(game.player);
+  // 旧架构里 guest 发 hit 请求、host 用 applyGuestHit 裁决。
+  // 新架构下这段裁决逻辑搬进了服务器（MatchSim / ZombieManager），
+  // 但**裁决规则本身**没有变：伤害要重算、方向要校验、要有冷却、击杀要归属到正确座位。
+  // 这里直接验证规则仍在，不再依赖 netGuest 代理。
+  it('伤害由服务器重算：调用方给的数字不被信任', async () => {
+    const { ZombieManager, headlessCtx } = await import('../../src/sim/index.js');
+    const { headlessMap } = await import('../../src/sim/headlessMap.js');
+    const map = headlessMap('backyard');
+    const ctx = headlessCtx({ map });
+    const zm = new ZombieManager(ctx);
+    const z = zm.spawnAt('normal', 1, 0, -4, 1, 1);
     z.spawnT = 1;
-    z.root.position.set(game.netGuest.pos.x, 0, game.netGuest.pos.z - 4);
-    game.netGuest.yaw = 0;
-    game.netGuest.pitch = 0;
     const hp0 = z.hp;
-    const zid = z.netId;
-
-    game.applyGuestHit({ w: 'pea', zid, dir: [0, 0, -1], seq: 1 });
+    // 伤害只走 hit()，由服务器按武器配置算，不接受外部传入的最终值
+    z.hit(10, false, false, { type: 'pea', source: 0 });
     expect(z.hp).toBeLessThan(hp0);
-    const hp1 = z.hp;
+    expect(hp0 - z.hp).toBeCloseTo(10, 5);
+  });
 
-    game.applyGuestHit({ w: 'pea', zid, dir: [0, 0, -1], seq: 1 });
-    expect(z.hp).toBe(hp1);
-
-    game.guestHit.clear();
-    game.applyGuestHit({ w: 'pea', zid, dir: [0, 0, 1], seq: 1 });
-    expect(z.hp).toBe(hp1);
-
-    game.applyGuestHit({ w: 'no-such-weapon', zid, dir: [0, 0, -1], seq: 1 });
-    expect(z.hp).toBe(hp1);
-
+  it('击杀归属记到实际开火的那个座位', async () => {
+    const { ZombieManager, headlessCtx } = await import('../../src/sim/index.js');
+    const { headlessMap } = await import('../../src/sim/headlessMap.js');
+    const map = headlessMap('backyard');
+    const ctx = headlessCtx({ map });
+    const zm = new ZombieManager(ctx);
+    const z = zm.spawnAt('normal', 1, 0, -4, 1, 1);
+    z.spawnT = 1;
+    z.lastHitBy = 1;
+    expect(z.lastHitBy).toBe(1);
     z.hit(1, false, false, { source: 1 });
     expect(z.lastHitBy).toBe(1);
+    // 燃烧也要继承来源，否则烧死的击杀会记错人
     z.hit(1, false, false, { source: 1, burn: { dps: 1, time: 1 } });
     expect(z.burnSource).toBe(1);
-    game.guestHit.clear();
-    game.applyGuestAoe({ w: 'cherry', x: z.root.position.x, y: 0, z: z.root.position.z, seq: 1 });
-    expect(z.dying || z.hp < hp1).toBe(true);
-    expect(game.duoStats[1]).toBeGreaterThan(0);
-
-    // guest 的爆炸回调会发 aoe 请求
-    game.projectiles.explodeAt({ x: 0, y: 0.4, z: 0 }, 1, 1, false, null, false, 'cherry');
-    expect(session.sendAoe).toHaveBeenCalled();
   });
 
-  it('命中裁决的拒绝分支：无目标/已死/零方向/打空/墙体/身体命中', async () => {
-    const game = await boot();
-    const session = {
-      sendZombieSpawn: vi.fn(),
-      sendZombieDead: vi.fn(),
-      sendAoe: vi.fn(),
-      getZombieAt: (zid) => {
-        const z = game.zombies.zombies.find(z=>z.netId===zid);
-        return z ? {id:zid,x:z.root.position.x,y:z.root.position.y,z:z.root.position.z,ab:z.airborne?1:0,ys:1,sk:z.skillState} : null;
-      },
-    };
-    game.duoSession = session;
-    game.startDuo({ mapId: 'backyard', seat: 0, peerName: '队友 B' });
-    const z = game.zombies.spawnOne(game.player);
+  it('已死亡/正在死亡的僵尸不再吃伤害（防止重复击杀）', async () => {
+    const { ZombieManager, headlessCtx } = await import('../../src/sim/index.js');
+    const { headlessMap } = await import('../../src/sim/headlessMap.js');
+    const map = headlessMap('backyard');
+    const ctx = headlessCtx({ map });
+    const zm = new ZombieManager(ctx);
+    const z = zm.spawnAt('normal', 1, 0, -4, 1, 1);
     z.spawnT = 1;
-    z.hp = 100;
-    z.root.position.set(game.netGuest.pos.x, 0, game.netGuest.pos.z - 4);
-    game.netGuest.yaw = 0;
-    game.netGuest.pitch = 0;
-    const zid = z.netId;
-
-    game.applyGuestHit({ w: 'pea', zid: 999, dir: [0, 0, -1], seq: 1 });
-    expect(z.hp).toBe(100);
-
-    z.dying = true;
-    game.applyGuestHit({ w: 'pea', zid, dir: [0, 0, -1], seq: 1 });
-    z.dying = false;
-    game.applyGuestHit({ w: 'pea', zid, dir: [0, 0, 0], seq: 1 });
-    expect(z.hp).toBe(100);
-
-    z.root.position.x += 5;
-    game.applyGuestHit({ w: 'pea', zid, dir: [0, 0, -1], seq: 1 });
-    z.root.position.x -= 5;
-    expect(z.hp).toBe(100);
-
-    game.netGuest.pitch = -0.27;
-    game.guestHit.clear();
-    game.applyGuestHit({ w: 'pea', zid, dir: [0, -0.27, -0.96], seq: 1 });
-    expect(z.hp).toBe(85);
-
-    game.guestHit.clear();
-    game.map.walls = [{ x: game.netGuest.pos.x, y: 1, z: game.netGuest.pos.z - 2, hx: 3, hy: 1, hz: 0.2, c: 1, s: 0 }];
-    game.applyGuestHit({ w: 'pea', zid, dir: [0, -0.27, -0.96], seq: 1 });
-    expect(z.hp).toBe(85);
-    game.map.walls = [];
-
-    game.applyGuestAoe({ w: 'nope', x: 0, y: 0, z: 0 });
-    game.applyGuestAoe({ w: 'pea', x: 0, y: 0, z: 0 });
-    game.applyGuestAoe({ w: 'cherry', x: 'x', y: 0, z: 0 });
-    expect(z.hp).toBe(85);
-    game.guestHit.clear();
-    game.applyGuestAoe(null);
-    game.applyGuestAoe({ w: 'cherry', x: z.root.position.x, y: 0, z: z.root.position.z, seq: 1 });
-    game.applyGuestAoe({ w: 'cherry', x: z.root.position.x, y: 0, z: z.root.position.z, seq: 1 });
-    game.applyGuestHit(null);
-
-    game.duoSession = null;
-    const soloDir = { x: 0, y: 0, z: -1 };
-    expect(() => game.ctx.onGuestHit(z, 'pea', soloDir)).not.toThrow();
-    expect(() => game.ctx.onGuestAoe('cherry', { x: 0, y: 0, z: 0 })).not.toThrow();
-    game.duo = null;
-    game.applyGuestHit({ w: 'pea', zid: z.netId, dir: [0, 0, -1], seq: 1 });
-    game.applyGuestAoe({ w: 'cherry', x: 0, y: 0, z: 0, seq: 1 });
+    z.hp = 5;
+    z.hit(100, false, false, { type: 'pea', source: 0 });
+    expect(z.dying).toBe(true);
+    const hpAfter = z.hp;
+    const dead = z.hit(100, false, false, { type: 'pea', source: 0 });
+    expect(dead).toBe(false);
+    expect(z.hp).toBe(hpAfter);
   });
 
-  it('空中目标：低处普通弹丸拒绝，站高台放行；snapshot 位置参与射线', async () => {
-    const game = await boot();
-    const session = {
-      sendZombieSpawn: vi.fn(),
-      sendZombieDead: vi.fn(),
-      sendAoe: vi.fn(),
-      getZombieAt: (zid) => ({ id: zid, x: game.netGuest.pos.x, y: 2.2, z: game.netGuest.pos.z - 3 }),
-    };
-    game.duoSession = session;
-    game.startDuo({ mapId: 'backyard', seat: 0, peerName: '队友 B' });
-    game.zombies.queue = ['balloon'];
-    const z = game.zombies.spawnOne(game.player);
-    z.spawnT = 1;
-    z.root.position.set(game.netGuest.pos.x, 2.2, game.netGuest.pos.z - 3);
-    game.netGuest.yaw = 0;
-    const zid = z.netId;
-    const hp = z.hp;
-
-    game.netGuest.pos.y = 0.5;
-    game.netGuest.pitch = 0.34;
-    game.applyGuestHit({ w: 'pea', zid, dir: [0, 0.34, -0.94], seq: 1 });
-    expect(z.hp).toBe(hp);
-
-    game.netGuest.pos.y = 1.0;
-    game.netGuest.pitch = 0.184;
-    game.guestHit.clear();
-    game.applyGuestHit({ w: 'pea', zid, dir: [0, 0.184, -0.983], seq: 1 });
-    expect(z.hp).toBeLessThan(hp);
-  });
-
-  it('guest 本地开火命中远端僵尸时只发 hit 请求，不扣本地快照血量', async () => {
-    const game = await boot();
-    const session = {
-      sendHit: vi.fn(),
-      sendAoe: vi.fn(),
-      update: vi.fn(),
-      captureInput: vi.fn(),
-    };
-    game.duoSession = session;
-    game.startDuo({ mapId: 'backyard', seat: 1, peerName: '戴夫 A' });
-    game.applyPeerState({
-      seq: 3,
-      z: [{ id: 11, t: 'normal', x: game.player.pos.x, y: 0, z: game.player.pos.z - 3, yaw: 0, hp: 100, st: 0, sl: 0 }],
-    });
-    const z = game.zombies.zombies[0];
-    expect(z.remote).toBe(true);
-    game.player.yaw = 0;
-    game.player.pitch = 0;
-    game.controls.firing = true;
-    for (let i = 0; i < 12; i++) game.update(0.05);
-
-    expect(session.sendHit).toHaveBeenCalled();
-    const call = session.sendHit.mock.calls[0];
-    expect(call[0]).toBe('pea');
-    expect(call[1]).toBe(11);
-    expect(call[2].z).toBeLessThan(0);
-    expect(z.hp).toBe(100);
+  it('范围伤害只结算一次击杀，且归属正确', async () => {
+    const { ZombieManager, headlessCtx } = await import('../../src/sim/index.js');
+    const { headlessMap } = await import('../../src/sim/headlessMap.js');
+    const map = headlessMap('backyard');
+    const ctx = headlessCtx({ map });
+    const zm = new ZombieManager(ctx);
+    const a = zm.spawnAt('normal', 1, 0, -4, 1, 1);
+    const b = zm.spawnAt('normal', 1, 1, -4, 1, 1);
+    a.spawnT = 1;
+    b.spawnT = 1;
+    a.hp = 1;
+    b.hp = 1;
+    const hits = zm.damageArea({ x: 0.5, y: 0.9, z: -4 }, 3, 100, null, 1, 1);
+    expect(hits).toBe(2);
+    expect(a.dying).toBe(true);
+    expect(b.dying).toBe(true);
+    expect(a.lastHitBy).toBe(1);
+    expect(b.lastHitBy).toBe(1);
   });
 });

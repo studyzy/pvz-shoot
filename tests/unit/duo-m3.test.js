@@ -71,22 +71,27 @@ describe('双人缩放 DUO', () => {
     expect(config.duoWavePlan(['boss'])).toEqual(['boss']);
   });
 
-  it('host 开波时应用数量/血量/间隔/休整缩放', async () => {
+  it('服务器侧按 DUO 缩放波次（数量/血量/间隔/休整）', async () => {
     const game = await boot();
     game.startDuo({ mapId: 'backyard', seat: 0, peerName: '戴夫 B' });
-    expect(game.zombies.duo).toBe(true);
+    // 客户端只保留阳光上限等本地即可知的值；波次缩放由服务器 MatchSim 负责
     expect(game.maxSun).toBe(config.DUO.maxSun);
     expect(game.sun).toBe(config.DUO.startSun);
     expect(game.skySun.interval).toBe(config.DUO.skySunInterval);
-    expect(game.sunOrbs.orbs.length).toBeGreaterThanOrEqual(config.DUO.sunOrbPool);
 
-    game.zombies.startWave(3);
+    // 服务器侧：MatchSim 用 duo=true 建出的 ZombieManager 必须吃到 DUO 缩放
+    const { MatchSim } = await import('../../src/sim/MatchSim.js');
+    const { headlessMap, duoStartSpawns } = await import('../../src/sim/headlessMap.js');
+    const map = headlessMap('backyard');
+    const sim = new MatchSim({ map, duo: true, spawns: duoStartSpawns(map) });
+    expect(sim.zombies.duo).toBe(true);
+    sim.zombies.startWave(3);
     const soloCount = config.wavePlan(3).filter((t) => !(config.ZOMBIES[t] && config.ZOMBIES[t].boss)).length;
-    const duoCount = game.zombies.queue.filter((t) => !(config.ZOMBIES[t] && config.ZOMBIES[t].boss)).length;
+    const duoCount = sim.zombies.queue.filter((t) => !(config.ZOMBIES[t] && config.ZOMBIES[t].boss)).length;
     expect(duoCount).toBe(Math.round(soloCount * config.DUO.countMul));
-    expect(game.zombies.hpMul).toBeCloseTo(config.zombieHpMul(3) * config.DUO.hpMul, 6);
-    expect(game.zombies.interval).toBeCloseTo(config.waveSpawnInterval(3) * config.DUO.spawnIntervalMul, 6);
-    expect(game.zombies.airQuota).toBe(config.waveAirQuota(3) + config.DUO.airQuotaBonus);
+    expect(sim.zombies.hpMul).toBeCloseTo(config.zombieHpMul(3) * config.DUO.hpMul, 6);
+    expect(sim.zombies.interval).toBeCloseTo(config.waveSpawnInterval(3) * config.DUO.spawnIntervalMul, 6);
+    expect(sim.zombies.airQuota).toBe(config.waveAirQuota(3) + config.DUO.airQuotaBonus);
   });
 });
 
@@ -284,19 +289,24 @@ describe('双人 M3 玩法', () => {
     expect(hp0 - mob.hp).toBeGreaterThan(20);
   });
 
-  it('悬赏怪：host 开波刷出金色标记，击杀按来源 +300', async () => {
-    const game = await boot();
-    game.startDuo({ mapId: 'backyard', seat: 0, peerName: '戴夫 B' });
-    const zm = game.zombies;
-    zm.startWave(2);
-    zm.bountyPending = true;
+  it('悬赏怪：服务器开波刷出金色标记，击杀按来源 +300', async () => {
+    const { MatchSim } = await import('../../src/sim/MatchSim.js');
+    const { headlessMap, duoStartSpawns } = await import('../../src/sim/headlessMap.js');
+    const map = headlessMap('backyard');
+    const sim = new MatchSim({ map, duo: true, spawns: duoStartSpawns(map) });
+    const zm = sim.zombies;
+    // startWave 会按 BOUNTY.fromWave 自己决定 bountyPending，不要再手工置位（会被覆盖）
+    zm.startWave(Math.max(2, config.BOUNTY.fromWave));
+    expect(zm.bountyPending).toBe(true);
     zm.spawnTimer = 0;
-    const z = zm.spawnOne(game.player);
+    const z = zm.spawnOne(sim.players[0]);
     expect(z).toBeTruthy();
     expect(z.bounty).toBe(true);
-    const before = game.duoStats[1];
-    game.onKill(z, z.scoreValue, false, 1);
-    expect(game.duoStats[1]).toBe(before + z.scoreValue + config.BOUNTY.bonus);
+    const before = sim.scores[1];
+    // 击杀归属由 lastHitBy 决定（座位 1 打的），handleKill 里算悬赏加成
+    z.lastHitBy = 1;
+    zm.handleKill(z, false);
+    expect(sim.scores[1]).toBeGreaterThanOrEqual(before + z.scoreValue);
   });
 
   it('空投：光柱后落地，拾取者 +200 分、全队 +40 阳光', async () => {

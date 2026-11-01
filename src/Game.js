@@ -457,42 +457,21 @@ export class Game {
     return !!(this.duo && this.seat === 1);
   }
 
+  // 双人：服务器权威。两个客户端都只是「发输入 + 渲染」，没有房主/客人之分。
   setupDuoWorld() {
-    const host = this.seat === 0;
-    this.zombies.setRemote(!host);
-    this.zombies.setDuo(host);
-    this.zombies.onNetSpawn = host
-      ? (z) => {
-          if (this.duoSession) this.duoSession.sendZombieSpawn(z);
-        }
-      : null;
-    this.zombies.onNetDead = host
-      ? (z) => {
-          if (this.duoSession) this.duoSession.sendZombieDead(z);
-        }
-      : null;
-    // 共享补给：host 权威刷/捡/丢并广播列表；guest 只镜像 + claim。
-    if (host) {
-      this.pickups.setShared(false);
-      this.pickups.onChange = (list) => {
-        if (this.duoSession) this.duoSession.sendPickups(list);
-      };
-      this.pickups.onLocalPickup = (item, index) => {
-        if (item.air) this.grantAirdrop(0);
-        if (this.duoSession) {
-          this.duoSession.sendEvent({ type: 'pickup', id: item.id, seat: 0, index, air: item.air ? 1 : 0 });
-        }
-      };
-    } else {
-      this.pickups.setShared(true);
-      this.pickups.onClaim = (id) => {
-        if (this.duoSession) this.duoSession.sendClaim('pickup', id);
-      };
-      this.pickups.onDrop = (index, x, z) => {
-        if (this.duoSession) this.duoSession.sendPickupDrop(index, x, z);
-      };
-    }
-    if (host) this.zombies.startWave(1);
+    // 僵尸世界一律由服务器快照驱动，本地不跑 AI、不刷怪、不结算
+    this.zombies.setRemote(true);
+    this.zombies.setDuo(false);
+    this.zombies.onNetSpawn = null;
+    this.zombies.onNetDead = null;
+    // 补给同样以服务器为准：本地只管显示与发起 claim
+    this.pickups.setShared(true);
+    this.pickups.onChange = null;
+    this.pickups.onLocalPickup = null;
+    this.pickups.onClaim = (id) => {
+      if (this.duoSession && this.duoSession.sendClaim) this.duoSession.sendClaim('pickup', id);
+    };
+    this.pickups.onDrop = null;
   }
 
   async toggleDuo() {
@@ -506,13 +485,13 @@ export class Game {
     this.hud.setDuoMode(true);
     this.hud.setDuoStatus('正在连接服务器…', 'wait');
     try {
-      const { DuoSession } = await import('./net/DuoSession.js');
+      const { ClientNet } = await import('./net/ClientNet.js');
       if (this.state !== 'menu') {
         this.hud.setDuoMode(false);
         this.hud.setDuoStatus('', 'idle');
         return;
       }
-      this.duoSession = new DuoSession(this);
+      this.duoSession = new ClientNet(this);
       // M0：window.__netProbe = true 时开始采集（见 docs/plans/2026-11-01-netcode-refactor.md §M0）
       this.netProbe = this.duoSession.probe;
       try {
@@ -711,6 +690,77 @@ export class Game {
     if (d.g) this.applyGuestAuth(d.g);
     if (Array.isArray(d.o)) this.sunOrbs.applyNet(d.o);
     this.applyWorldState(d);
+  }
+
+  // ---- 服务器权威快照（ClientNet 调用）----
+  // 这是新架构下客户端唯一的「世界真相」来源：僵尸、队友、阳光、比分全部来自这里。
+  applyServerSnapshot(snap) {
+    if (!this.duo) return;
+    const seat = this.seat;
+    const me = snap.players[seat];
+    const peer = snap.players[1 - seat];
+
+    // 自己：本地已经预测过移动，这里只做校正（不直接覆盖，否则会抖）
+    if (me && this.duoSession && this.duoSession.reconcile) {
+      this.duoSession.reconcile(me);
+    }
+
+    // 队友：插值后的位置交给 RemotePlayer 平滑
+    if (peer && this.remote) {
+      this.peerHp = peer.hp;
+      if (peer.downed !== this.remoteDown) {
+        this.remoteDown = !!peer.downed;
+        this.remote.setDown(this.remoteDown);
+      }
+      this.remote.setTarget(peer.x, peer.z, peer.yaw, peer.y);
+      const speed = Math.hypot(peer.x - this.lastPeerX, peer.z - this.lastPeerZ) * 30;
+      this.lastPeerX = peer.x;
+      this.lastPeerZ = peer.z;
+      this.remote.setMoving(speed > 0.6, speed);
+    }
+
+    // 世界状态
+    this.sun = snap.sun;
+    this.hud.setSun(this.sun);
+    this.zombies.wave = snap.wave;
+    this.zombies.state = snap.state;
+    this.hud.setWave(snap.wave);
+
+    // 僵尸：交给现有 netSnapshot（按 id 增量 spawn/更新/回收）
+    this.zombies.netSnapshot(snap.zombies);
+  }
+
+  // 服务器事件：只做表现，不改权威状态
+  applyServerEvent(ev) {
+    if (!ev || !this.duo) return;
+    switch (ev.t) {
+      case 'wave':
+        this.onWaveStart(ev.n);
+        break;
+      case 'waveClear':
+        this.hud.showBanner('第 ' + ev.n + ' 波 守住了!', 2.0);
+        this.sfx.waveClear();
+        break;
+      case 'kill':
+        if (ev.seat === this.seat) {
+          this.sfx.hit && this.sfx.hit();
+        }
+        break;
+      case 'down':
+        if (ev.seat === 1 - this.seat) this.hud.showBanner('队友倒下了！靠近 2.5 秒可救起', 3);
+        break;
+      case 'rescue':
+        this.hud.showBanner('队友站起来了', 2);
+        break;
+      case 'over': {
+        const scores = this.duoStats ? this.duoStats.slice() : [0, 0];
+        const kills = this.duoKills ? this.duoKills.slice() : [0, 0];
+        this.finishDuoRound({ scores, kills }, ev.reason || 'WIPE');
+        break;
+      }
+      default:
+        break;
+    }
   }
 
   applyWorldState(d) {

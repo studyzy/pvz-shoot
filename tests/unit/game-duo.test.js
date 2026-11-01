@@ -32,14 +32,15 @@ vi.mock('../../src/entities/RemotePlayer.js', () => ({
   },
 }));
 
-vi.mock('../../src/net/DuoSession.js', () => ({
-  DuoSession: class {
+// 双人网络层已换成 ClientNet（服务器权威）；测试里用同样的桩
+vi.mock('../../src/net/ClientNet.js', () => ({
+  ClientNet: class {
     constructor(game) {
       if (globalThis.__duoThrow) throw new Error('boom');
       this.game = game;
       this.started = null;
       this.closed = false;
-      DuoSession.last = this;
+      ClientNet.last = this;
     }
     start(opts) {
       this.started = opts;
@@ -66,10 +67,10 @@ async function installThreeMock() {
 await installThreeMock();
 
 let createGame;
-let DuoSession;
+let ClientNet;
 beforeAll(async () => {
   ({ createGame } = await import('../helpers/game.js'));
-  ({ DuoSession } = await import('../../src/net/DuoSession.js'));
+  ({ ClientNet } = await import('../../src/net/ClientNet.js'));
 });
 
 async function boot() {
@@ -300,13 +301,13 @@ describe('Game 双人接入', () => {
   it('toggleDuo 动态加载会话；再点取消', async () => {
     const game = await boot();
     await game.toggleDuo();
-    expect(game.duoSession).toBeInstanceOf(DuoSession);
+    expect(game.duoSession).toBeInstanceOf(ClientNet);
     expect(game.duoSession.started).toMatchObject({ name: '戴夫', mapId: game.mapId });
     expect(document.getElementById('duoBtn').textContent).toContain('取消');
 
     await game.toggleDuo();
     expect(game.duoSession).toBeNull();
-    expect(DuoSession.last.closed).toBe(true);
+    expect(ClientNet.last.closed).toBe(true);
     expect(document.getElementById('duoBtn').textContent).toBe('双人联机');
     expect(document.getElementById('duoStatus').classList.contains('hidden')).toBe(true);
 
@@ -610,27 +611,36 @@ describe('Game · 世界事件与 claim 校验', () => {
 });
 
 // ── setupDuoWorld 的 host/guest 补给回调 ──
-describe('Game · 双人补给回调接线', () => {
-  it('host：本地拾取会把事件发给 guest；空投还会发奖', async () => {
+describe('Game · 双人补给回调接线（服务器权威）', () => {
+  it('双方都只发 claim：补给归属由服务器裁决，本地不再自建 host 分支', async () => {
     const game = await boot();
     game.startDuo({ mapId: 'backyard', seat: 0, peerName: 'B' });
-    const sendEvent = vi.fn();
-    game.duoSession = { sendEvent, sendPickups: vi.fn(), sendClaim: vi.fn(), sendPickupDrop: vi.fn() };
-    // 触发 host 的 onLocalPickup 回调
-    game.pickups.onLocalPickup({ id: 7, air: false }, 3);
-    expect(sendEvent).toHaveBeenCalledWith(expect.objectContaining({ type: 'pickup', id: 7, seat: 0 }));
-  });
-
-  it('guest：claim 与 drop 都会发请求给 host', async () => {
-    const game = await boot();
-    game.startDuo({ mapId: 'backyard', seat: 1, peerName: 'B' });
     const sendClaim = vi.fn();
-    const sendPickupDrop = vi.fn();
-    game.duoSession = { sendClaim, sendPickupDrop, sendEvent: vi.fn() };
+    game.duoSession = { sendClaim };
     game.pickups.onClaim(9);
     expect(sendClaim).toHaveBeenCalledWith('pickup', 9);
-    game.pickups.onDrop(2, 1, 1);
-    expect(sendPickupDrop).toHaveBeenCalledWith(2, 1, 1);
+    // 旧架构里 host 会在本地结算拾取并广播给 guest；新架构不再有这条路径
+    expect(game.pickups.onLocalPickup).toBeNull();
+    expect(game.pickups.onDrop).toBeNull();
+  });
+
+  it('座位 1 与座位 0 走同一条 claim 路径（不再区分房主/客人）', async () => {
+    const game = await boot();
+    game.startDuo({ mapId: 'backyard', seat: 1, peerName: 'A' });
+    const sendClaim = vi.fn();
+    game.duoSession = { sendClaim };
+    game.pickups.onClaim(4);
+    expect(sendClaim).toHaveBeenCalledWith('pickup', 4);
+    expect(game.pickups.onLocalPickup).toBeNull();
+  });
+
+  it('双人世界不跑本地僵尸 AI（全部由服务器快照驱动）', async () => {
+    const game = await boot();
+    game.startDuo({ mapId: 'backyard', seat: 0, peerName: 'B' });
+    expect(game.zombies.remote).toBe(true);
+    expect(game.zombies.duo).toBe(false);
+    expect(game.zombies.onNetSpawn).toBeNull();
+    expect(game.zombies.onNetDead).toBeNull();
   });
 
   it('队友倒地/站起会出横幅', async () => {

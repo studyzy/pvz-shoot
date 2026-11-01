@@ -133,38 +133,39 @@ describe('guest 世界权威分支', () => {
 });
 
 describe('host 世界权威', () => {
-  it('启动第 1 波，分配 netId，并发出 spawn/dead 事件', async () => {
+  it('双人世界：客户端不再本地跑僵尸 AI，也不广播 spawn/dead', async () => {
     const game = await boot();
-    const session = { sendZombieSpawn: vi.fn(), sendZombieDead: vi.fn() };
-    game.duoSession = session;
     game.startDuo({ mapId: 'backyard', seat: 0, peerName: '队友 B' });
-    expect(game.isGuestWorld()).toBe(false);
-    expect(game.zombies.remote).toBe(false);
-    expect(game.zombies.state).toBe('spawning');
-    expect(game.zombies.netSpawn(snap())).toBeNull();
-    game.zombies.netDespawn(99);
-
-    const z = game.zombies.spawnOne(game.player);
-    expect(z).toBeTruthy();
-    expect(z.netId).toBeGreaterThan(0);
-    expect(session.sendZombieSpawn).toHaveBeenCalledWith(z);
-    const s = z.serialize();
-    expect(s).toMatchObject({ id: z.netId, t: z.type, hp: z.hp, st: 0 });
-
-    z.slowTimer = 1;
-    z.attackAnim = 0.4;
-    expect(z.serialize().st).toBe(2);
-    expect(z.serialize().sl).toBe(1);
-    z.dying = true;
-    expect(z.serialize().st).toBe(3);
-
-    z.dead = true;
-    game.zombies.update(0.016, game.player, game.map.colliders);
-    expect(session.sendZombieDead).toHaveBeenCalledWith(z);
-
-    game.clearRemotes();
-    expect(game.zombies.remote).toBe(false);
+    // 新架构：僵尸世界一律由服务器快照驱动，本地是「远端」模式
+    expect(game.zombies.remote).toBe(true);
+    expect(game.zombies.duo).toBe(false);
     expect(game.zombies.onNetSpawn).toBeNull();
     expect(game.zombies.onNetDead).toBeNull();
+    // 不再有房主/客人之分
+    expect(game.isGuestWorld()).toBe(false);
+  });
+
+  it('僵尸快照字段仍然完整（服务器 serialize 与客户端消费的口径一致）', async () => {
+    const game = await boot();
+    game.startDuo({ mapId: 'backyard', seat: 0, peerName: '队友 B' });
+    // 客户端处于远端模式，netSpawn 会按快照建出僵尸
+    const z = game.zombies.netSpawn(snap());
+    expect(z).toBeTruthy();
+    const s = z.serialize();
+    // 二进制快照消费的是这几个字段，必须都在
+    for (const k of ['id', 't', 'x', 'y', 'z', 'yaw', 'hp', 'st', 'sl', 'ar']) {
+      expect(s, k).toHaveProperty(k);
+    }
+    // 远端僵尸只按快照摆姿势，不参与 AI 结算
+    expect(z.remote).toBe(true);
+  });
+
+  it('netDespawn 能按 id 回收远端僵尸', async () => {
+    const game = await boot();
+    game.startDuo({ mapId: 'backyard', seat: 1, peerName: '队友 A' });
+    const z = game.zombies.netSpawn(snap());
+    expect(game.zombies.zombies.length).toBe(1);
+    game.zombies.netDespawn(z.netId);
+    expect(game.zombies.zombies.length).toBe(0);
   });
 });
