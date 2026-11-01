@@ -57,6 +57,21 @@ export async function realGltfLoader() {
   };
 }
 
+// 替身自己 import('three') 时兜一下：flows 的 freshGame() 会 vi.resetModules()，
+// 这次动态 import 可能落到正在重建的模块图上拿到半成品，抛出的
+// "THREE.BoxGeometry is not a constructor" 是未处理的 Promise 拒绝，
+// 会把同一文件里后面几十个用例一起判红。半成品时退回安装替身那一刻的 three。
+async function stubThree() {
+  let THREE = null;
+  try {
+    THREE = await import('three');
+  } catch {
+    THREE = null;
+  }
+  if (THREE && THREE.BoxGeometry) return THREE;
+  return stubGltfLoader.three;
+}
+
 // 真实 glb 的几何/材质/命名结构：Zombie 依赖它做克隆、假骨骼补丁与配件挂载，
 // 用简化的替身就不会真正覆盖到这些分支。GLTFLoader 会在贴图阶段走 fetch/createObjectURL，
 // 这些资源只影响外观，测试里换成不需要网络的最小加载器（见 stubGltfLoaded）。
@@ -64,6 +79,7 @@ export async function stubGltfLoader() {
   const { GLTFLoader } = await import('three/examples/jsm/loaders/GLTFLoader.js');
   if (GLTFLoader.prototype.__testStubbed) return;
   GLTFLoader.prototype.__testStubbed = true;
+  stubGltfLoader.three = await import('three');
   GLTFLoader.prototype.load = async function (url, onLoad) {
     const scene = url.includes('/models/weapons/') ? await buildStubWeaponScene(url) : await buildStubZombieScene();
     onLoad({ scene, animations: [], cameras: [], asset: {} });
@@ -72,7 +88,7 @@ export async function stubGltfLoader() {
 }
 
 async function buildStubWeaponScene(url) {
-  const THREE = await import('three');
+  const THREE = await stubThree();
   const root = new THREE.Group();
   root.name = url.split('/').pop().replace('.glb', '');
   root.add(new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.5, 0.6), new THREE.MeshStandardMaterial({ color: 0x75ba34 })));
@@ -80,7 +96,7 @@ async function buildStubWeaponScene(url) {
 }
 
 async function buildStubZombieScene() {
-  const THREE = await import('three');
+  const THREE = await stubThree();
   // 与 public/models/zombie.glb 一致的关键约束：单网格、Z-up（挂 +90° X 旋转）、脚底 y=0、高 1.108。
   const geo = new THREE.BoxGeometry(0.45, 0.62, 1.108);
   const mat = new THREE.MeshStandardMaterial({ color: 0x9ab271, roughness: 0.8 });
