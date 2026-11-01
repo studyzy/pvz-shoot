@@ -259,8 +259,8 @@ async function phaseStartup(ctx) {
   const { page } = ctx;
   await page.setViewportSize({ width: 1440, height: 860 });
   await page.reload({ waitUntil: 'load' });
-  await waitUntil(page, () => !!window.__game, 30000, 'window.__game');
-  await waitUntil(page, () => window.__game.renderer.info.render.calls > 0, 30000, '渲染循环');
+  await waitUntil(page, () => !!window.__game, 60000, 'window.__game');
+  await waitUntil(page, () => window.__game.renderer.info.render.calls > 0, 60000, '渲染循环');
 
   const bodyClass = await page.evaluate(() => document.body.className);
   check(/\bdesktop\b/.test(bodyClass), '桌面 UA 下 body 应有 desktop 类，实际：' + bodyClass);
@@ -724,8 +724,8 @@ async function phaseMobile(ctx) {
   try {
     // CI runner 冷启动要现拉 1.4 MB 主包 + 几 MB glb，默认 30 秒的 goto 会超；放宽到 90 秒。
   await page.goto(url, { waitUntil: 'load', timeout: 90000 });
-    await waitUntil(page, () => !!window.__game, 30000, 'window.__game');
-    await waitUntil(page, () => window.__game.renderer.info.render.calls > 0, 30000, '渲染循环');
+    await waitUntil(page, () => !!window.__game, 60000, 'window.__game');
+    await waitUntil(page, () => window.__game.renderer.info.render.calls > 0, 60000, '渲染循环');
 
     const mode = await page.evaluate(() => ({
       cls: document.body.className,
@@ -1541,8 +1541,19 @@ async function phaseGallery(ctx) {
   check(before.calls > 0, '图鉴没有 draw call');
   check(before.tris > 1000, '图鉴三角面 ' + before.tris + '，模型可能没加载');
 
-  // 走路动画必须在推进，而不是停在 bind pose
-  await page.waitForTimeout(700);
+  // 走路动画必须在推进，而不是停在 bind pose。
+  // mixer 只按帧推进，固定 700ms 墙钟在慢 runner 上一帧都没跑，会误报成「没在走」。
+  try {
+    await waitUntil(
+      page,
+      (t0) => window.__gallery.current.zombie.mixer.time > t0 + 0.02,
+      15000,
+      '走路动画推进',
+      before.t
+    );
+  } catch {
+    /* 交给下面的断言报出具体数值 */
+  }
   const after = await page.evaluate(() => ({ t: window.__gallery.current.zombie.mixer.time }));
   check(after.t > before.t + 0.02, '走路动画没有推进：' + before.t.toFixed(3) + ' → ' + after.t.toFixed(3));
 
