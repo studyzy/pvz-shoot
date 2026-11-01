@@ -1500,7 +1500,9 @@ async function phaseGallery(ctx) {
     'normal', 'cone', 'bucket', 'football', 'balloon', 'skeleton', 'boss',
     'goblin', 'slime', 'bones', 'wolf', 'bat', 'gargantuar',
   ]) {
-    await page.click('[data-type="' + type + '"]');
+    // 模型是异步加载的，没加载完按钮是 disabled；慢 runner 上直接 click 会卡满 30 s 超时。
+    await page.waitForSelector('[data-type="' + type + '"]:not([disabled])', { timeout: 60000 });
+    await page.click('[data-type="' + type + '"]', { timeout: 30000 });
     await waitUntil(
       page,
       (t) => window.__gallery.current && window.__gallery.current.type === t,
