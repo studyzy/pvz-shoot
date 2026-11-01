@@ -22,7 +22,8 @@ export function headlessMap(id) {
     spawn: d.spawn || { x: 0, z: 13, yaw: 0 },
     colliders: d.colliders.map((c) => ({ x: c.x, z: c.z, r: c.r })),
     platforms: d.platforms.map((p) => ({ x: p.x, z: p.z, w: p.w, d: p.d, h: p.h })),
-    walls: d.walls.map((w) => ({ x: w.x, z: w.z, w: w.w, d: w.d, y0: w.y0, y1: w.y1 })),
+    // 原样带过来：盒体墙靠 hx/hy/hz/c/s 求交，圆柱墙靠 r/h，少一个字段就判错
+    walls: d.walls.map((w) => ({ ...w })),
     pickupSpots: d.pickupSpots.map((p) => ({ x: p.x, z: p.z })),
     zombieSpawnPoints: d.zombieSpawnPoints.length ? d.zombieSpawnPoints.map((p) => [p.x, p.z]) : null,
     nav: null,

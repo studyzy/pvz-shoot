@@ -10,7 +10,8 @@ import * as THREE from 'three';
 import { ZombieManager } from '../entities/ZombieManager.js';
 import { Player } from '../entities/Player.js';
 import { SkySun } from '../entities/SkySun.js';
-import { TUNING, DUO, SUN_SKY } from '../config.js';
+import { TUNING, DUO, SUN_SKY, WEAPONS } from '../config.js';
+import { adjudicateShot } from './hit.js';
 
 export const TICK_RATE = 30;
 export const TICK_MS = 1000 / TICK_RATE;
@@ -242,6 +243,29 @@ export class MatchSim {
       this.rescueAcc = 0;
     }
     this.checkWipe();
+  }
+
+  /**
+   * 服务器权威命中：客户端只上报「我开了枪、朝向是 (yaw,pitch)」，
+   * 打中谁、打多少、是不是爆头，全部由服务器判定。
+   * 不信任客户端上报的目标与伤害值。
+   */
+  fireShot(seat, weaponId, yaw, pitch) {
+    const p = this.players[seat];
+    if (!p || p.dead || p.downed) return null;
+    const def = WEAPONS.find((w) => w.id === weaponId);
+    if (!def) return null;
+    const hit = adjudicateShot(p, yaw, pitch, this.zombies.zombies, this.map);
+    if (!hit) {
+      this.emit({ t: 'shot', seat, weapon: weaponId, hit: false });
+      return null;
+    }
+    const z = hit.zombie;
+    const dmg = (def.damage || 0) * (hit.head ? TUNING.headshotMul : 1);
+    const dead = z.hit(dmg, !!def.slow, hit.head, { type: def.kind || 'pea', source: seat });
+    this.emit({ t: 'shot', seat, weapon: weaponId, hit: true, zid: z.netId, head: hit.head, pos: hit.pos });
+    if (dead) this.zombies.handleKill(z, hit.head);
+    return { hit: true, zid: z.netId, head: hit.head, dmg };
   }
 
   // ---- 对外只读状态：快照编码从这里取数 ----

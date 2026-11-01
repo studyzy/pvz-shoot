@@ -69,10 +69,16 @@ function extract(map) {
     platforms: (map.platforms || []).map((p) => ({
       x: round(p.x), z: round(p.z), w: round(p.w), d: round(p.d), h: round(p.h),
     })),
-    walls: (map.walls || []).map((w) => ({
-      x: round(w.x), z: round(w.z), w: round(w.w), d: round(w.d),
-      y0: round(w.y0 === undefined ? 0 : w.y0), y1: round(w.y1 === undefined ? 3 : w.y1),
-    })),
+    // walls 有两种：OBB 盒体 {x,y,z,hx,hy,hz,c,s} 与圆柱 {x,z,r,h}。
+    // 必须原样保留（sweepWalls 依赖 hx/hy/hz/c/s 做旋转盒求交），不能自己改字段名。
+    walls: (map.walls || []).map((w) => {
+      const o = {};
+      for (const k of Object.keys(w)) {
+        const v = w[k];
+        o[k] = typeof v === 'number' ? round(v) : v;
+      }
+      return o;
+    }),
     pickupSpots: (map.pickupSpots || []).map((p) => ({ x: round(p.x), z: round(p.z) })),
     zombieSpawnPoints: (map.zombieSpawnPoints || []).map((p) => ({ x: round(p[0]), z: round(p[1]) })),
   };

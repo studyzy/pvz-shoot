@@ -353,25 +353,88 @@ npm run duo       # build 后直接起双人服务器
 - **实测口径**（每只僵尸的主通道 draw call，含 blob 影子）：普通 2、路障 6、气球 5、橄榄球 9（其中 6 个来自程序化头盔）、骷髅 10、Boss 12；普通僵尸 1 万三角面，其余 5k–1.1 万。
 
 
-### 5.12 双人联机（M0 / M1 + M2 input/僵尸/命中/救援）
+### 5.12 双人联机（服务器权威 · Netcode v2）
 
-- **范围**：自动配对（有人等待就加入，没人等待就新建一场并等待）、多场并发（默认 `MAX_MATCHES=8`）、断线重连（45 s）、同场玩家 input 同步；**僵尸由 host 模拟、20 Hz 快照 + spawn/dead 事件同步**；guest 的命中/爆炸发请求，host 用视线 + seq 快照 + 墙体/冷却重算；共享阳光值、个人分、倒地救援已接。**共享补给 claim、阳光球同步、结算页、resync、双人缩放还没做**；常规补给目前是每客户端本地掉落，常规球的 host-only。
-- **跑起来**：`npm run build && npm run server`（或开发时 `npm run dev` + `npm run server`）。客户端在 DEV 下连 `ws://<当前主机名>:8080/ws`，生产同源连 `/ws`。详见 [server/README.md](server/README.md)；生产环境见 [server/DEPLOYMENT.md](server/DEPLOYMENT.md)。
-- **协议**：`src/net/protocol.js`；顶层消息 `hello/welcome/queue/peer/start/map/relay/ping/pong/error/end/bye`。`relay` 里再包一层游戏内消息（`input` / `pstate` / `evt` / `pause` / `resume`），不要绕过 `cleanRelay` 的 32 KB 上限。
-- **配对**：服务器只维护 `waiting` FIFO 和 `matches`；seat 0 是房主，seat 1 是客人。`start` 后服务器只转发，不模拟。
-- **邀请链接**：等待中的房主 `welcome.joinToken`（12 位）→ 客户端把地址栏改成 `?join=`，并显示「复制邀请链接」；朋友打开即加入。`hello.join` 优先于 FIFO，失效返回 `JOIN_EXPIRED`（客户端清掉参数，可重新匹配）。
-- **刷新 vs 断网**：`hello.page` 是页面实例 id（同一页重连不变、刷新变）。房主刷新 = 本局结束（客人收 `HOST_RESET`）；客人刷新 = 回座但 M1 世界重置，M2 才发 `resync`。
-- **远端平滑**：`applyRemoteState` 调 `setTarget`，`RemotePlayer.update` 用 100 ms 平滑；>3 m 直接吸附（重连/换图）。
-- **公网加固**：`MAX_CONN_PER_IP=6`；Caddy 后设 `TRUST_PROXY=1` 读 `X-Forwarded-For`。
-- **M2 input/命中**：guest 每帧 `captureInput` 累积 `look/jump`，30 Hz 发 `input {m,look,jump,fire,shield,w}`（`w` = 当前武器 id）；host 跑 `sfx=null`、`onDamage/onDeath=null` 的 guest 代理 `Player`（`Game.netGuest`），20 Hz 回 `pstate`（`h/g/z/sun/scores/kills`，`h.w`/`g.w` 是双方手持武器 id）；guest 本地预测，按 0.2 m 软校正，300 ms 没输入就把代理 move/fire 归零。guest 的 `ProjectileSystem` 命中远端僵尸发 `hit {zid,seq,w,dir}`，host 用 `seq` 快照位置 + 代理视线 + 头身球 + 墙体 + 冷却重算；爆炸走 `aoe`。guest 本地只 `flashOnly`。
-- **guest 僵尸世界**：`Game.isGuestWorld()` 跳过 `map.updateNav`/`skySun`/`sunOrbs`；`zombies.setRemote(true)` 后只跑 `Zombie.update` 远端分支。host 的 `ZombieManager.onNetSpawn/onNetDead` 发 `evt`，`pstate.z` 每 50 ms 同步 `id/type/x/y/z/yaw/hp/st/sl`。guest 的 `Zombie.hit()` 只白闪，不扣血、不 `handleKill`、不掉阳光。**常规补给例外**：`pickups.update` 在 guest 也跑本地掉落（共享 claim 未做）。
-- **倒地/救援**：`Player.duoDown` 时 HP 归零进入 `downed`（30 s、镜头 0.55 m + 0.24 rad 侧倾、不能开枪）；host 的 `Game.updateDuoRescue` 在两人相距 3 m 内累计 2.5 s 自动救起（半血 + 3 s 无敌）。超时 `duoWipe` → `sendWipe` + 回菜单，菜单状态栏显示双方比分。
-- **倒地表现**：队友模型必须真的躺下，不能站着。`RemotePlayer.setDown(on)` 驱动 `downK` 平滑权重（τ≈0.11 s），`animate()` 里前扑 `model.rotation.x = +1.5·downK`（死亡是后仰 −1.5；两者合成到同一个字段、**死亡优先**），骨骼只叠在 `captureRig` 的 rest 上加角度。**贴地靠 `groundSnap()` 每帧重算**：先清零 `model.position.y`、从 root 刷新世界矩阵，再逐顶点（蒙皮网格走 `getVertexPosition`）取最低点，最后把模型摆到「最低点 = root 脚底」。三个坑都踩过：① `Box3.setFromObject` 量的是绑定姿势包围盒、不含骨骼变形，趴下时少算约 0.1 米（表现为浮空）；② 拿「躺平时的常量」按 `downK` 线性插值，旋转是连续变化的、两者不同步，爬起中途整只人悬空 0.38 米；③ 在旧值上 `+=` 累加，量到的世界坐标已含上一帧偏移，误差越滚越大——必须赋绝对值。站立（`downK === 0`）不做补偿。`Game.syncNetGuest`（host 读 `netGuest.downed`）与 `applyRemoteState`（guest 读 `d.down`）负责推送，救起后自动站回；倒地期间 `setFiring`/`setMoving` 被短路，不会抽搐。
-- **双人血量 HUD**：左上角自己的血条下面还有一条队友血条（`#peerHpRow`），只在 `game.duo` 存在时显示。`HUD.setDuoHud(on)` 开关、`HUD.setPeerHealth(hp, max, {downed, name})` 写值（带缓存）；`Game.updatePeerHud()` 每帧喂——host 读 `netGuest.hp/maxHp/downed`，guest 读 `peerHp`（`applyRemoteState` 缓存）+ `remoteDown`。队友倒地时整行 `.down`、数字位显示「倒地」。
-- **客户端**：`NetClient` 存 `sessionStorage` 的 token；`DuoSession` 收到 `START` 调 `Game.startDuo`，收到 `RELAY input` 调 `applyGuestInput`（host），收到 `pstate` 调 `applyPeerState`（guest），收到 `evt` 调 `applyWorldEvent`。guest 30 Hz 发 input，host 20 Hz 发 pstate。
-- **Game 接入**：`duoSession`/`duo`/`seat`/`remote`/`netGuest`；`startDuo` 用 `duoSpawn(map, seat)` 在出生点左右各让 1.8 m，`setupDuoWorld()` 设置远程标志/网络回调并由 host `startWave(1)`；`backToMenu`/`endDuo`/`restart` 都会清理会话、远端和僵尸回调。双人下 Esc/失锁**不自动暂停**，避免通过中继把队友锁住。
-- **不要**把 `DuoSession` 静态 import 进 `Game.js`：`toggleDuo()` 里动态 `import()`，单人模式不加载网络 chunk（构建里应看到独立的 `DuoSession-*.js`）。
-- **测试**：`tests/unit/matchmaker.test.js`（配对/重连/超时）、`tests/unit/netclient.test.js`、`tests/unit/duosession.test.js`、`tests/unit/duo-authority.test.js`（input/guest 世界/僵尸快照）、`tests/unit/duo-hit.test.js`（guest 命中请求与 host 裁决）、`tests/unit/duo-down.test.js`（倒地/救援/团灭）、`tests/integration/duo-server.test.js`（真实 ws 服务器）。双浏览器手动验收：两个独立上下文点「双人联机」，guest 能看到 host 刷出的僵尸（同 id/hp），guest 本地命中只白闪、host 的血量由裁决改变。
+> 2026-11 完成重构：**从「房主客户端模拟 + 盲中继」换成「服务器权威模拟」**。
+> 完整方案与实测数据见 [docs/plans/2026-11-01-netcode-refactor.md](docs/plans/2026-11-01-netcode-refactor.md)。
+
+- **为什么改**：旧方案里僵尸 AI 跑在房主浏览器里。房主用手机/iPad 时帧率掉到 20~30fps，
+  快照发送挂在 rAF 上，于是**房主掉帧直接变成客人的卡顿**。这不是带宽问题，是架构问题。
+- **现在的模型**：服务器是唯一模拟器，两个客户端都只做「发输入 + 渲染」，**没有房主/客人之分**。
+  任何一方掉线都只是该座位输入归零，世界继续推进（不再有 `HOST_RESET`）。
+
+#### 分层（改代码前先看这张表）
+
+| 层 | 文件 | 能碰渲染吗 |
+| --- | --- | --- |
+| 模拟层 | `src/sim/`（`MatchSim` / `snapshot` / `headlessMap`） | **绝对不能**。见下方硬约束 |
+| 服务器 | `server/room.js`（30Hz 循环）、`server/matchmaker.js`（配对/座位） | 不能 |
+| 客户端网络 | `src/net/ClientNet.js`、`src/net/interpolate.js` | 只碰 DOM 之外的逻辑 |
+| 渲染 | `src/Game.js` 及 `src/entities/*` | 是 |
+
+#### 硬约束（违反会直接让服务器崩）
+
+- **`src/sim/` 与 `server/` 里不能出现 `document` / `window` / 场景对象 / glb 加载**。
+  服务器没有 DOM。`tests/unit/sim-headless.test.js` 有静态守卫，`tests/integration/sim-headless.node.test.js`
+  用 `@vitest-environment node` 在**裸 Node**里真跑一遍。
+- **`Zombie` / `ZombieManager` 靠 `ctx.headless` 分支在服务器上跑**。给这两个类加新代码时：
+  - 纯视觉的（材质、骨骼、粒子、精灵标记）→ 放在 `if (this.ctx.headless) return;` 之后；
+  - **任何逻辑字段（`bounty`、`coop`、`armorHp` 这类会进快照的）必须早退之前写**。
+    这里踩过一次：`setBounty` 的早退把 `bounty` 一起跳过了，服务器丢掉了悬赏状态。
+- **`Zombie` 构造里的无头分支必须在建 blob 影子之前返回**：影子要读 canvas（`document`）。
+- **地图数据是构建期榨出来的**：`src/sim/mapdata.json` 由 `npm run extract:maps`
+  在 jsdom 里跑真实 `createMaps()` 生成。**改了任何地图的 colliders/platforms/walls/出生点，
+  必须重跑 `npm run extract:maps` 并提交**，否则服务器和客户端的地图数据会分叉。
+- **服务器只监听 127.0.0.1:8090**，由 Caddy 反代；`/ws` 是根路径（不在 `/pvz/` 下）。
+
+#### 协议
+
+- 控制消息仍是 JSON（`src/net/protocol.js` 的 `hello/welcome/queue/peer/start/map/ping/pong/error/end/bye`），
+  **`relay` 字符串中继已经废弃**，不要再往里面塞游戏状态。
+- 游戏状态走**二进制帧**（`src/sim/snapshot.js`）：
+  | 帧 | 方向 | 大小 | 内容 |
+  | --- | --- | --- | --- |
+  | `SNAP` 0x20 | S→C | ≈ 8 + 24×玩家 + 16×僵尸 | tick/阳光/波次 + 玩家 + 僵尸（定点 int16） |
+  | `INPUT` 0x40 | C→S | 12 B | seq/move/yaw/pitch/buttons |
+  | 事件帧 | S→C | JSON | 只做表现（刷怪/死亡/受击/波次/团灭） |
+- **`ws` 收到的文本帧也是 `Buffer`，而 `Buffer` 是 `Uint8Array` 子类** ——
+  判断二进制帧只能用 `ws` 给的 `isBinary` 参数，不能用 `instanceof Uint8Array`。
+
+#### 客户端手感
+
+- **插值**（`src/net/interpolate.js`）：渲染时刻比服务器晚 `INTERP_DELAY_MS`（默认 100ms），
+  在最近两帧快照之间线性插值；抖动大时自动加深缓冲（上限 200ms）。
+  角度插值必须走最短弧，否则 ±π 处会整圈转过去。
+- **自己没有插值延迟**：本地玩家用同一份 `Player.update` 立刻预测，收到权威位置后按
+  `RECONCILE_EPS`（0.12m）判定：小偏差平滑靠拢，大偏差直接吸附。
+- **想调手感先调这两个参数**，它们无需改架构。
+
+#### 跑起来 / 验收
+
+```bash
+npm test                 # 1613 用例（含服务器端到端）
+npm run sim:headless     # 裸 Node 跑 5 张地图，验证模拟层没有渲染依赖
+npm run test:e2e         # 单人 14 个浏览器场景
+npm run test:e2e:duo     # 双端：配对 / 一端降速 12x 不影响另一端 / 掉线继续 / 单人零 WS
+node tools/bench-rooms.mjs 8 20   # 多房间压测
+node tools/verify-prod.mjs        # 直接验证线上部署
+```
+
+#### 实测性能（2 核 8G 腾讯云 Lighthouse）
+
+| 场数 | 每 tick 总耗时 | 占 30Hz 预算 | 内存 | 出网 |
+| --- | --- | --- | --- | --- |
+| 8 场（16 人） | 1.64 ms | 4.9% | 2.2 MB/场 | 0.56 Mbps |
+| 32 场（64 人） | 4.35 ms | 13% | 0.72 MB/场 | 2.09 Mbps |
+
+单核可容纳约 163~245 场。**CPU 不是瓶颈**，真正要盯的是出网流量包（大头是 29MB 静态资源，
+见 [server/DEPLOYMENT.md](server/DEPLOYMENT.md)）。
+
+#### 部署注意
+
+- `~/bin/pvz-deploy.sh` 的「哪些源码变了才重启」清单**必须包含 `src/sim/` 与 `*.json`**，
+  否则改了模拟逻辑不会重启服务，线上继续跑旧代码（这个坑已经踩过一次）。
+- 地图/模拟改动 → `npm run extract:maps` → 一起提交。
 
 ## 6. 常见改动路径
 
