@@ -785,7 +785,18 @@ async function phaseMobile(ctx) {
       type: 'touchStart',
       touchPoints: [{ x: fireCenter.x, y: fireCenter.y, id: 1 }],
     });
-    await page.waitForTimeout(400);
+    // 弹丸由渲染循环里的 weapons.update 生成，只取决于「跑了多少帧」；
+    // 固定 400ms 墙钟在 CI 软渲染上可能一帧都没跑，会把「机器慢」误判成「开火不生效」。
+    try {
+      await waitUntil(
+        page,
+        () => window.__game.projectiles.peas.some((p) => p.active),
+        15000,
+        '按住开火后产生弹丸'
+      );
+    } catch {
+      /* 交给下面的断言报出具体数值 */
+    }
     const firing = await page.evaluate(() => ({
       firing: window.__game.controls.firing,
       pressed: document.getElementById('fireBtn').classList.contains('pressed'),
@@ -794,7 +805,7 @@ async function phaseMobile(ctx) {
     }));
     check(firing.firing === true, '按住 #fireBtn 后 controls.firing 应为 true，实际 ' + firing.firing);
     check(firing.pressed === true, '按住 #fireBtn 时应加 .pressed 类');
-    check(firing.activePeas >= 1, '按住开火 400ms 应至少产生 1 颗弹丸，实际 ' + firing.activePeas);
+    check(firing.activePeas >= 1, '按住开火 15s 内应至少产生 1 颗弹丸，实际 ' + firing.activePeas);
     await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
     await page.waitForTimeout(200);
     const released = await page.evaluate(() => window.__game.controls.firing);
