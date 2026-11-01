@@ -5,7 +5,7 @@ vi.mock('../../src/entities/RemotePlayer.js', () => ({
     constructor(opts) {
       this.opts = opts;
       this.root = {};
-      this.calls = { transform: [], target: [], moving: [], firing: 0, weapon: [] };
+      this.calls = { transform: [], target: [], moving: [], firing: 0, weapon: [], down: [] };
     }
     update() {}
     dispose() {
@@ -25,6 +25,9 @@ vi.mock('../../src/entities/RemotePlayer.js', () => ({
     }
     setWeapon(id) {
       this.calls.weapon.push(id);
+    }
+    setDown(on) {
+      this.calls.down.push(on);
     }
   },
 }));
@@ -99,14 +102,18 @@ describe('Game 双人接入', () => {
     expect(r.calls.target.at(-1)).toEqual([3, 4, 1, 0.5]);
     expect(r.calls.moving.at(-1)).toEqual([true, 4]);
     expect(r.calls.firing).toBe(1);
-    game.applyRemoteState({ x: 3, z: 4, yaw: 1, moving: true, speed: 4, firing: true });
+    game.applyRemoteState({ x: 3, z: 4, yaw: 1, moving: true, speed: 4, firing: true, down: true });
     expect(r.calls.firing).toBe(1);
+    // 队友倒地要驱动远端模型趴下，救起后站回
+    expect(r.calls.down.at(-1)).toBe(true);
+    game.applyRemoteState({ x: 3, z: 4, yaw: 1, moving: true, speed: 4, firing: true, down: false });
+    expect(r.calls.down.at(-1)).toBe(false);
     game.applyRemoteState({ x: 3, z: 4, yaw: 1, moving: false, speed: 0, firing: false });
     game.applyRemoteState({ x: 3, z: 4, yaw: 1, moving: false, speed: 0, firing: true, w: 'gatling' });
     expect(r.calls.firing).toBe(2);
     expect(r.calls.weapon).toContain('gatling');
     game.applyRemoteState({ x: 'bad', z: 4 });
-    expect(r.calls.target).toHaveLength(4);
+    expect(r.calls.target).toHaveLength(5);
     game.remote = null;
     expect(() => game.applyRemoteState({ x: 1, z: 1 })).not.toThrow();
   });
@@ -149,6 +156,22 @@ describe('Game 双人接入', () => {
     expect(game.netControls.move.x).toBe(0);
     expect(game.netControls.move.y).toBe(0);
     expect(game.netControls.firing).toBe(false);
+  });
+
+  it('host 的 syncNetGuest 把代理倒地状态同步给远端模型', async () => {
+    const game = await boot();
+    game.startDuo({ mapId: 'backyard', seat: 0, peerName: '队友 B' });
+    const r = game.remote;
+    game.syncNetGuest();
+    expect(r.calls.down.at(-1)).toBe(false);
+    game.netGuest.hp = 5;
+    game.netGuest.damage(10);
+    expect(game.netGuest.downed).toBe(true);
+    game.syncNetGuest();
+    expect(r.calls.down.at(-1)).toBe(true);
+    game.netGuest.revive();
+    game.syncNetGuest();
+    expect(r.calls.down.at(-1)).toBe(false);
   });
 
   it('guest 应用 pstate：host 远端 + 自身软校正/吸附；host 忽略 pstate', async () => {
@@ -204,6 +227,60 @@ describe('Game 双人接入', () => {
     expect(sendPause).toHaveBeenCalledTimes(2);
     game.resume(true);
     expect(sendPause).toHaveBeenCalledTimes(2);
+  });
+
+  it('左上角队友血条：单人隐藏；双人显示并随 netGuest 血量/倒地变化', async () => {
+    const solo = await boot();
+    solo.start();
+    solo.update(0.016);
+    expect(document.getElementById('peerHpRow').classList.contains('hidden')).toBe(true);
+
+    const game = await boot();
+    const row = document.getElementById('peerHpRow');
+    const text = document.getElementById('peerHpText');
+    game.startDuo({ mapId: 'backyard', seat: 0, peerName: '队友 B' });
+    game.update(0.016);
+    expect(row.classList.contains('hidden')).toBe(false);
+    expect(text.textContent).toBe(String(Math.ceil(game.netGuest.hp)));
+
+    // host 侧只读代理 Player 的权威血量（回血会在这帧里先走一小步，用 ceil 对齐）
+    game.netGuest.hp = 30;
+    game.update(0.016);
+    expect(text.textContent).toBe(String(Math.ceil(game.netGuest.hp)));
+    expect(Number(text.textContent)).toBeGreaterThanOrEqual(30);
+
+    // 队友倒地：数字位写「倒地」
+    game.netGuest.hp = 0;
+    game.netGuest.downed = true;
+    game.update(0.016);
+    expect(row.classList.contains('down')).toBe(true);
+    expect(text.textContent).toBe('倒地');
+
+    game.endDuo('LEFT');
+    expect(row.classList.contains('hidden')).toBe(true);
+  });
+
+  it('guest 侧队友血条读 applyRemoteState 的 hp/down', async () => {
+    const game = await boot();
+    game.startDuo({ mapId: 'backyard', seat: 1, peerName: '戴夫 A' });
+    game.applyRemoteState({ x: 1, z: 2, hp: 64, down: false });
+    expect(game.peerHp).toBe(64);
+    game.update(0.016);
+    const row = document.getElementById('peerHpRow');
+    expect(row.classList.contains('hidden')).toBe(false);
+    expect(document.getElementById('peerHpText').textContent).toBe('64');
+
+    // 缺 hp 的包（只有位置）不该把血量打回 0
+    game.applyRemoteState({ x: 1, z: 3 });
+    expect(game.peerHp).toBe(64);
+
+    game.applyRemoteState({ x: 1, z: 3, hp: 0, down: true });
+    game.update(0.016);
+    expect(row.classList.contains('down')).toBe(true);
+    expect(document.getElementById('peerHpText').textContent).toBe('倒地');
+
+    game.backToMenu();
+    expect(row.classList.contains('hidden')).toBe(true);
   });
 
   it('endDuo 回菜单、清远端、给出提示', async () => {

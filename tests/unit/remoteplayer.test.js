@@ -413,6 +413,77 @@ describe('RemotePlayer', () => {
     r.dispose();
   });
 
+  // 回归：双人倒地时远端模型一直站着。setDown(true) 要趴下、setDown(false) 要站回来。
+  it('setDown 平滑趴下、setDown(false) 平滑站回，并且和死亡互不覆盖', () => {
+    const r = new RemotePlayer({ scene: new THREE.Scene() });
+    const standArm = r.rig.armL.bone.quaternion.clone();
+    r.setDown(true);
+    expect(r.down).toBe(true);
+    expect(r.current).toBe('down');
+
+    r.update(0.05);
+    const mid = r.model.rotation.x;
+    expect(mid).toBeGreaterThan(0);
+    expect(mid).toBeLessThan(1.4);
+    expect(r.rig.armL.bone.quaternion.equals(standArm)).toBe(false);
+
+    for (let i = 0; i < 40; i++) r.update(0.05);
+    expect(r.downK).toBe(1);
+    expect(r.model.rotation.x).toBeCloseTo(1.5);
+    expect(r.model.position.y).toBeCloseTo(0.22);
+    expect(r.plate.position.y).toBeCloseTo(PLATE_Y - 1);
+
+    // 躺着的时候再收到走路/开火也不会抽搐：姿势保持不变
+    const lying = r.model.rotation.x;
+    r.setMoving(true, 4);
+    r.setFiring();
+    expect(r.current).toBe('down');
+    expect(r.shootT).toBe(0);
+    r.update(0.05);
+    expect(r.model.rotation.x).toBeCloseTo(lying);
+
+    // 站起：数值单调回落，最后归零
+    r.setMoving(false, 0);
+    r.setDown(false);
+    expect(r.current).toBe('idle');
+    r.update(0.05);
+    const rising = r.model.rotation.x;
+    expect(rising).toBeLessThan(lying);
+    expect(rising).toBeGreaterThan(0);
+    for (let i = 0; i < 40; i++) r.update(0.05);
+    expect(r.downK).toBe(0);
+    expect(r.model.rotation.x).toBe(0);
+    expect(r.model.position.y).toBe(0);
+    expect(r.plate.position.y).toBeCloseTo(PLATE_Y);
+    expect(r.rig.armL.bone.quaternion.equals(standArm)).toBe(true);
+
+    // 死亡优先：趴着时 setDead 直接接管，之后 setDown(false) 不会把尸体扶起来
+    r.setDown(true);
+    for (let i = 0; i < 40; i++) r.update(0.05);
+    r.setDead();
+    expect(r.down).toBe(false);
+    expect(r.current).toBe('die');
+    for (let i = 0; i < 40; i++) r.update(0.05);
+    expect(r.model.rotation.x).toBeCloseTo(-1.5);
+    r.setDown(false);
+    expect(r.current).toBe('die');
+    r.update(0.05);
+    expect(r.model.rotation.x).toBeCloseTo(-1.5);
+    r.dispose();
+  });
+
+  it('模型晚到时按倒地状态初始化', () => {
+    setModel({ scene: null, ready: true });
+    const r = new RemotePlayer({ scene: new THREE.Scene() });
+    r.setDown(true);
+    expect(r.down).toBe(true);
+    remoteModel.scene = makePumpkin().root;
+    r.buildModel();
+    expect(r.current).toBe('down');
+    expect(r.weaponMount).toBeTruthy();
+    r.dispose();
+  });
+
   it('play 忽略空值与同名状态', () => {
     const r = new RemotePlayer({ scene: new THREE.Scene() });
     r.play('idle');

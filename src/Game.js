@@ -52,6 +52,8 @@ export class Game {
     this.wasADown = false;
     this.wasBDown = false;
     this.remoteDown = false;
+    // guest 侧：队友（host）血量来自 applyRemoteState 的 hp/down
+    this.peerHp = -1;
     this.netShieldHp = 0;
     this.pendingResync = null;
     this.airdropWave = -1;
@@ -570,6 +572,9 @@ export class Game {
     this.wasADown = false;
     this.wasBDown = false;
     this.remoteDown = false;
+    this.peerHp = -1;
+    this.hud.setDuoHud(true);
+    this.hud.setPeerHealth(-1, 0, { downed: false, name: this.duo.peerName });
     this.state = 'playing';
     this.controls.setEnabled(true);
     this.controls.requestLock();
@@ -633,6 +638,7 @@ export class Game {
     const speed = TUNING.playerSpeed * (g.moveAmt || 0) * (g.speedMul || 1);
     this.remote.setTransform(g.pos.x, g.pos.z, g.yaw, g.pos.y);
     this.remote.setMoving((g.moveAmt || 0) > 0.1, speed);
+    this.remote.setDown(!!g.downed);
     const firing = !!(this.netControls && this.netControls.firing);
     if (firing && !this.netFiring) this.remote.setFiring();
     this.netFiring = firing;
@@ -1019,12 +1025,22 @@ export class Game {
     }
   }
 
+  // 左上角队友血条：host 读 netGuest（权威代理），guest 读 applyRemoteState 缓存下来的 peerHp
+  updatePeerHud() {
+    if (!this.duo) return;
+    const b = this.netGuest;
+    if (b) this.hud.setPeerHealth(b.hp, b.maxHp, { downed: !!b.downed, name: this.duo.peerName });
+    else this.hud.setPeerHealth(this.peerHp, 0, { downed: this.remoteDown, name: this.duo.peerName });
+  }
+
   applyRemoteState(d) {
     if (!this.remote || !d) return;
+    if (Number.isFinite(Number(d.hp)) && d.hp !== null && d.hp !== '') this.peerHp = Number(d.hp);
     if (d.down !== undefined) {
       if (d.down && !this.remoteDown) this.hud.showBanner('队友倒下了！靠近 2.5 秒可救起', 3);
       else if (!d.down && this.remoteDown) this.hud.showBanner('队友站起来了', 2);
       this.remoteDown = !!d.down;
+      this.remote.setDown(this.remoteDown);
     }
     const x = Number(d.x);
     const z = Number(d.z);
@@ -1214,6 +1230,8 @@ export class Game {
     this.duo = null;
     this.seat = -1;
     this.remote = null;
+    this.peerHp = -1;
+    if (this.hud) this.hud.setDuoHud(false);
     if (this.state !== 'menu') this.backToMenu();
     this.hud.setDuoMode(false);
     if (hadDuo) {
@@ -1277,6 +1295,9 @@ export class Game {
     this.shakeAmp = 0;
     this.hud.setSun(this.sun, true);
     this.hud.setHealth(this.player.hp, this.player.maxHp);
+    this.peerHp = -1;
+    this.hud.setDuoHud(!!this.duo);
+    this.hud.setPeerHealth(-1, 0, { downed: false, name: this.duo ? this.duo.peerName : '' });
   }
 
   restart() {
@@ -1560,6 +1581,7 @@ export class Game {
       }
     }
     this.hud.setHealth(this.player.hp, this.player.maxHp);
+    this.updatePeerHud();
     this.hud.setShield(this.wallNuts.hp, this.wallNuts.maxHp, this.wallNuts.active);
     if (this.zombies.boss) {
       this.hud.setBossHp(this.zombies.boss.hp / this.zombies.boss.maxHp);

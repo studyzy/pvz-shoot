@@ -227,6 +227,63 @@ describe('HUD', () => {
     });
   });
 
+  describe('队友血条', () => {
+    it('默认隐藏（单人模式），setDuoHud(true) 才出现', () => {
+      const row = $('peerHpRow');
+      expect(row.classList.contains('hidden')).toBe(true);
+      hud.setDuoHud(true);
+      expect(row.classList.contains('hidden')).toBe(false);
+      hud.setDuoHud(false);
+      expect(row.classList.contains('hidden')).toBe(true);
+    });
+
+    it('setPeerHealth 写宽度与数字，相同值不重复写 DOM', () => {
+      hud.setDuoHud(true);
+      const widthSpy = vi.spyOn(hud.peerHpFill.style, 'width', 'set');
+      hud.setPeerHealth(60, 120, { name: '队友 B' });
+      expect(hud.peerHpText.textContent).toBe('60');
+      expect(hud.peerHpFill.style.width).toBe('50%');
+      expect(hud.peerHpText.title).toBe('队友 B');
+      expect(widthSpy).toHaveBeenCalledTimes(1);
+      hud.setPeerHealth(60, 120, { name: '队友 B' });
+      expect(widthSpy).toHaveBeenCalledTimes(1);
+      // 比例钳制在 [0,1]
+      hud.setPeerHealth(500, 120, {});
+      expect(hud.peerHpFill.style.width).toBe('100%');
+    });
+
+    it('倒地时整行 .down、数字位显示「倒地」，站起后恢复', () => {
+      hud.setDuoHud(true);
+      hud.setPeerHealth(0, 120, { downed: true, name: '队友 B' });
+      const row = $('peerHpRow');
+      expect(row.classList.contains('down')).toBe(true);
+      expect(hud.peerHpText.textContent).toBe('倒地');
+      hud.setPeerHealth(45, 120, { downed: false, name: '队友 B' });
+      expect(row.classList.contains('down')).toBe(false);
+      expect(hud.peerHpText.textContent).toBe('45');
+      expect(hud.peerHpFill.style.width).toBe('38%');
+      // 低血量变红
+      hud.setPeerHealth(30, 120, {});
+      expect(row.classList.contains('low')).toBe(true);
+    });
+
+    it('血量未知（max 缺失）只写数字，不动宽度、不显示负值', () => {
+      hud.setDuoHud(true);
+      hud.setPeerHealth(-1, 0, { name: '队友 B' });
+      expect(hud.peerHpText.textContent).toBe('0');
+      expect(hud.peerHpFill.style.width).toBe('');
+    });
+
+    it('隐藏后再显示会重写血量', () => {
+      hud.setDuoHud(true);
+      hud.setPeerHealth(80, 120, {});
+      hud.setDuoHud(false);
+      hud.setDuoHud(true);
+      hud.setPeerHealth(80, 120, {});
+      expect(hud.peerHpText.textContent).toBe('80');
+    });
+  });
+
   describe('数值缓存', () => {
     let hpWidthSpy;
     let sunTextSpy;
@@ -561,7 +618,17 @@ describe('HUD', () => {
       hud.reset();
 
       // reset() 先清缓存再写回初始值，所以缓存停在初始值上（不是 -1 哨兵）
-      expect(hud.cache).toEqual({ hp: 100, sun: -1, score: 0, kills: 0, wave: 1, ammo: -1, shield: '0:0' });
+      expect(hud.cache).toEqual({
+        hp: 100,
+        sun: -1,
+        score: 0,
+        kills: 0,
+        wave: 1,
+        ammo: -1,
+        shield: '0:0',
+        peer: '',
+        duo: false,
+      });
       expect(hud.slotState).toEqual({ peaGun: [-1], gun: [-1], demo: [-1], grenade: [-1], shield: [-1] });
       expect(hud.activeSlotIndex).toBe(null);
       expect(hud.slotDock.classList.contains('hidden')).toBe(true);

@@ -168,6 +168,40 @@ body.desktop .desktop-hint { display: flex; }
   min-width: 26px;
 }
 
+/* 队友血条：只有双人模式出现，比自己的血条窄一档，压在 wave-chip 下方 */
+.peer-row { display: flex; align-items: center; gap: 7px; pointer-events: none; }
+.peer-icon { width: 18px; height: 18px; flex: none; filter: drop-shadow(0 2px 0 rgba(0,0,0,.4)); }
+.peer-bar {
+  width: clamp(96px, 17vw, 158px);
+  height: 12px;
+  border-radius: 7px;
+  border-width: 2px;
+  border-color: rgba(255,255,255,.22);
+  box-shadow: inset 0 2px 5px rgba(0,0,0,.45);
+}
+
+#peerHpFill {
+  height: 100%;
+  width: 100%;
+  border-radius: 6px;
+  background: linear-gradient(180deg, #a8ecff, #4fc3f7 55%, #1e88b8);
+  box-shadow: inset 0 2px 0 rgba(255,255,255,.4);
+  transition: width .18s ease-out, background .3s;
+}
+
+.peer-row.low #peerHpFill { background: linear-gradient(180deg, #ff9a7a, #ff5a3c 55%, #d8381f); }
+
+/* 队友倒地：整行灰暗 + 红描边，数字位显示「倒地」 */
+.peer-row.down { opacity: .78; }
+.peer-row.down .peer-icon { filter: grayscale(1) brightness(.8); }
+.peer-row.down .peer-bar { border-color: rgba(255,90,60,.75); background: rgba(40,12,8,.7); }
+.peer-row.down #peerHpFill { width: 0 !important; transition: none; }
+.peer-row.down #peerHpText {
+  color: #ff8f7a;
+  letter-spacing: 1px;
+  text-shadow: 0 2px 3px rgba(0,0,0,.6), 0 0 8px rgba(255,90,60,.5);
+}
+
 .shield-row { display: flex; align-items: center; gap: 8px; transition: opacity .2s; }
 .shield-row.idle { opacity: .5; }
 .shield-icon { width: 20px; height: 20px; filter: drop-shadow(0 2px 0 rgba(0,0,0,.4)); }
@@ -1101,6 +1135,7 @@ body.desktop #orientationBtn { display: none; }
 /* ---------- Responsive ---------- */
 @media (min-width: 900px) and (min-height: 620px) {
   .hp-bar { width: 230px; height: 18px; }
+  .peer-bar { width: 182px; }
   .heart { width: 27px; height: 27px; }
   .weapon-btn { width: 64px; height: 72px; border-radius: 16px; }
   .weapon-btn svg { width: 36px; height: 36px; }
@@ -1123,6 +1158,10 @@ body.desktop #orientationBtn { display: none; }
   .joy-base { width: 118px; height: 118px; margin: -59px 0 0 -59px; }
   .joy-knob { width: 50px; height: 50px; margin: -25px 0 0 -25px; }
   .tutorial { top: calc(46px + var(--safe-t)); font-size: 10.5px; padding: 5px 14px; }
+  .hud-top-left { gap: 4px; }
+  .peer-icon { width: 15px; height: 15px; }
+  .peer-bar { width: 88px; height: 10px; }
+  .peer-row .hp-text { font-size: 11px; }
   .hint-row { display: none; }
   .device-note { margin-top: 0; }
   h1 { font-size: clamp(38px, 12vmin, 64px); }
@@ -1146,6 +1185,7 @@ body.desktop #orientationBtn { display: none; }
   .wave-chip { top: calc(54px + var(--safe-t)); }
   .boss-bar { top: calc(88px + var(--safe-t)); width: 70vw; }
   .hp-bar { width: 110px; }
+  .peer-bar { width: 88px; }
   .chip.kills { display: none; }
 }
 

@@ -1935,13 +1935,115 @@ async function phaseRemote(ctx) {
 
   // 程序化走路：让队友跑起来，腿骨必须真的转起来（不是静态摆件）。
   await page.evaluate(() => window.__game.remotes[0].setMoving(true, 4.2));
-  await page.waitForTimeout(320);
+  // 软渲染下一帧可能要几百毫秒，固定等 320ms 可能只跑到 swing≈0 的那一帧（腿的转角恰好是 0），
+  // 所以等走路权重爬起来、且腿真的离开静止姿势再断言。
+  await waitUntil(page, () => window.__game.remotes[0].moveBlend > 0.85, 15000, '队友走路权重');
+  await waitUntil(
+    page,
+    (leg0) => {
+      const q = window.__game.remotes[0].rig.upLegL.bone.quaternion.toArray();
+      return q.reduce((s, v, i) => s + Math.abs(v - leg0[i]), 0) > 0.01;
+    },
+    15000,
+    '队友腿骨摆动',
+    info.leg0
+  );
   const leg1 = await page.evaluate(() => window.__game.remotes[0].rig.upLegL.bone.quaternion.toArray());
   const delta = leg1.reduce((s, v, i) => s + Math.abs(v - info.leg0[i]), 0);
   check(delta > 0.01, '队友走路时腿骨没有转动：' + delta.toFixed(4));
 
+  // 倒地：血量为 0 时模型必须真的趴下（不是站着），救起后再站回来。
+  await page.evaluate(() => window.__game.remotes[0].setMoving(false, 0));
+  const standX = await page.evaluate(() => window.__game.remotes[0].model.rotation.x);
+  check(Math.abs(standX) < 0.02, '队友站立时模型不该倾斜：' + standX.toFixed(3));
+  await page.evaluate(() => window.__game.remotes[0].setDown(true));
+  await waitUntil(page, () => window.__game.remotes[0].downK >= 0.99, 8000, '队友倒地动画播完');
+  const downInfo = await page.evaluate(() => {
+    const r = window.__game.remotes[0];
+    // 用蒙皮后的真实顶点算最低点：只量 rotation/position 抓不到「抬得不够、半截陷进地里」。
+    r.root.updateMatrixWorld(true);
+    let V3 = null;
+    r.model.traverse((m) => {
+      if (!V3 && m.position && m.position.isVector3) V3 = m.position.constructor;
+    });
+    const tmp = new V3();
+    let minY = Infinity;
+    r.model.traverse((m) => {
+      if (!m.isMesh || !m.geometry || !m.geometry.attributes.position) return;
+      const pos = m.geometry.attributes.position;
+      const e = m.matrixWorld.elements;
+      const step = Math.max(1, Math.floor(pos.count / 300));
+      for (let i = 0; i < pos.count; i += step) {
+        if (m.isSkinnedMesh && m.getVertexPosition) m.getVertexPosition(i, tmp);
+        else tmp.set(pos.getX(i), pos.getY(i), pos.getZ(i));
+        const y = e[1] * tmp.x + e[5] * tmp.y + e[9] * tmp.z + e[13];
+        if (y < minY) minY = y;
+      }
+    });
+    return {
+      rotX: r.model.rotation.x,
+      y: r.model.position.y,
+      minY,
+      rootY: r.root.position.y,
+      down: r.down,
+      current: r.current,
+    };
+  });
+  check(downInfo.down && downInfo.current === 'down', '倒地状态没有生效：' + downInfo.current);
+  check(downInfo.rotX > 1.3, '倒地后模型没有躺下：rotation.x=' + downInfo.rotX.toFixed(3));
+  // 躺下后最低点要贴在地面上（±0.15 米），既不能陷进地里，也不能浮在半空。
+  const sink = downInfo.minY - downInfo.rootY;
+  check(sink > -0.15 && sink < 0.35, '倒地后身体没有贴地，最低点离地 ' + sink.toFixed(3) + ' 米');
+  const downShot = await shot(page, 'phase-remote-downed');
+
+  await page.evaluate(() => window.__game.remotes[0].setDown(false));
+  await waitUntil(page, () => window.__game.remotes[0].downK === 0, 8000, '队友站起');
+  const upInfo = await page.evaluate(() => {
+    const r = window.__game.remotes[0];
+    return { rotX: r.model.rotation.x, y: r.model.position.y, down: r.down };
+  });
+  check(!upInfo.down && Math.abs(upInfo.rotX) < 0.02 && Math.abs(upInfo.y) < 0.02,
+    '救起后没有站起来：rotation.x=' + upInfo.rotX.toFixed(3) + ' y=' + upInfo.y.toFixed(3));
+
+  // 双人血条：单人必须隐藏，双人出现并跟随队友血量/倒地。
+  const soloHidden = await page.evaluate(() => document.getElementById('peerHpRow').classList.contains('hidden'));
+  check(soloHidden, '单人模式下队友血条不该出现');
+  const duoHud = await page.evaluate(() => {
+    const g = window.__game;
+    const hud = g.hud;
+    hud.setDuoHud(true);
+    hud.setPeerHealth(30, 120, { downed: false, name: '队友' });
+    const row = document.getElementById('peerHpRow');
+    const alive = {
+      hidden: row.classList.contains('hidden'),
+      width: document.getElementById('peerHpFill').style.width,
+      text: document.getElementById('peerHpText').textContent,
+    };
+    hud.setPeerHealth(0, 120, { downed: true, name: '队友' });
+    const downed = {
+      cls: row.classList.contains('down'),
+      text: document.getElementById('peerHpText').textContent,
+    };
+    hud.setDuoHud(false);
+    hud.setPeerHealth(120, 120, {});
+    return { alive, downed, cleared: row.classList.contains('hidden') };
+  });
+  check(!duoHud.alive.hidden, '双人模式下队友血条没有显示');
+  check(duoHud.alive.width === '25%' && duoHud.alive.text === '30', '队友血量没画对：' + JSON.stringify(duoHud.alive));
+  check(duoHud.downed.cls && duoHud.downed.text === '倒地', '队友倒地时血条没有切到「倒地」：' + JSON.stringify(duoHud.downed));
+  check(duoHud.cleared, '退出双人后队友血条没有隐藏');
+
   const file = await shot(page, 'phase-remote');
-  return { metrics: { ...info, legDelta: Number(delta.toFixed(3)), shot: file } };
+  return {
+    metrics: {
+      ...info,
+      legDelta: Number(delta.toFixed(3)),
+      downRotX: Number(downInfo.rotX.toFixed(3)),
+      downedShot: downShot,
+      duoHud,
+      shot: file,
+    },
+  };
 }
 
 // 逐把验真实 GLB，而不是只验证加载器替身或占位模型。

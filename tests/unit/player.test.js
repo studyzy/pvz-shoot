@@ -1089,4 +1089,21 @@ describe('duoDown 倒地', () => {
     expect(p.hp).toBe(50);
     expect(p.invuln).toBe(3);
   });
+
+  it('倒地时镜头侧倾，站起来后归零、不再影响走路倾斜', () => {
+    const p = makePlayer();
+    p.duoDown = true;
+    p.hp = 5;
+    p.damage(10);
+    const c = makeControls();
+    p.update(1 / 60, c, flatTerrain(), []);
+    expect(p.roll).toBeGreaterThan(0.1);
+
+    p.revive();
+    expect(p.roll).toBe(0);
+    const cam = new THREE.PerspectiveCamera();
+    cam.rotation.order = 'YXZ';
+    p.applyCamera(cam);
+    expect(cam.rotation.z).toBeCloseTo(0);
+  });
 });

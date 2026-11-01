@@ -25,6 +25,9 @@ export class HUD {
     this.overScreen = document.getElementById('overScreen');
     this.hpFill = document.getElementById('hpFill');
     this.hpText = document.getElementById('hpText');
+    this.peerHpRow = document.getElementById('peerHpRow');
+    this.peerHpFill = document.getElementById('peerHpFill');
+    this.peerHpText = document.getElementById('peerHpText');
     this.scoreLabel = document.getElementById('scoreLabel');
     this.killLabel = document.getElementById('killLabel');
     this.waveLabel = document.getElementById('waveLabel');
@@ -66,7 +69,7 @@ export class HUD {
     this.activeSlotIndex = -1;
     this.replacing = false;
     this.currentIndex = 0;
-    this.cache = { hp: -1, sun: -1, score: -1, kills: -1, wave: -1, ammo: -1, shield: -1 };
+    this.cache = { hp: -1, sun: -1, score: -1, kills: -1, wave: -1, ammo: -1, shield: -1, peer: '', duo: false };
     this.muted = false;
     this.bannerTimer = 0;
     this.tutorialTimer = 0;
@@ -301,6 +304,40 @@ export class HUD {
     this.hpFill.style.width = (ratio * 100).toFixed(1) + '%';
     this.hpText.textContent = String(v);
     this.hpFill.style.filter = ratio < 0.32 ? 'saturate(1.35) brightness(1.1)' : '';
+  }
+
+  // 双人有队友：整行只在双人模式出现，单人/回菜单藏掉，缓存命中不重复写 DOM
+  setDuoHud(on) {
+    if (this.cache.duo === !!on) return;
+    this.cache.duo = !!on;
+    if (!this.peerHpRow) return;
+    this.peerHpRow.classList.toggle('hidden', !on);
+    // 再显示时（reset 后）把最后一条血量重写一遍，别让缓存 key 把新一局的首帧短路掉
+    if (on) this.setPeerHealth(this.lastHp, this.lastMax, this.lastOpts);
+  }
+
+  // 队友血量：downed 时整行 .down、数字位写「倒地」；max 未知就只显示数字、不写宽度
+  setPeerHealth(hp, max, opts) {
+    if (!this.peerHpRow) return;
+    const downed = !!(opts && opts.downed);
+    const hasMax = Number.isFinite(max) && max > 0;
+    const v = downed || !Number.isFinite(hp) ? 0 : Math.max(0, Math.ceil(hp));
+    const pct = downed || !hasMax ? 0 : Math.round(Math.max(0, Math.min(1, hp / max)) * 100);
+    const key = downed ? 'down' : v + ':' + pct;
+    this.lastHp = hp;
+    this.lastMax = max;
+    this.lastOpts = opts;
+    if (this.cache.peer === key) return;
+    this.cache.peer = key;
+    this.peerHpRow.classList.toggle('down', downed);
+    this.peerHpRow.classList.toggle('low', !downed && hasMax && hp / max <= 0.32);
+    this.peerHpText.title = downed || !opts || !opts.name ? '' : opts.name;
+    if (downed) {
+      this.peerHpText.textContent = '倒地';
+      return;
+    }
+    this.peerHpText.textContent = String(v);
+    if (hasMax) this.peerHpFill.style.width = pct + '%';
   }
 
   // 坚果盾血：盾没展开时半透明显示剩余量，破盾/重开就整条隐藏
@@ -593,7 +630,7 @@ export class HUD {
   }
 
   reset() {
-    this.cache = { hp: -1, sun: -1, score: -1, kills: -1, wave: -1, ammo: -1, shield: -1 };
+    this.cache = { hp: -1, sun: -1, score: -1, kills: -1, wave: -1, ammo: -1, shield: -1, peer: '', duo: this.cache.duo };
     this.setSlots({ peaGun: [-1], gun: [-1], demo: [-1], grenade: [-1], shield: [-1] });
     this.setShield(0, 1, false);
     this.setActiveSlot(null);

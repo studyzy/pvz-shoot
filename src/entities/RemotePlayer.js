@@ -194,6 +194,9 @@ export function yawToRotation(yaw) {
 
 const SHOOT_TIME = 0.35;
 const DEATH_TIME = 0.75;
+// 倒地/站起：0→1 躺下约 0.45 秒，1→0 爬起约 0.4 秒（指数逼近，约 4τ 到位）。
+const DOWN_TAU = 0.11;
+const GETUP_TAU = 0.1;
 // 队友手里那把武器的目标长度（世界米，取包围盒最长边）。
 const WEAPON_LENGTH = 0.62;
 // 只接受 WEAPONS 里的 id 形状：小写字母，避免把 peer 传来的字符串拼进 URL。
@@ -219,6 +222,9 @@ export class RemotePlayer {
     this.moveBlend = 0;
     this.shootT = 0;
     this.deadT = 0;
+    this.down = false;
+    this.downK = 0;
+    this.downLift = undefined;
     this.current = null;
     this.weaponId = null;
     this.weaponReq = 0;
@@ -308,7 +314,7 @@ export class RemotePlayer {
       this.root.add(plate);
     }
 
-    this.current = this.dead ? 'die' : this.moving ? 'run' : 'idle';
+    this.current = this.dead ? 'die' : this.down ? 'down' : this.moving ? 'run' : 'idle';
     this.ready = true;
   }
 
@@ -397,15 +403,23 @@ export class RemotePlayer {
   }
 
   // 程序化动画：moveBlend 把走路权重从 0 平滑到 1，开火是右手的一个衰减冲量，
-  // 死亡是绕脚底整体后仰。所有姿势都以骨骼静止姿势为基准，不会越摆越歪。
+  // 死亡是绕脚底后仰，倒地（duoDown）是绕脚底前扑趴下——倒地可恢复，死亡不可。
+  // 所有姿势都以骨骼静止姿势为基准，不会越摆越歪。
   animate(dt) {
     if (!this.rig) return;
     this.time += dt;
 
-    const target = this.moving && !this.dead ? 1 : 0;
+    // 倒地权重：指数逼近目标，setDown 后每帧推进，站起时反向平滑回去。
+    const downTarget = this.down && !this.dead ? 1 : 0;
+    this.downK += (downTarget - this.downK) * (1 - Math.exp(-dt / (downTarget ? DOWN_TAU : GETUP_TAU)));
+    if (Math.abs(this.downK - downTarget) < 0.002) this.downK = downTarget;
+    const dk = this.downK;
+    const still = this.dead || this.down;
+
+    const target = this.moving && !still ? 1 : 0;
     this.moveBlend += (target - this.moveBlend) * (1 - Math.exp(-dt * 10));
     if (this.moveBlend < 0.001) this.moveBlend = 0;
-    if (this.moving && !this.dead) {
+    if (this.moving && !still) {
       this.phase += dt * clamp(3.4 + this.speed * 0.85, 3.4, 9);
     }
 
@@ -448,19 +462,67 @@ export class RemotePlayer {
     setBone(rig.foreArmL, -0.16 - 0.24 * Math.max(0, -swing) * m, 0, 0);
     setBone(rig.foreArmR, -0.75 - 0.1 * Math.max(0, swing) * m - 0.35 * kick, 0, 0);
 
-    // 死亡：绕脚底后仰倒地（模型朝 +Z，负角度 = 往后倒）。
-    if (this.dead && this.model) {
-      this.deadT += dt;
-      const k = clamp(this.deadT / DEATH_TIME, 0, 1);
-      const ease = 1 - (1 - k) * (1 - k);
-      this.model.rotation.x = -1.5 * ease;
-      this.model.position.y = 0.16 * ease;
-      if (this.plate) this.plate.position.y = PLATE_Y - 1.15 * ease;
-    } else if (this.model) {
-      this.model.rotation.x = 0;
-      this.model.position.y = 0;
-      if (this.plate) this.plate.position.y = PLATE_Y;
+    // 倒地：躯干前扑、头抬起勉强撑住（+X 正角 = 向后仰，所以这里是负角），腿伸直、左臂撑地。
+    // 叠加在站姿之上，downK 平滑推进 → 倒下和站起都不是瞬移。
+    if (dk > 0) {
+      addSpin(rig.hips, AXIS_X, -0.12 * dk);
+      addSpin(rig.spine, AXIS_X, 0.22 * dk);
+      addSpin(rig.spine1, AXIS_X, 0.24 * dk);
+      addSpin(rig.spine2, AXIS_X, 0.2 * dk);
+      addSpin(rig.head, AXIS_X, -0.75 * dk);
+      addSpin(rig.upLegL, AXIS_X, 0.16 * dk);
+      addSpin(rig.upLegR, AXIS_X, 0.1 * dk);
+      addSpin(rig.legL, AXIS_X, 0.1 * dk);
+      addSpin(rig.legR, AXIS_X, 0.14 * dk);
+      addSpin(rig.armL, AXIS_X, -0.5 * dk);
+      addSpin(rig.armL, AXIS_Z, -0.2 * dk);
+      addSpin(rig.foreArmL, AXIS_X, -0.55 * dk);
+      // 右手拿枪，倒地时贴着地面往前伸
+      addSpin(rig.armR, AXIS_X, 0.55 * dk);
+      addSpin(rig.foreArmR, AXIS_X, -0.35 * dk);
     }
+
+    if (!this.model) return;
+    // 死亡与倒地各自平滑到一个姿态量，最后合成到 model.rotation.x（死亡优先）：
+    // 两人共用一个字段，倒地时切死亡会直接接上，站起后死亡分支照旧。
+    let dx = 0;
+    let dy = 0;
+    let plate = 0;
+    if (this.dead) {
+      this.deadT += dt;
+      const ease = 1 - (1 - clamp(this.deadT / DEATH_TIME, 0, 1)) ** 2;
+      dx = -1.5 * ease;
+      dy = 0.16 * ease;
+      plate = 1.15 * ease;
+    } else if (dk > 0) {
+      // 前扑趴下：模型朝 +Z，正角度 = 往前倒。抬起量按「躺平后的最低点」反解，
+      // 不能拍脑袋写死：不同模型的躯干厚度不一样，抬少了整只人陷进地面（实测陷 0.47 米）。
+      dx = 1.5 * dk;
+      dy = this.measureDownLift() * dk;
+      plate = 1.0 * dk;
+    }
+    this.model.rotation.x = dx;
+    this.model.position.y = dy;
+    if (this.plate) this.plate.position.y = PLATE_Y - plate;
+  }
+
+  // 趴下时要抬多高：把模型转 90° 量一次包围盒的最低点，抬到刚好贴地。
+  // 站姿时先量一次缓存，之后趴下/站起都复用同一个值（模型不会中途换）。
+  measureDownLift() {
+    if (this.downLift !== undefined) return this.downLift;
+    const model = this.model;
+    if (!model) return 0;
+    const keep = model.rotation.x;
+    const keepY = model.position.y;
+    model.rotation.x = 1.5;
+    model.position.y = 0;
+    model.updateMatrixWorld(true);
+    const box = new THREE.Box3().setFromObject(model);
+    model.rotation.x = keep;
+    model.position.y = keepY;
+    const span = box.isEmpty() ? 0 : -box.min.y;
+    this.downLift = span > 0 && Number.isFinite(span) ? span + 0.02 : 0;
+    return this.downLift;
   }
 
   play(name) {
@@ -485,11 +547,15 @@ export class RemotePlayer {
     this.moving = !!moving;
     this.speed = speed || 0;
     if (this.dead) return;
+    if (this.down) {
+      this.play('down');
+      return;
+    }
     this.play(this.moving ? 'run' : 'idle');
   }
 
   setFiring() {
-    if (this.dead || !this.ready) return;
+    if (this.dead || this.down || !this.ready) return;
     this.play('shoot');
     this.shootT = SHOOT_TIME;
   }
@@ -498,7 +564,23 @@ export class RemotePlayer {
     if (this.dead) return;
     this.dead = true;
     this.deadT = 0;
+    this.down = false;
     this.play('die');
+  }
+
+  // 双人倒地/救起：on=true 趴在地上（可恢复），on=false 原地爬起。
+  // 和 setDead 的区别只在于能不能站起来；动画由 animate 里的 downK 平滑推进。
+  setDown(on) {
+    const next = !!on && !this.dead;
+    if (this.down !== next) {
+      this.down = next;
+      if (next) {
+        this.shootT = 0;
+        this.moving = false;
+        this.speed = 0;
+      }
+    }
+    this.play(this.dead ? 'die' : next ? 'down' : this.moving ? 'run' : 'idle');
   }
 
   update(dt) {
@@ -521,7 +603,7 @@ export class RemotePlayer {
     }
     this.animate(dt);
     if (this.shootT <= 0 && this.current === 'shoot' && !this.dead) {
-      this.play(this.moving ? 'run' : 'idle');
+      this.play(this.down ? 'down' : this.moving ? 'run' : 'idle');
     }
   }
 

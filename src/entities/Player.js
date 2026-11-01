@@ -8,6 +8,8 @@ const AIR_ACCEL = 12;
 // 上升期容错：自然上升轨迹能到的高度还够得着平台顶面时，贴上侧面直接抬上去（CS 的「跳上箱子」）。
 // 用自然轨迹峰值判定而不是「前 N% 上升段」：后者等于让玩家凭空多跳 0.42 米，1.42 米的箱子会被误判成能上。
 const RISE_MARGIN = 0.02;
+// 双人倒地时的镜头侧倾（弧度，约 14°）：只有自己 downed 的时候才生效。
+const DOWN_ROLL = 0.24;
 
 export class Player {
   constructor(sfx) {
@@ -101,6 +103,7 @@ export class Player {
     this.hp = Math.max(1, Math.round(this.maxHp * frac));
     this.invuln = 3;
     this.sinceDamage = 0;
+    this.roll = 0;
     this.eye.set(this.pos.x, this.pos.y + TUNING.playerHeight, this.pos.z);
   }
 
@@ -115,6 +118,8 @@ export class Player {
       controls.consumeJump();
       this.lastInput = { move: { x: 0, y: 0 }, look: { x: look.x, y: look.y }, jump: false };
       this.eye.set(this.pos.x, this.pos.y + 0.55, this.pos.z);
+      // 倒地时镜头歪一点，配合压低的视线；revive 后直接归零。
+      this.roll = DOWN_ROLL;
       if (this.mixer) this.mixer.update(dt);
       return;
     }

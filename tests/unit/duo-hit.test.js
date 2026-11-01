@@ -14,6 +14,7 @@ vi.mock('../../src/entities/RemotePlayer.js', () => ({
     setTarget() {}
     setMoving() {}
     setFiring() {}
+    setDown() {}
   },
 }));
 
