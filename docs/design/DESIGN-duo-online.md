@@ -493,7 +493,7 @@ pvz.example.com {
 | `server/index.js` / `matchmaker.js` / `match.js` / `ledger.js` / `static.js`（新增） | 多场自动配对、座位、中继、审计、JSONL、静态托管 |
 | `tests/unit/*` + `tests/integration/*` | 协议、分账、救援、插值、多场配对/重连、双页 E2E |
 
-**队友模型（已接入）**：Quaternius **Farmer**（CC0 1.0，Poly Pizza，2022-02-22，`https://poly.pizza/m/7pn3R6hPvE`）。1.3 MB / 3,716 面 / 24 段动画 / 1.823 m / 12 个蒙皮 mesh / 8 材质 / 无贴图；Walk、Run 无根位移；骨骼有 `Head`、`WristR`，可直接挂帽子与枪。已落在 `public/models/farmer.glb` + `public/models/LICENSE-farmer.txt` + `src/entities/RemotePlayer.js`，调试用 `__game.spawnRemotePlayer()` 生成。锅盖帽 / 胡子 / 鼻头 / 右手豌豆枪都是程序化补件；草帽按材质名隐藏，衬衫改米白、背带裤改棕色。
+**队友模型（已接入）**：仓库所有者提供的 **`pumpkin-kid.glb`**（AIGC 资产，源文件 `aigc/pumpkin-kid.glb`）。800 KB / 12,000 面 / 1 个蒙皮 mesh（1 draw call）/ 23 骨骼 / **没有动画片段** / 1 套 PBR 贴图；原始高 1.132 m，`MODEL_SCALE = 1.46` → 1.65 m，Y-up、面朝 +Z、脚底 y≈0。待机 / 走路 / 开火 / 死亡全部在 `RemotePlayer.animate()` 里程序化摆骨骼（`moveBlend` 混合走路权重、`phase` 推进步频、`shootT` 做右手冲量、死亡绕脚底后仰）。手持武器直接用单人的植物 GLB（`WeaponModels.loadWeaponModel`）：双方在 `input`/`pstate` 里带 `w` 武器 id，队友按 id 换模型，挂点按举枪待机姿势反解到 `RightHand` 骨骼，枪口朝模型正前方；头顶名牌与 blob 阴影沿用，调试用 `__game.spawnRemotePlayer()` 生成。上一版 Quaternius Farmer（CC0）+ 锅盖帽 / 胡子 / 豌豆枪已下线，`farmer.glb` 仍在 `public/models/` 留档但不再被引用。
 
 > 不使用 Crazy Dave / CS / PUBG 的 rip 模型：这些是 EA、Valve、Krafton 的版权资产，不能随公开仓库分发；Sketchfab 上的戴夫模型要么无授权，要么 CC BY-NC-ND。
 

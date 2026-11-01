@@ -71,7 +71,7 @@ npm run duo       # build 后直接起双人服务器
 | `src/input/Controls.js` | 键鼠 + 触屏输入、平台识别、虚拟摇杆、指针锁定 |
 | `src/ui/HUD.js` | DOM HUD、**5 个角色槽底栏**、蓄力条、横幅、命中标记、开始/暂停/结算界面 |
 | `src/style.css` | 全部界面样式与响应式/安全区适配 |
-| `public/models/` | `zombie.glb`（660 KB：7.8k 三角面、50 骨骼、16 段动画）+ `skeleton.glb`（1.4 MB：5.3k 三角面、41 骨骼、13 段动画）+ `alchemist.glb`（1.3 MB：1 万三角面、22 骨骼、5 段动画）+ `football.glb`（1.4 MB：1 万三角面、22 骨骼、5 段动画）+ `zombie-doctor.glb`（0.9 MB：1.2 万三角面、28 骨骼、**0 段动画**→ 程序化骨架，后花园第 10 波 Boss）+ `farmer.glb`（1.3 MB：3.7k 三角面、24 段动画，队友用）+ `LICENSE-*.txt`，构建时原样拷贝到 `dist/models/`。**普通僵尸用 alchemist，橄榄球用 football，僵尸博士用 zombieDoctor，其余地面僵尸用 zombie；队友用 farmer** |
+| `public/models/` | `zombie.glb`（660 KB：7.8k 三角面、50 骨骼、16 段动画）+ `skeleton.glb`（1.4 MB：5.3k 三角面、41 骨骼、13 段动画）+ `alchemist.glb`（1.3 MB：1 万三角面、22 骨骼、5 段动画）+ `football.glb`（1.4 MB：1 万三角面、22 骨骼、5 段动画）+ `zombie-doctor.glb`（0.9 MB：1.2 万三角面、28 骨骼、**0 段动画**→ 程序化骨架，后花园第 10 波 Boss）+ `pumpkin-kid.glb`（800 KB：1.2 万三角面、23 骨骼、0 段动画，队友用）+ `farmer.glb`（1.3 MB 旧队友模型，已不引用）+ `LICENSE-*.txt`，构建时原样拷贝到 `dist/models/`。**普通僵尸用 alchemist，橄榄球用 football，僵尸博士用 zombieDoctor，其余地面僵尸用 zombie；队友用 pumpkin-kid** |
 | `src/net/protocol.js` | 双人消息类型、版本、名字/token/地图/relay 清洗（客户端与服务器共用） |
 | `src/net/NetClient.js` | 浏览器 WebSocket：hello、token（`sessionStorage`，同一浏览器两个标签页不串号）、心跳/RTT、断线重连 |
 | `src/net/DuoSession.js` | 双人会话状态机：自动配对消息 → `Game.startDuo` / `applyRemoteState` / `pause` / `endDuo` |
@@ -240,13 +240,17 @@ npm run duo       # build 后直接起双人服务器
 
 ### 5.3.5 队友模型（RemotePlayer）
 
-- `public/models/farmer.glb`：**Quaternius Farmer（CC0 1.0）**，Poly Pizza 2022-02-22 发布（早于 QAL v1.0），1.3 MB / 3,716 面 / 24 段动画 / 1.823 米。**只在创建 RemotePlayer 时懒加载**，单人模式不下载。
-- 骨骼：`Head`、`WristR`（glTF 里是 `Wrist.R`，GLTFLoader 会把点去掉）。帽子/胡子/枪用程序化补件，通过 `Object3D.attach()` 挂到骨骼；**不要手算 CharacterArmature 的 100 倍缩放**。
-- 戴夫化（`daveifyModel`）：按材质名隐藏草帽（`Farmer_Head_2` Beige、`_4` Red），衬衫改米白、背带裤/裤子改棕色、鞋改深棕；再加锅盖帽 + 大胡子 + 鼻头 + 右手豌豆枪。每件 mesh 克隆材质，避免多个 RemotePlayer 串色。
-- 动画：`Idle_Gun` 待机、`Run` 移动、`Gun_Shoot` 开火、`Death` 倒地、`HitRecieve` 受击、`Wave` 打招呼；`findClip` 自动剥 `CharacterArmature|` 前缀。
-- 成本：**12 个蒙皮 mesh / 8 个材质**，约 12 draw call（帽子/胡子/枪/名牌另算）；Walk/Run 无根位移，不需要钉根骨。同屏只有 1 个队友，不影响 14 只僵尸的预算。
-- 调试：`__game.spawnRemotePlayer({name:'队友'})` 在出生点右侧生成；联网层接上后由网络位置驱动 `setTransform` / `setMoving` / `setFiring`。
-- 来源与许可：[public/models/LICENSE-farmer.txt](public/models/LICENSE-farmer.txt)。**不要换成从 quaternius.com 现下的 Farmer**（QAL v1.0 限制再分发）。
+- `public/models/pumpkin-kid.glb`：**仓库所有者提供的 AIGC 资产**（源文件 `aigc/pumpkin-kid.glb`），授权由所有者确认，不是 CC0 素材。**只在创建 RemotePlayer 时懒加载**，单人模式不下载。
+- 规格：800 KB / 12,000 三角面 / **1 个蒙皮网格（1 draw call）** / 23 骨骼 / **0 段动画** / 1 套 PBR 材质（baseColor + normal + metallicRoughness）。原始高 **1.132 米**、Y-up、面朝 +Z、脚底 y≈0；`MODEL_SCALE = 1.46` → 约 **1.65 米**。换模型要重新核对这四条。
+- **没有动画片段**：待机 / 走路 / 开火 / 死亡全部由 `RemotePlayer.animate()` 程序化摆骨骼。`moveBlend` 把走路权重平滑到 1，`phase` 按速度推进步频，`shootT` 是右手前伸的衰减冲量，死亡绕脚底后仰并抬高 0.16 米避免穿地。**不要再接 AnimationMixer**（模型没有 clip）。
+- 姿势必须**以骨骼静止姿势为基准**：`captureRig()` 存每根骨骼的 `rest` 四元数，`setBone()` 每帧先重置再叠加增量，否则会越摆越歪。轴用**模型空间**（+X = 模型右手边、+Y = 上、+Z = 前），内部通过 `parentInv` 换算到骨骼父空间，不用猜本地轴、也不受 root 旋转影响。+X 正角 = 肢体向后摆；+Z 正角 = 抬起左侧肢体（左臂/左腿），右侧相反。
+- 材质按实例克隆（`envMap` 随地图、`envMapIntensity` 0.35），**几何体与贴图仍是模板共享的，不能 dispose**；`dispose()` 只清克隆材质、名牌贴图、阴影平面和占位体。
+- 手持武器直接用单人的植物 GLB（`public/models/weapons/*.glb`，走 `WeaponModels.loadWeaponModel` 缓存）：`setWeapon(id)` 由双人协议驱动，`attachWeapon()` 克隆模板、按包围盒把最长边归一到 **0.62 m**、绕 Y 转 π 让枪口朝 +Z、再把底部抬到手上。**挂点不能硬编码**：`buildWeaponMount()` 先摆一次「举枪待机」，再算 `handM⁻¹ × 目标手部矩阵`，把武器固定在右手骨骼。右臂因此常驻举枪姿势（`armR ≈ -0.85`、`foreArmR ≈ -0.75`），开火只叠加 ±0.3 的冲量；不要把这套改回「手臂自然下垂」——那样武器会朝天或插进身体。
+- 武器 id 必须过 `WEAPON_ID` 白名单（小写字母）才能拿去加载：它会拼进模型 URL，不能让 peer 传 `../` 之类的东西进来。
+- 名牌 `createNameplate(name)` 默认挂 `PLATE_Y = 1.92`；死亡时跟着尸体落到地面附近。
+- 成本：1 个蒙皮 draw call + 武器 2~4 个 + 影子 + 名牌；同屏只有 1 个队友，不影响 14 只僵尸的预算。
+- 调试：`__game.spawnRemotePlayer({name:'队友'})` 在出生点右侧生成；联网层接上后由网络位置驱动 `setTransform` / `setMoving` / `setFiring` / `setTarget`。
+- `farmer.glb` + `LICENSE-farmer.txt` 仍留在 `public/models/`（旧版 Quaternius Farmer 队友模型），**RemotePlayer 已不再引用**。
 
 ### 5.4 输入与平台
 
@@ -357,7 +361,7 @@ npm run duo       # build 后直接起双人服务器
 - **刷新 vs 断网**：`hello.page` 是页面实例 id（同一页重连不变、刷新变）。房主刷新 = 本局结束（客人收 `HOST_RESET`）；客人刷新 = 回座但 M1 世界重置，M2 才发 `resync`。
 - **远端平滑**：`applyRemoteState` 调 `setTarget`，`RemotePlayer.update` 用 100 ms 平滑；>3 m 直接吸附（重连/换图）。
 - **公网加固**：`MAX_CONN_PER_IP=6`；Caddy 后设 `TRUST_PROXY=1` 读 `X-Forwarded-For`。
-- **M2 input/命中**：guest 每帧 `captureInput` 累积 `look/jump`，30 Hz 发 `input {m,look,jump,fire,shield}`；host 跑 `sfx=null`、`onDamage/onDeath=null` 的 guest 代理 `Player`（`Game.netGuest`），20 Hz 回 `pstate`（`h/g/z/sun/scores/kills`）；guest 本地预测，按 0.2 m 软校正，300 ms 没输入就把代理 move/fire 归零。guest 的 `ProjectileSystem` 命中远端僵尸发 `hit {zid,seq,w,dir}`，host 用 `seq` 快照位置 + 代理视线 + 头身球 + 墙体 + 冷却重算；爆炸走 `aoe`。guest 本地只 `flashOnly`。
+- **M2 input/命中**：guest 每帧 `captureInput` 累积 `look/jump`，30 Hz 发 `input {m,look,jump,fire,shield,w}`（`w` = 当前武器 id）；host 跑 `sfx=null`、`onDamage/onDeath=null` 的 guest 代理 `Player`（`Game.netGuest`），20 Hz 回 `pstate`（`h/g/z/sun/scores/kills`，`h.w`/`g.w` 是双方手持武器 id）；guest 本地预测，按 0.2 m 软校正，300 ms 没输入就把代理 move/fire 归零。guest 的 `ProjectileSystem` 命中远端僵尸发 `hit {zid,seq,w,dir}`，host 用 `seq` 快照位置 + 代理视线 + 头身球 + 墙体 + 冷却重算；爆炸走 `aoe`。guest 本地只 `flashOnly`。
 - **guest 僵尸世界**：`Game.isGuestWorld()` 跳过 `map.updateNav`/`skySun`/`sunOrbs`；`zombies.setRemote(true)` 后只跑 `Zombie.update` 远端分支。host 的 `ZombieManager.onNetSpawn/onNetDead` 发 `evt`，`pstate.z` 每 50 ms 同步 `id/type/x/y/z/yaw/hp/st/sl`。guest 的 `Zombie.hit()` 只白闪，不扣血、不 `handleKill`、不掉阳光。**常规补给例外**：`pickups.update` 在 guest 也跑本地掉落（共享 claim 未做）。
 - **倒地/救援**：`Player.duoDown` 时 HP 归零进入 `downed`（30 s、镜头 0.55 m、不能开枪）；host 的 `Game.updateDuoRescue` 在两人相距 3 m 内累计 2.5 s 自动救起（半血 + 3 s 无敌）。超时 `duoWipe` → `sendWipe` + 回菜单，菜单状态栏显示双方比分。
 - **客户端**：`NetClient` 存 `sessionStorage` 的 token；`DuoSession` 收到 `START` 调 `Game.startDuo`，收到 `RELAY input` 调 `applyGuestInput`（host），收到 `pstate` 调 `applyPeerState`（guest），收到 `evt` 调 `applyWorldEvent`。guest 30 Hz 发 input，host 20 Hz 发 pstate。
@@ -435,7 +439,7 @@ __game.zombies.zombies          // 当前僵尸数组
 __game.zombies.startWave(5)     // 跳到第 5 波
 __game.weapons.pickup(4)        // 直接拾取指定植物（4 = 双发射手）
 __game.pickups.items            // 地面拾取物池
-__game.spawnRemotePlayer()      // 在出生点右侧生成一个队友戴夫（预览）
+__game.spawnRemotePlayer()      // 在出生点右侧生成一个队友（pumpkin-kid，预览）
 __game.remotes                  // 当前远端玩家数组
 __game.duo                      // 双人对局信息（seat/peerName/seed），单人/菜单为 null
 __game.remote                   // 双人队友的 RemotePlayer（网络位置驱动）
@@ -506,7 +510,7 @@ CI（`.github/workflows/ci.yml`）在每次 push 到 main 和每个 PR 上跑三
 - **五个槽是独占的，但「收起」不等于「破盾」**：`equip()` 一开始调 `syncShieldWithHand()` —— 切走坚果走 `wallNuts.stow()`（`active=false`，罩壳隐藏，**`hp` 原样保留**，玩家开始正常承伤）；切回坚果走 `deploy()` 免费重新举起。只有 `hp` 掉到 0 才是 `breakShield()`。`clear()` 才是真正抹掉盾血，只给重开一局用。
 - 原来的 `shieldShotCost`（开火扣盾血）和 `WallNuts.spendShot()` 已删除——独占到"手持坚果就不能开枪"之后它们成了死代码，别再按"开盾时还能开枪"的前提加回来。
 - **气球是纯高度层级**：不吃地面碰撞体（在飞）、不被墙挡住；落地并站上 ≥0.9 米高台（雪地矮墙 0.92、沙城 1.5 箱子）用任何武器都能打到，这是刻意的零成本解法，别当漏洞修。跳跃不算（`grounded === false`）。
-- 队友模型是 Quaternius Farmer 的戴夫化版本，不是 EA 的 Crazy Dave；锅盖帽 / 胡子 / 枪是程序化补件。单只约 12 个蒙皮 draw call，但同屏只有 1 个，不占 14 只僵尸的预算。
+- 队友模型是仓库所有者提供的 `pumpkin-kid.glb`（不是 EA 的 Crazy Dave）。模型没有动画片段，走路/开火/死亡是程序化摆骨骼；单只 1 个蒙皮 draw call，同屏只有 1 个，不占 14 只僵尸的预算。
 - **双人当前同步玩家 input + 僵尸 + 命中 + 共享阳光值 + 个人分 + 倒地救援**：host 模拟僵尸，guest 看 20 Hz 快照；共享补给 claim、阳光球同步、结算页、resync、双人缩放未做。常规补给是每客户端本地掉落（与“先到先得”设计偏差），阳光球仍是 host-only；救援是靠近 2.5 s 自动，不是按住 E。
 - 同屏僵尸硬上限 14（移动端性能）。普通僵尸用的是 1 万面模型，14 只全普通时约 15 万三角面 —— 这已经是预算上限，再加内容要先想清楚从哪省。
 - 测试跑在 jsdom 里，WebGL 是替身：渲染效果、真机手感、真实 glb 贴图要靠 `npm run test:e2e` 或人工验收，不要用 jsdom 测试冒充"渲染正常"。

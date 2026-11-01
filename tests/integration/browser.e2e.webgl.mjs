@@ -1873,7 +1873,7 @@ async function phaseStress(ctx) {
   };
 }
 
-// 场景：队友模型（Quaternius Farmer 戴夫化 + 锅盖帽/胡子/枪 + 动画）
+// 场景：队友模型（pumpkin-kid.glb，1 个蒙皮网格，待机/走路/开火全部按骨骼程序化）
 async function phaseRemote(ctx) {
   const { page } = ctx;
   await ensurePlaying(page);
@@ -1892,6 +1892,8 @@ async function phaseRemote(ctx) {
     20000,
     '队友模型加载'
   );
+  // 手持武器是真实的植物 GLB，异步加载。
+  await waitUntil(page, () => window.__game.remotes[0].weapon, 20000, '队友武器加载');
   await page.waitForTimeout(700);
 
   const info = await page.evaluate(() => {
@@ -1900,25 +1902,46 @@ async function phaseRemote(ctx) {
     return {
       ready: r.ready,
       current: r.current,
-      actions: Object.keys(r.actions),
-      pot: !!r.pot,
-      beard: !!r.beard,
-      gun: !!r.gun,
+      bones: r.bones,
+      weaponId: r.weaponId,
+      weapon: !!r.weapon,
+      weaponParent: r.weaponMount && r.weaponMount.parent && r.weaponMount.parent.name,
+      visible: r.model.visible,
+      scale: r.model.scale.x,
       plate: !!r.plate,
       calls: g.renderer.info.render.calls,
       tris: g.renderer.info.render.triangles,
+      leg0: r.rig.upLegL.bone.quaternion.toArray(),
     };
   });
   check(info.ready, '队友模型未就绪');
+  check(info.visible, '队友模型不可见');
   check(info.current === 'idle', '队友待机动画 ' + info.current);
-  check(info.actions.includes('idle') && info.actions.includes('run'), '队友动画缺失：' + info.actions.join(','));
-  check(info.pot && info.beard && info.gun, '锅盖帽/胡子/枪没有挂上');
+  check(info.bones.includes('Hips') && info.bones.includes('RightArm'), '队友骨架缺失：' + info.bones.join(','));
+  check(info.scale > 1 && info.scale < 2, '队友模型缩放 ' + info.scale);
+  check(info.weaponId === 'pea', '队友默认武器 ' + info.weaponId);
+  check(info.weapon && info.weaponParent === 'RightHand', '植物武器没有挂在右手：' + info.weaponParent);
   check(info.plate, '头顶名牌没有生成');
   check(info.calls > 0, '队友场景没有 draw call');
   check(info.tris > 5000, '三角面 ' + info.tris + '，队友模型可能没加载');
 
+  // 换枪走真实 GLB：cob.glb 存在且能挂上，说明队友用的是单人同一套武器素材。
+  await page.evaluate(() => window.__game.remotes[0].setWeapon('cob'));
+  await waitUntil(page, () => window.__game.remotes[0].weaponId === 'cob' && window.__game.remotes[0].weapon, 15000, '队友换枪');
+  const switched = await page.evaluate(() => window.__game.remotes[0].weaponId);
+  check(switched === 'cob', '队友换枪失败：' + switched);
+  await page.evaluate(() => window.__game.remotes[0].setWeapon('pea'));
+  await waitUntil(page, () => window.__game.remotes[0].weaponId === 'pea' && window.__game.remotes[0].weapon, 15000, '队友换回豌豆');
+
+  // 程序化走路：让队友跑起来，腿骨必须真的转起来（不是静态摆件）。
+  await page.evaluate(() => window.__game.remotes[0].setMoving(true, 4.2));
+  await page.waitForTimeout(320);
+  const leg1 = await page.evaluate(() => window.__game.remotes[0].rig.upLegL.bone.quaternion.toArray());
+  const delta = leg1.reduce((s, v, i) => s + Math.abs(v - info.leg0[i]), 0);
+  check(delta > 0.01, '队友走路时腿骨没有转动：' + delta.toFixed(4));
+
   const file = await shot(page, 'phase-remote');
-  return { metrics: { ...info, shot: file } };
+  return { metrics: { ...info, legDelta: Number(delta.toFixed(3)), shot: file } };
 }
 
 // 逐把验真实 GLB，而不是只验证加载器替身或占位模型。

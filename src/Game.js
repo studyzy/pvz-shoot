@@ -38,6 +38,7 @@ export class Game {
     this.remote = null;
     this.seat = -1;
     this.remoteFiring = false;
+    this.guestWeapon = 'pea';
     // M2 input 协议：房主侧跑一个无渲染/无 HUD 的 guest 代理 Player；客人侧只发 input。
     this.netGuest = null;
     this.netControls = null;
@@ -398,7 +399,7 @@ export class Game {
     }
   }
 
-  // 调试用：在出生点右侧放一个队友（戴夫化 Farmer）。联网层接上后由网络位置驱动。
+  // 调试用：在出生点右侧放一个队友（pumpkin-kid）。联网层接上后由网络位置驱动。
   spawnRemotePlayer(opts = {}) {
     if (!this.map) return null;
     const map = this.map;
@@ -419,7 +420,14 @@ export class Game {
     return r;
   }
 
+  // 当前手持武器的 id（给双人同步用；索引只在本机有意义）。
+  weaponId() {
+    const def = this.weapons && WEAPONS[this.weapons.current];
+    return def ? def.id : 'pea';
+  }
+
   clearRemotes() {
+    this.guestWeapon = 'pea';
     for (let i = 0; i < this.remotes.length; i++) this.remotes[i].dispose();
     this.remotes.length = 0;
     this.netGuest = null;
@@ -652,6 +660,10 @@ export class Game {
     }
     if (d.jump) this.netControls.jumpQueued = true;
     this.netControls.firing = !!d.fire;
+    if (typeof d.w === 'string') {
+      this.guestWeapon = d.w;
+      if (this.remote) this.remote.setWeapon(d.w);
+    }
     if (this.netGuest && this.netGuest.shield) {
       const sh = this.netGuest.shield;
       const want = !!d.shield;
@@ -1019,6 +1031,7 @@ export class Game {
     if (!Number.isFinite(x) || !Number.isFinite(z)) return;
     this.remote.setTarget(x, z, Number(d.yaw) || 0, Number(d.y) || 0);
     this.remote.setMoving(!!d.moving, Number(d.speed) || 0);
+    if (typeof d.w === 'string') this.remote.setWeapon(d.w);
     if (d.firing && !this.remoteFiring) this.remote.setFiring();
     this.remoteFiring = !!d.firing;
   }

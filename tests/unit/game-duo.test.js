@@ -5,7 +5,7 @@ vi.mock('../../src/entities/RemotePlayer.js', () => ({
     constructor(opts) {
       this.opts = opts;
       this.root = {};
-      this.calls = { transform: [], target: [], moving: [], firing: 0 };
+      this.calls = { transform: [], target: [], moving: [], firing: 0, weapon: [] };
     }
     update() {}
     dispose() {
@@ -22,6 +22,9 @@ vi.mock('../../src/entities/RemotePlayer.js', () => ({
     }
     setFiring() {
       this.calls.firing++;
+    }
+    setWeapon(id) {
+      this.calls.weapon.push(id);
     }
   },
 }));
@@ -99,8 +102,9 @@ describe('Game 双人接入', () => {
     game.applyRemoteState({ x: 3, z: 4, yaw: 1, moving: true, speed: 4, firing: true });
     expect(r.calls.firing).toBe(1);
     game.applyRemoteState({ x: 3, z: 4, yaw: 1, moving: false, speed: 0, firing: false });
-    game.applyRemoteState({ x: 3, z: 4, yaw: 1, moving: false, speed: 0, firing: true });
+    game.applyRemoteState({ x: 3, z: 4, yaw: 1, moving: false, speed: 0, firing: true, w: 'gatling' });
     expect(r.calls.firing).toBe(2);
+    expect(r.calls.weapon).toContain('gatling');
     game.applyRemoteState({ x: 'bad', z: 4 });
     expect(r.calls.target).toHaveLength(4);
     game.remote = null;
@@ -115,12 +119,14 @@ describe('Game 双人接入', () => {
     const spawnZ = game.netGuest.pos.z;
     const r = game.remote;
 
-    game.applyGuestInput({ seq: 1, m: [0, 1], look: [0, 0], jump: false, fire: true, shield: true });
+    game.applyGuestInput({ seq: 1, m: [0, 1], look: [0, 0], jump: false, fire: true, shield: true, w: 'cob' });
     game.update(0.05);
     expect(game.netGuest.pos.z).toBeLessThan(spawnZ);
     expect(game.netGuest.shield.active).toBe(true);
     expect(r.calls.transform.length).toBeGreaterThan(0);
     expect(r.calls.firing).toBe(1);
+    expect(game.guestWeapon).toBe('cob');
+    expect(r.calls.weapon).toContain('cob');
 
     game.applyGuestInput({ seq: 2, m: [0, 1], look: [0.1, 0], jump: false, fire: true, shield: false });
     game.update(0.05);
@@ -137,6 +143,7 @@ describe('Game 双人接入', () => {
     game.applyGuestInput({ m: 'bad', look: 'bad', jump: false, fire: false, shield: false });
     expect(game.netControls.move.x).toBe(1);
     expect(game.lastGuestInputAt).toBeGreaterThan(0);
+    expect(game.weaponId()).toBe('pea');
     game.lastGuestInputAt = Date.now() - 1000;
     game.update(0.05);
     expect(game.netControls.move.x).toBe(0);

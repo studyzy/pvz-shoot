@@ -303,6 +303,7 @@ describe('DuoSession', () => {
 
     game.player.lastInput = { move: { x: 1, y: 0 }, look: { x: 0.01, y: -0.02 }, jump: true };
     game.controls.firing = true;
+    game.weaponId = () => 'cob';
     session.captureInput();
     session.update(0.02);
     expect(net.relays).toHaveLength(0);
@@ -310,7 +311,7 @@ describe('DuoSession', () => {
     expect(net.relays).toHaveLength(1);
     const input = decode(net.relays[0]);
     expect(input.t).toBe('input');
-    expect(input.d).toMatchObject({ m: [1, 0], look: [0.01, -0.02], jump: true, fire: true, shield: false });
+    expect(input.d).toMatchObject({ m: [1, 0], look: [0.01, -0.02], jump: true, fire: true, shield: false, w: 'cob' });
     expect(input.d.seq).toBe(1);
 
     game.player.lastInput = { move: { x: 0, y: 1 }, look: { x: 0, y: 0 }, jump: false };
@@ -558,6 +559,22 @@ describe('DuoSession · 云上联机', () => {
     expect(game.applyGuestBell).toHaveBeenCalledExactlyOnceWith(d);
     game.applyGuestBell = null;
     expect(() => session.onRelay(encode('bell', d))).not.toThrow();
+  });
+
+  it('host pstate 带上双方当前手持武器 id，缺省回落 pea', () => {
+    const { game, session, net } = playing(true);
+    game.netGuest = { pos: { x: 0, y: 0, z: 0 }, yaw: 0, pitch: 0, hp: 100, moveAmt: 0 };
+    session.sendHostState();
+    const first = decode(net.relays[0]);
+    expect(first.d.h.w).toBe('pea');
+    expect(first.d.g.w).toBe('pea');
+
+    game.weaponId = () => 'gatling';
+    game.guestWeapon = 'melon';
+    session.sendHostState();
+    const ps = decode(net.relays[1]);
+    expect(ps.d.h.w).toBe('gatling');
+    expect(ps.d.g.w).toBe('melon');
   });
 
   it('host pstate 传 cloud.serialize 的 c，guest 接收不改写快照', () => {

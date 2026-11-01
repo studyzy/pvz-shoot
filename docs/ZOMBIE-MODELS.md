@@ -326,7 +326,7 @@ Blender 4.2 headless（同 alchemist，`bpy==4.2.23` + 本地 `libSM/libICE`）�
 
 夜之森林接入的 40 个 Quaternius 野怪（aigc/monsters，CC0）原本就是**平色块白模**——Quaternius 原版无贴图，不是转制丢失。上线 10 个后观感单薄，用 CodeBuddy 文生图生成贴图烘焙进 glb：
 
-`slime / pink-slime / green-blob / spider / rat / ghost / ghost-skull / bat / dragon-evolved / mushroom-king`（farmer.glb 也是白模，但它是队友戴夫化模型、材质颜色被代码重刷，保持原样）。
+`slime / pink-slime / green-blob / spider / rat / ghost / ghost-skull / bat / dragon-evolved / mushroom-king`（farmer.glb 也是白模，但队友已换成自带 PBR 贴图的 `pumpkin-kid.glb`，它只剩留档，保持原样）。
 
 ### 管线（可复现）
 

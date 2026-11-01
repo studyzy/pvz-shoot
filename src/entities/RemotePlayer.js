@@ -2,56 +2,57 @@ import * as THREE from 'three';
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { blobShadowTexture } from '../world/materials.js';
-import { findClip } from './ZombieModel.js';
+import { loadWeaponModel } from '../weapons/WeaponModels.js';
 import { clamp } from '../utils.js';
 
-// 队友模型：Quaternius Farmer（CC0 1.0，Poly Pizza 2022-02-22）。
-// 1.3 MB / 3,716 面 / 24 段动画 / 1.823 米；Y-up、面朝 +Z、脚底 y≈0。
+// 队友模型：aigc/pumpkin-kid.glb（仓库所有者提供的 AIGC 资产）。
+// 800 KB / 12,000 三角面 / 1 个蒙皮网格（1 draw call）/ 23 根骨骼 / 0 段动画。
+// Y-up、面朝 +Z、脚底 y≈0、原始高 1.132 米；乘 MODEL_SCALE 到约 1.65 米。
+// 模型本身没有动画片段，待机 / 走路 / 开火 / 死亡全部按骨骼程序化摆姿势（见 animate）。
 // 只在创建 RemotePlayer 时懒加载，单人模式不下载。
 const BASE = (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.BASE_URL) ? import.meta.env.BASE_URL : '/';
 
-export const FARMER_SCALE = 1;
-export const FARMER_HEIGHT = 1.823;
+export const MODEL_SCALE = 1.46;
+export const MODEL_HEIGHT = 1.132;
+export const PLATE_Y = 1.92;
 
-export const farmerModel = {
+export const remoteModel = {
   started: false,
   ready: false,
   failed: false,
   scene: null,
-  clips: [],
 };
 
 let waiters = [];
 
-export function initFarmerModel() {
-  if (farmerModel.started) return;
-  farmerModel.started = true;
+export function initRemoteModel() {
+  if (remoteModel.started) return;
+  remoteModel.started = true;
   const loader = new GLTFLoader();
   loader.load(
-    BASE + 'models/farmer.glb',
+    BASE + 'models/pumpkin-kid.glb',
     (gltf) => {
-      farmerModel.scene = prepare(gltf.scene);
-      farmerModel.clips = gltf.animations || [];
-      farmerModel.ready = true;
+      remoteModel.scene = prepare(gltf.scene);
+      remoteModel.ready = true;
       const list = waiters;
       waiters = [];
       for (let i = 0; i < list.length; i++) list[i]();
     },
     undefined,
     (err) => {
-      farmerModel.failed = true;
+      remoteModel.failed = true;
       waiters = [];
-      console.warn('farmer glb failed', err);
+      console.warn('pumpkin-kid glb failed', err);
     }
   );
 }
 
-export function whenFarmerReady(fn) {
-  if (farmerModel.ready) {
+export function whenRemoteReady(fn) {
+  if (remoteModel.ready) {
     fn();
     return;
   }
-  if (!farmerModel.failed) waiters.push(fn);
+  if (!remoteModel.failed) waiters.push(fn);
 }
 
 function prepare(root) {
@@ -64,151 +65,79 @@ function prepare(root) {
   return root;
 }
 
-// 戴夫化配色：白衬衫 + 棕色背带裤 + 深棕鞋 + 棕胡子/锅盖帽。
-export const DAVE_COLORS = {
-  shirt: 0xe9e3d2,
-  pants: 0x6d4a2f,
-  shoes: 0x4b3320,
-  pot: 0x8a5a2b,
-  potRim: 0x5c3a1e,
-  beard: 0x7a3f1e,
-  skin: 0xd9a06b,
+// 骨骼表：模型是标准人形骨架（Hips / Spine / LeftArm / LeftUpLeg…）。
+// 只登记要摆的骨骼，找不到就跳过（换模型时不至于整只人物消失）。
+const BONE_NAMES = {
+  hips: 'Hips',
+  spine: 'Spine',
+  spine1: 'Spine1',
+  spine2: 'Spine2',
+  head: 'Head',
+  armL: 'LeftArm',
+  foreArmL: 'LeftForeArm',
+  armR: 'RightArm',
+  foreArmR: 'RightForeArm',
+  handR: 'RightHand',
+  upLegL: 'LeftUpLeg',
+  legL: 'LeftLeg',
+  footL: 'LeftFoot',
+  upLegR: 'RightUpLeg',
+  legR: 'RightLeg',
+  footR: 'RightFoot',
 };
 
-// 把 Farmer 改成戴夫：
-// - 隐藏草帽（Farmer_Head 下的 Beige/Red），换成程序化锅盖帽
-// - 衬衫（Farmer_Body Brown/Beige）改米白
-// - 背带裤/裤子（LightBlue）改棕色
-// - 鞋（Farmer_Feet Brown/Brown2）改深棕
-// 每件 mesh 克隆材质，避免影响其它 RemotePlayer / 源模型。
-export function daveifyModel(root, env, owned) {
-  root.traverse((n) => {
-    if (!n.isMesh || !n.material) return;
-    const mat = n.material;
-    const mName = mat.name || '';
-    const pName = (n.parent && n.parent.name) || '';
-    if (pName === 'Farmer_Head' && (mName === 'Beige' || mName === 'Red')) {
-      n.visible = false;
-      return;
-    }
-    const m = mat.clone();
-    m.envMap = env || null;
-    m.envMapIntensity = 0.35;
-    if (m.emissive) {
-      m.emissive.setHex(0xffffff);
-      m.emissiveIntensity = 0;
-    }
-    n.material = m;
-    if (owned) owned.push(m);
-    if (mName === 'LightBlue') m.color.setHex(DAVE_COLORS.pants);
-    else if (pName === 'Farmer_Body' && (mName === 'Brown' || mName === 'Beige')) m.color.setHex(DAVE_COLORS.shirt);
-    else if (pName === 'Farmer_Feet' && (mName === 'Brown' || mName === 'Brown2')) m.color.setHex(DAVE_COLORS.shoes);
-    n.castShadow = true;
-    n.receiveShadow = false;
-    n.frustumCulled = false;
-  });
-  return root;
-}
+const AXIS_X = new THREE.Vector3(1, 0, 0);
+const AXIS_Y = new THREE.Vector3(0, 1, 0);
+const AXIS_Z = new THREE.Vector3(0, 0, 1);
+const _axis = new THREE.Vector3();
+const _delta = new THREE.Quaternion();
+const _q = new THREE.Quaternion();
 
-function partMaterial(env, color, roughness) {
-  const m = new THREE.MeshStandardMaterial({
-    color,
-    roughness,
-    metalness: 0.04,
-  });
-  m.envMap = env || null;
-  m.envMapIntensity = 0.35;
-  return m;
-}
-
-// 锅盖帽：低多边形圆柱 + 一圈帽檐，略微歪戴。
-export function buildPotHat(env) {
-  const g = new THREE.Group();
-  const body = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.15, 0.125, 0.105, 10),
-    partMaterial(env, DAVE_COLORS.pot, 0.72)
-  );
-  body.position.y = 0.0525;
-  const rim = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.172, 0.172, 0.024, 12),
-    partMaterial(env, DAVE_COLORS.potRim, 0.8)
-  );
-  rim.position.y = 0.105;
-  g.add(body, rim);
-  g.position.set(0, 1.7, 0.1);
-  g.rotation.set(-0.04, 0.12, 0.08);
-  g.traverse((n) => {
-    if (n.isMesh) {
-      n.castShadow = true;
-      n.receiveShadow = false;
-    }
-  });
-  return g;
-}
-
-// 大胡子 + 八字胡 + 鼻头；挂在 Head 骨骼上跟着头部动画。
-export function buildBeard(env) {
-  const g = new THREE.Group();
-  const hair = partMaterial(env, DAVE_COLORS.beard, 0.92);
-  const beard = new THREE.Mesh(new THREE.SphereGeometry(0.095, 8, 6), hair);
-  beard.scale.set(1.05, 1.0, 0.62);
-  const stache = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.026, 0.034), hair);
-  stache.position.set(0, 0.095, 0.036);
-  const nose = new THREE.Mesh(new THREE.SphereGeometry(0.03, 6, 5), partMaterial(env, DAVE_COLORS.skin, 0.75));
-  nose.position.set(0, 0.13, 0.045);
-  g.add(beard, stache, nose);
-  g.position.set(0, 1.47, 0.19);
-  g.traverse((n) => {
-    if (n.isMesh) {
-      n.castShadow = true;
-      n.receiveShadow = false;
-    }
-  });
-  return g;
-}
-
-// 右手豌豆枪：程序化绿色短枪，挂在 WristR 上。
-export function buildGun(env) {
-  const g = new THREE.Group();
-  const green = partMaterial(env, 0x8ade2a, 0.5);
-  const dark = partMaterial(env, 0x4e7d1d, 0.6);
-  const body = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.042, 0.24, 8), green);
-  body.rotation.x = Math.PI / 2;
-  body.position.z = 0.06;
-  const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.022, 0.16, 8), dark);
-  barrel.rotation.x = Math.PI / 2;
-  barrel.position.z = 0.23;
-  const muzzle = new THREE.Mesh(new THREE.SphereGeometry(0.036, 8, 6), green);
-  muzzle.position.z = 0.31;
-  const grip = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.11, 0.05), dark);
-  grip.position.set(0, -0.07, 0.03);
-  g.add(body, barrel, muzzle, grip);
-  g.position.set(-0.225, 1.04, 0.16);
-  g.traverse((n) => {
-    if (n.isMesh) {
-      n.castShadow = true;
-      n.receiveShadow = false;
-    }
-  });
-  return g;
-}
-
-// 把配件挂到骨骼：先放进模型空间算好世界变换，再 attach 到骨骼。
-// 这样不用手算 CharacterArmature 的 100 倍缩放。
-export function attachToBone(model, bone, obj) {
-  if (!bone) {
-    model.add(obj);
-    return obj;
+// 节点相对模型根（model）的旋转。用来把「模型空间」的轴向换算到骨骼父空间，
+// 这样摆姿势不用猜每根骨骼的本地轴；模型整体转多少度都不影响。
+function modelSpaceQuat(node, model) {
+  _q.identity();
+  let n = node;
+  while (n && n !== model) {
+    _q.premultiply(n.quaternion);
+    n = n.parent;
   }
-  model.add(obj);
-  model.updateMatrixWorld(true);
-  bone.updateMatrixWorld(true);
-  bone.attach(obj);
-  return obj;
+  return _q.clone();
+}
+
+function captureRig(model) {
+  const rig = {};
+  for (const key in BONE_NAMES) {
+    const bone = model.getObjectByName(BONE_NAMES[key]);
+    if (!bone) continue;
+    rig[key] = {
+      bone,
+      rest: bone.quaternion.clone(),
+      restY: bone.position.y,
+      parentInv: modelSpaceQuat(bone.parent || model, model).invert(),
+    };
+  }
+  return rig;
+}
+
+// 绕「模型空间」的轴转这根骨骼：角度正负按模型自身朝向定，
+// +X = 让肢体向后摆，+Y = 往模型左手边转，+Z = 抬起左侧肢体。
+function addSpin(rec, axis, angle) {
+  _axis.copy(axis).applyQuaternion(rec.parentInv).normalize();
+  _delta.setFromAxisAngle(_axis, angle);
+  rec.bone.quaternion.premultiply(_delta);
+}
+
+function setBone(rec, rx, ry, rz) {
+  if (!rec) return;
+  rec.bone.quaternion.copy(rec.rest);
+  if (rx) addSpin(rec, AXIS_X, rx);
+  if (ry) addSpin(rec, AXIS_Y, ry);
+  if (rz) addSpin(rec, AXIS_Z, rz);
 }
 
 // 头顶名牌：canvas 贴图 + Sprite，始终朝向相机。
-export function createNameplate(name) {
+export function createNameplate(name, y = PLATE_Y) {
   if (typeof document === 'undefined') return null;
   const canvas = document.createElement('canvas');
   canvas.width = 256;
@@ -237,7 +166,7 @@ export function createNameplate(name) {
   const material = new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false });
   const sprite = new THREE.Sprite(material);
   sprite.scale.set(0.92, 0.23, 1);
-  sprite.position.set(0, 2.06, 0);
+  sprite.position.set(0, y, 0);
   sprite.renderOrder = 2;
   return sprite;
 }
@@ -257,13 +186,20 @@ function shadowMaterial() {
 }
 
 // 玩家的 yaw 是「相机绕 Y 的旋转」，相机 default 看 -Z，所以 yaw=0 面朝 -Z；
-// 而 Farmer 模型和 root 一样面朝 +Z。直接写 rotation.y = yaw 会让队友背对着自己，
+// 而队友模型和 root 一样面朝 +Z。直接写 rotation.y = yaw 会让队友背对着自己，
 // 必须转 π 补上这半个圈（模型正面 +Z → root.rotation.y 时朝向 (sin, cos)）。
 export function yawToRotation(yaw) {
   return (Number(yaw) || 0) + Math.PI;
 }
 
-// 远端玩家：现在只做视觉与动画，位置/朝向由网络层或调试代码写入。
+const SHOOT_TIME = 0.35;
+const DEATH_TIME = 0.75;
+// 队友手里那把武器的目标长度（世界米，取包围盒最长边）。
+const WEAPON_LENGTH = 0.62;
+// 只接受 WEAPONS 里的 id 形状：小写字母，避免把 peer 传来的字符串拼进 URL。
+const WEAPON_ID = /^[a-z]{3,16}$/;
+
+// 远端玩家：视觉与动画在这里，位置/朝向由网络层或调试代码写入。
 export class RemotePlayer {
   constructor({ scene, env = null, name = '队友', x = 0, z = 0, y = 0, yaw = 0 } = {}) {
     this.scene = scene;
@@ -278,20 +214,26 @@ export class RemotePlayer {
     this.dead = false;
     this.moving = false;
     this.speed = 0;
+    this.time = 0;
+    this.phase = 0;
+    this.moveBlend = 0;
     this.shootT = 0;
-    this.owned = [];
-    this.actions = {};
+    this.deadT = 0;
     this.current = null;
+    this.weaponId = null;
+    this.weaponReq = 0;
+    this.weaponMats = [];
+    this.owned = [];
 
     this.buildShadow();
     this.buildPlaceholder();
     if (scene) scene.add(this.root);
-    initFarmerModel();
-    whenFarmerReady(() => this.buildModel());
+    initRemoteModel();
+    whenRemoteReady(() => this.buildModel());
   }
 
   buildShadow() {
-    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(1.35, 1.35), shadowMaterial());
+    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(1.3, 1.3), shadowMaterial());
     mesh.rotation.x = -Math.PI / 2;
     mesh.position.y = 0.02;
     mesh.renderOrder = 1;
@@ -303,7 +245,7 @@ export class RemotePlayer {
   buildPlaceholder() {
     const g = new THREE.Group();
     const bodyMat = new THREE.MeshStandardMaterial({ color: 0x6b8f3a, roughness: 0.8 });
-    const skinMat = new THREE.MeshStandardMaterial({ color: DAVE_COLORS.skin, roughness: 0.75 });
+    const skinMat = new THREE.MeshStandardMaterial({ color: 0xd9a06b, roughness: 0.75 });
     const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.28, 0.9, 4, 8), bodyMat);
     body.position.y = 0.85;
     const head = new THREE.Mesh(new THREE.SphereGeometry(0.18, 8, 6), skinMat);
@@ -320,36 +262,45 @@ export class RemotePlayer {
     this.root.add(g);
   }
 
-  track(obj) {
-    obj.traverse((n) => {
-      if (!n.isMesh) return;
-      if (n.geometry) this.owned.push(n.geometry);
-      if (n.material) this.owned.push(n.material);
+  // 材质按实例克隆（envMap 随地图变），几何体与贴图仍和模板共享，不能 dispose。
+  ownModelMaterials(model) {
+    model.traverse((n) => {
+      if (!n.isMesh || !n.material) return;
+      const mats = Array.isArray(n.material) ? n.material : [n.material];
+      const cloned = mats.map((m) => {
+        const c = m.clone();
+        if (c.envMap !== undefined) {
+          c.envMap = this.env || null;
+          c.envMapIntensity = 0.35;
+        }
+        this.owned.push(c);
+        return c;
+      });
+      n.material = Array.isArray(n.material) ? cloned : cloned[0];
+      n.castShadow = true;
+      n.receiveShadow = false;
+      n.frustumCulled = false;
     });
-    return obj;
   }
 
   buildModel() {
-    if (this.disposed || !farmerModel.scene || this.model) return;
+    if (this.disposed || !remoteModel.scene || this.model) return;
     if (this.placeholder) {
       this.root.remove(this.placeholder);
       this.placeholder = null;
     }
-    this.model = cloneSkinned(farmerModel.scene);
-    this.model.scale.setScalar(FARMER_SCALE);
-    daveifyModel(this.model, this.env, this.owned);
+    this.model = cloneSkinned(remoteModel.scene);
+    this.model.scale.setScalar(MODEL_SCALE);
+    this.ownModelMaterials(this.model);
     this.root.add(this.model);
     this.model.updateMatrixWorld(true);
 
-    const head = this.model.getObjectByName('Head');
-    // GLTFLoader 会把 Wrist.R 里的点去掉，加载后实际叫 WristR。
-    const wrist =
-      this.model.getObjectByName('WristR') ||
-      this.model.getObjectByName('Wrist_R') ||
-      this.model.getObjectByName('Wrist.R');
-    this.pot = attachToBone(this.model, head, this.track(buildPotHat(this.env)));
-    this.beard = attachToBone(this.model, head, this.track(buildBeard(this.env)));
-    this.gun = attachToBone(this.model, wrist, this.track(buildGun(this.env)));
+    this.rig = captureRig(this.model);
+    this.bones = Object.keys(this.rig).map((k) => this.rig[k].bone.name);
+
+    // 先摆一次「举枪待机」，让武器的挂点按这个姿势标定（见 buildWeaponMount）。
+    this.animate(0);
+    this.buildWeaponMount();
 
     const plate = createNameplate(this.name);
     if (plate) {
@@ -357,53 +308,163 @@ export class RemotePlayer {
       this.root.add(plate);
     }
 
-    this.buildAnimations();
+    this.current = this.dead ? 'die' : this.moving ? 'run' : 'idle';
     this.ready = true;
   }
 
-  buildAnimations() {
-    const clips = farmerModel.clips || [];
-    this.mixer = clips.length ? new THREE.AnimationMixer(this.model) : null;
-    this.actions = {};
-    if (!this.mixer) return;
-    const pick = (...names) => {
-      for (let i = 0; i < names.length; i++) {
-        const c = findClip(clips, names[i]);
-        if (c) return c;
-      }
-      return null;
-    };
-    const want = {
-      idle: pick('idle_gun', 'idle', 'idle_neutral'),
-      run: pick('run', 'walk'),
-      walk: pick('walk', 'run'),
-      shoot: pick('gun_shoot', 'idle_gun_shoot'),
-      die: pick('death'),
-      hit: pick('hitrecieve', 'hitrecieve_2'),
-      wave: pick('wave'),
-    };
-    for (const k in want) {
-      if (!want[k]) continue;
-      const a = this.mixer.clipAction(want[k]);
-      if (k === 'shoot' || k === 'die' || k === 'hit' || k === 'wave') {
-        a.setLoop(THREE.LoopOnce, 1);
-        a.clampWhenFinished = true;
-      }
-      this.actions[k] = a;
-    }
-    this.play('idle', 0);
+  // 武器挂在右手骨骼上。挂点用「举枪待机」这一刻的姿势反解：
+  // 先算出手骨在模型空间的矩阵，再求它的逆 × 想要的手部武器矩阵，得到固定的本地偏移。
+  // 这样无论 armR/foreArmR 之后怎么摆、模型整体怎么旋转，武器都跟着手走且朝正前方。
+  buildWeaponMount() {
+    if (!this.rig || !this.rig.handR || !this.model) return;
+    const mount = new THREE.Group();
+    this.model.updateMatrixWorld(true);
+    const invModel = new THREE.Matrix4().copy(this.model.matrixWorld).invert();
+    const handM = new THREE.Matrix4().multiplyMatrices(invModel, this.rig.handR.bone.matrixWorld);
+    const hx = handM.elements[12];
+    const hy = handM.elements[13];
+    const hz = handM.elements[14];
+    const want = new THREE.Matrix4().makeTranslation(hx, hy + 0.02, hz + 0.03);
+    const local = new THREE.Matrix4().multiplyMatrices(new THREE.Matrix4().copy(handM).invert(), want);
+    local.decompose(mount.position, mount.quaternion, mount.scale);
+    this.rig.handR.bone.add(mount);
+    this.weaponMount = mount;
+
+    if (!this.weaponId) this.weaponId = 'pea';
+    this.queueWeapon();
   }
 
-  play(name, fade = 0.2) {
-    const next = this.actions[name];
-    if (!next || this.current === name) return;
-    const prev = this.current ? this.actions[this.current] : null;
-    next.reset();
-    next.enabled = true;
-    next.setEffectiveWeight(1);
-    next.play();
-    if (prev && prev !== next && fade) prev.crossFadeTo(next, fade, false);
-    else if (prev && prev !== next) prev.stop();
+  // 网络层每帧都会报武器 id；只有变化时才重新加载。
+  setWeapon(id) {
+    if (typeof id !== 'string' || !WEAPON_ID.test(id) || id === this.weaponId) return;
+    this.weaponId = id;
+    this.queueWeapon();
+  }
+
+  queueWeapon() {
+    if (!this.weaponMount || !this.weaponId) return;
+    const id = this.weaponId;
+    const token = ++this.weaponReq;
+    loadWeaponModel(id).then((template) => {
+      if (!template || this.disposed || token !== this.weaponReq) return;
+      this.attachWeapon(template);
+    });
+  }
+
+  // 用真实的植物武器 GLB（和第一人称 / 地面拾取同一份素材）。
+  // GLB 是 Y-up、枪口朝 -Z，绕 Y 转 π 后枪口朝模型 +Z；按包围盒归一化长度，
+  // 再把底部抬到手上，看起来像抓着武器而不是插在手里。
+  attachWeapon(template) {
+    this.clearWeapon();
+    const vis = template.clone(true);
+    vis.traverse((n) => {
+      if (!n.isMesh || !n.material) return;
+      const mats = Array.isArray(n.material) ? n.material : [n.material];
+      const cloned = mats.map((m) => {
+        const c = m.clone();
+        if (c.envMap !== undefined) {
+          c.envMap = this.env || null;
+          c.envMapIntensity = 0.35;
+        }
+        this.weaponMats.push(c);
+        return c;
+      });
+      n.material = Array.isArray(n.material) ? cloned : cloned[0];
+      n.castShadow = true;
+      n.receiveShadow = false;
+      n.frustumCulled = false;
+    });
+
+    const box = new THREE.Box3().setFromObject(vis);
+    const size = box.getSize(new THREE.Vector3());
+    const longest = Math.max(size.x, size.y, size.z) || 1;
+    const scale = WEAPON_LENGTH / (longest * MODEL_SCALE);
+    vis.scale.setScalar(scale);
+    vis.rotation.y = Math.PI;
+    vis.position.set(0, -box.min.y * scale + 0.01, 0.02);
+
+    this.weaponMount.add(vis);
+    this.weapon = vis;
+  }
+
+  clearWeapon() {
+    if (this.weapon && this.weaponMount) this.weaponMount.remove(this.weapon);
+    this.weapon = null;
+    for (let i = 0; i < this.weaponMats.length; i++) {
+      if (this.weaponMats[i] && this.weaponMats[i].dispose) this.weaponMats[i].dispose();
+    }
+    this.weaponMats.length = 0;
+  }
+
+  // 程序化动画：moveBlend 把走路权重从 0 平滑到 1，开火是右手的一个衰减冲量，
+  // 死亡是绕脚底整体后仰。所有姿势都以骨骼静止姿势为基准，不会越摆越歪。
+  animate(dt) {
+    if (!this.rig) return;
+    this.time += dt;
+
+    const target = this.moving && !this.dead ? 1 : 0;
+    this.moveBlend += (target - this.moveBlend) * (1 - Math.exp(-dt * 10));
+    if (this.moveBlend < 0.001) this.moveBlend = 0;
+    if (this.moving && !this.dead) {
+      this.phase += dt * clamp(3.4 + this.speed * 0.85, 3.4, 9);
+    }
+
+    if (this.shootT > 0) this.shootT = Math.max(0, this.shootT - dt);
+    const kick = this.shootT > 0 ? Math.pow(clamp(this.shootT / SHOOT_TIME, 0, 1), 1.4) : 0;
+
+    const m = this.dead ? 0 : this.moveBlend;
+    const swing = Math.sin(this.phase);
+    const t = this.time;
+    const breathe = Math.sin(t * 1.7) * 0.02 * (1 - m);
+    // 走路时躯干上下起伏（一个周期两步）
+    const bob = Math.cos(this.phase * 2) * 0.014 * m + Math.sin(t * 1.7) * 0.005 * (1 - m);
+
+    const rig = this.rig;
+    setBone(rig.hips, -0.03 * m + (this.dead ? 0.1 : 0), -0.06 * swing * m, 0);
+    if (rig.hips) rig.hips.bone.position.y = rig.hips.restY + bob;
+    setBone(rig.spine, -0.04 * m - 0.05 * kick, 0.04 * swing * m, 0);
+    setBone(rig.spine1, -0.02 * m, 0.05 * swing * m, 0);
+    setBone(rig.spine2, breathe - 0.03 * kick, 0.05 * swing * m, 0);
+    setBone(rig.head, -breathe * 0.6 + 0.02 * m, -0.05 * swing * m, 0);
+
+    // 腿：正角度向后摆；膝盖只能向后弯，所以永远取正。
+    const legSwing = 0.4 * swing * m;
+    setBone(rig.upLegL, -legSwing, 0, 0);
+    setBone(rig.upLegR, legSwing, 0, 0);
+    const kneeL = (0.08 + 0.5 * Math.max(0, -swing)) * m;
+    const kneeR = (0.08 + 0.5 * Math.max(0, swing)) * m;
+    setBone(rig.legL, kneeL, 0, 0);
+    setBone(rig.legR, kneeR, 0, 0);
+    // 脚踝回正一半，落地时不至于脚尖一直戳地
+    setBone(rig.footL, -0.5 * (kneeL - legSwing), 0, 0);
+    setBone(rig.footR, -0.5 * (kneeR + legSwing), 0, 0);
+
+    // 手臂：左臂 +Z 抬高、右臂 -Z 抬高；所以把 A-pose 收回来是左负右正。
+    // 右臂常驻举枪姿势（枪口朝前），只有走路的轻微起伏；左臂自由摆动。
+    const armIn = 0.3;
+    const armSwing = 0.4 * swing * m;
+    setBone(rig.armL, armSwing - 0.1 * kick, 0, -armIn);
+    setBone(rig.armR, -0.85 + 0.12 * swing * m - 0.3 * kick, 0, armIn + 0.05);
+    setBone(rig.foreArmL, -0.16 - 0.24 * Math.max(0, -swing) * m, 0, 0);
+    setBone(rig.foreArmR, -0.75 - 0.1 * Math.max(0, swing) * m - 0.35 * kick, 0, 0);
+
+    // 死亡：绕脚底后仰倒地（模型朝 +Z，负角度 = 往后倒）。
+    if (this.dead && this.model) {
+      this.deadT += dt;
+      const k = clamp(this.deadT / DEATH_TIME, 0, 1);
+      const ease = 1 - (1 - k) * (1 - k);
+      this.model.rotation.x = -1.5 * ease;
+      this.model.position.y = 0.16 * ease;
+      if (this.plate) this.plate.position.y = PLATE_Y - 1.15 * ease;
+    } else if (this.model) {
+      this.model.rotation.x = 0;
+      this.model.position.y = 0;
+      if (this.plate) this.plate.position.y = PLATE_Y;
+    }
+  }
+
+  play(name) {
+    if (!name || this.current === name) return;
     this.current = name;
   }
 
@@ -422,24 +483,22 @@ export class RemotePlayer {
 
   setMoving(moving, speed = 0) {
     this.moving = !!moving;
-    this.speed = speed;
+    this.speed = speed || 0;
     if (this.dead) return;
-    if (this.shootT <= 0) this.play(moving ? 'run' : 'idle', 0.18);
-    if (this.mixer) this.mixer.timeScale = moving ? clamp(speed / 4.2, 0.7, 1.5) : 1;
+    this.play(this.moving ? 'run' : 'idle');
   }
 
   setFiring() {
     if (this.dead || !this.ready) return;
-    this.play('shoot', 0.05);
-    const a = this.actions.shoot;
-    this.shootT = a ? a.getClip().duration : 0.35;
-    if (a) a.reset().play();
+    this.play('shoot');
+    this.shootT = SHOOT_TIME;
   }
 
   setDead() {
     if (this.dead) return;
     this.dead = true;
-    this.play('die', 0.1);
+    this.deadT = 0;
+    this.play('die');
   }
 
   update(dt) {
@@ -460,19 +519,16 @@ export class RemotePlayer {
         this.root.rotation.y += dYaw * a;
       }
     }
-    if (this.mixer) this.mixer.update(dt);
-    if (this.shootT > 0) {
-      this.shootT -= dt;
-      if (this.shootT <= 0 && !this.dead) this.play(this.moving ? 'run' : 'idle', 0.15);
+    this.animate(dt);
+    if (this.shootT <= 0 && this.current === 'shoot' && !this.dead) {
+      this.play(this.moving ? 'run' : 'idle');
     }
   }
 
   dispose() {
     this.disposed = true;
-    if (this.mixer) {
-      this.mixer.stopAllAction();
-      this.mixer = null;
-    }
+    this.clearWeapon();
+    this.weaponMount = null;
     if (this.plate) {
       if (this.plate.material.map) this.plate.material.map.dispose();
       this.plate.material.dispose();
@@ -486,6 +542,10 @@ export class RemotePlayer {
       if (this.owned[i] && this.owned[i].dispose) this.owned[i].dispose();
     }
     this.owned.length = 0;
+    this.rig = null;
+    this.bones = null;
+    this.model = null;
+    this.weaponReq++;
     if (this.scene) this.scene.remove(this.root);
     this.root.clear();
     this.ready = false;

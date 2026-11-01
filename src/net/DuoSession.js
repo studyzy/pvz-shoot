@@ -79,7 +79,9 @@ export class DuoSession {
     this.pendingJump = false;
     this.pendingFire = false;
     this.pendingShield = false;
+    this.pendingWeapon = 'pea';
     this.pendingShieldHp = 0;
+    this.pendingWeapon = 'pea';
     this.snapSeq = 0;
     this.history = [];
   }
@@ -278,6 +280,7 @@ export class DuoSession {
     this.pendingFire = !!(g.controls && g.controls.firing);
     this.pendingShield = !!(g.wallNuts && g.wallNuts.active);
     this.pendingShieldHp = g.wallNuts ? Math.round(g.wallNuts.hp) : 0;
+    this.pendingWeapon = g.weaponId ? g.weaponId() : 'pea';
   }
 
   update(dt) {
@@ -305,6 +308,7 @@ export class DuoSession {
         fire: this.pendingFire,
         shield: this.pendingShield,
         sh: this.pendingShieldHp,
+        w: this.pendingWeapon,
       })
     );
     this.pendingLook.x = 0;
@@ -326,6 +330,7 @@ export class DuoSession {
       moving: (p.moveAmt || 0) > 0.1,
       speed: round(TUNING.playerSpeed * (p.moveAmt || 0) * (p.speedMul || 1), 2),
       firing: !!(g.controls && g.controls.firing),
+      w: g.weaponId ? g.weaponId() : 'pea',
       down: !!p.downed,
       downT: round(p.downTimer || 0, 1),
     };
@@ -341,6 +346,7 @@ export class DuoSession {
           hp: Math.round(ng.hp),
           moving: (ng.moveAmt || 0) > 0.1,
           firing: !!(g.netControls && g.netControls.firing),
+          w: g.guestWeapon || 'pea',
           down: !!ng.downed,
           downT: round(ng.downTimer || 0, 1),
           sh: Math.round(ng.shield ? ng.shield.hp : 0),
