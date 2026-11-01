@@ -95,13 +95,29 @@ describe('摩天街区 Downtown 专项', () => {
     }
   });
 
-  it('楼峡主街贯通：x∈{-3,0,3}、z∈[-40,-16] 采样全部无障碍（流场 blocked=0 且无碰撞体）', () => {
+  it('楼峡主街贯通：x=0 全程无障碍；x=±3 除中段掩体 crate(±3.5,-30) 外无障碍', () => {
     // 设计稿 §5.4：双塔 solid(±11,-26,8,8,18) 夹出 14 米峡谷主街（NS 大道 x∈[-7,7]），z 从 -45 贯通到 -16。
+    // P1-3①（任务定稿）在楼峡中段加 crate(±3.5,-30,1.6,0.9) 分段 29m 裸视线：脚印 x∈[±2.7,±4.3]
+    // 含 0.55 padding 后挡住格 x∈[±3]、z∈[-32,-28)，两侧 x=0 中线与街沿仍贯通。
     expect(map.nav).toBeInstanceOf(FlowField);
-    for (const x of [-3, 0, 3]) {
+    for (let z = -40; z <= -16; z += 2) {
+      expect(blockedAt(0, z), `楼峡 (0, ${z}) 被流场标障`).toBe(0);
+      expect(colliderAt(map.colliders, 0, z, 0.1), `楼峡 (0, ${z}) 有碰撞体`).toBeUndefined();
+    }
+    for (const x of [-3, 3]) {
       for (let z = -40; z <= -16; z += 2) {
-        expect(blockedAt(x, z), `楼峡 (${x}, ${z}) 被流场标障`).toBe(0);
-        expect(colliderAt(map.colliders, x, z, 0.1), `楼峡 (${x}, ${z}) 有碰撞体`).toBeUndefined();
+        const inCover = z === -32 || z === -30;
+        // 掩体格：流场标障（含 0.55 padding 外扩格）；其余格净空。
+        // 碰撞圆只在箱体本身所在行（z=-30）断言——padding 外扩格（z=-32）没有碰撞圆是正常的。
+        expect(blockedAt(x, z), `楼峡 (${x}, ${z}) 流场状态`).toBe(inCover ? 1 : 0);
+        if (z === -30) {
+          expect(
+            colliderAt(map.colliders, x, z, 0.1) !== undefined,
+            `楼峡 (${x}, ${z}) 掩体碰撞圆缺失`
+          ).toBe(true);
+        } else if (!inCover) {
+          expect(colliderAt(map.colliders, x, z, 0.1), `楼峡 (${x}, ${z}) 有碰撞体`).toBeUndefined();
+        }
       }
     }
   });
@@ -169,12 +185,13 @@ describe('摩天街区 Downtown 专项', () => {
   });
 
   it('刷怪点恰好 10 个：主路楼峡 5 + 侧翼 3 + 远端环街 2，且不压高台、离碰撞圆足够远', () => {
-    // 设计稿 §5.5 + 定稿修正（侧翼商场北侧口为 (26,-39)）。
+    // 设计稿 §5.5 + 定稿修正（侧翼商场北侧口为 (26,-39)）+ P3-8 主路横向铺开拉纵深：
+    // (0,-43) (-6,-41) (6,-41) (-4,-37) (4,-39)——仍保持 |x|<7 且 z<-36 的楼峡主路约束。
     const pts = map.zombieSpawnPoints;
     expect(Array.isArray(pts)).toBe(true);
     expect(pts.length).toBe(10);
     expect(pts.map((p) => p.join(',')).sort()).toEqual(
-      ['0,-43', '-5,-42', '5,-42', '0,-37', '3,-39', '-41,0', '41,0', '26,-39', '-41,-30', '41,-30'].sort()
+      ['0,-43', '-6,-41', '6,-41', '-4,-37', '4,-39', '-41,0', '41,0', '26,-39', '-41,-30', '41,-30'].sort()
     );
     // 主路 5 点全在楼峡内：|x| < 7 且 z < -36
     const canyon = pts.filter(([x, z]) => Math.abs(x) < 7 && z < -36);
@@ -232,12 +249,17 @@ describe('摩天街区 Downtown 专项', () => {
     expect(s.fog.far).toBe(210);
   });
 
-  it('menuCamera：黄昏高空机位在双塔塔顶（18 米）之上俯瞰', () => {
-    // 设计稿 §5.4：双塔 18 米是全场最高结构（工地塔 12 米次之），黄昏 CBD 的环绕机位应在塔顶之上。
+  it('menuCamera：低机位掠景（视觉评审 D 定稿）——y≈14、半径≈30，双塔剪影+发光窗当画面主体', () => {
+    // 出处：三方评审视觉清单 D「menuCamera 低机位重构」——原 26 米高空俯瞰把塔窗压成色块；
+    // 新机位 y≈13~16、半径≈30、lookAt(0,1,-6)（maps.test 的 dot>0.6/随 t 移动契约不变）。
     const cam = new PerspectiveCamera(73, 1, 0.05, 240);
     for (const t of [0, 3, 11, 26]) {
       map.menuCamera(cam, t);
-      expect(cam.position.y, `t=${t} 机位低于双塔塔顶`).toBeGreaterThan(18);
+      expect(cam.position.y, `t=${t} 机位高度脱离低机位区间`).toBeGreaterThan(13);
+      expect(cam.position.y, `t=${t} 机位高度脱离低机位区间`).toBeLessThan(16);
+      const horiz = Math.hypot(cam.position.x, cam.position.z);
+      expect(horiz, `t=${t} 机位半径脱离 ≈30 区间`).toBeGreaterThan(28);
+      expect(horiz, `t=${t} 机位半径脱离 ≈30 区间`).toBeLessThan(32);
     }
   });
 

@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { toon, glassTexture, asphaltTexture, duskSkyTexture } from './materials.js';
+import { toon, glassTexture, asphaltTexture, duskSkyTexture, plazaTexture } from './materials.js';
 import { rand, TAU } from '../utils.js';
 import { FlowField } from './FlowField.js';
 import { PLAYER_PERCH } from '../config.js';
@@ -11,6 +11,9 @@ const MOTE_COUNT = 120;
 // 摩天街区：黄昏 CBD 的十字大道攻防（docs/FPS-MAPS-RESEARCH-city.md §5）。
 // 90×90 场地：NS 主街 x∈[-7,7] 与 EW 横街 z∈[-7,7] 全场贯通，夹出中央广场；
 // 双塔楼峡是主刷怪轴，天桥 1.9 米高线串起 NE 商场裙台 ↔ 工地板台，NW 停车楼是 0.95 级三级跳链。
+// 高线的真实制约（定稿，research §5.7「克制机制」）：不是气球——气球 airHeight=2.2 恒高、
+// 咬合需与脚底 dy≥1.6，站上 1.9/2.85 平台后 dy<1.6 咬不到，「气球垂直压制高线」是假命题；
+// 真正的代价是阳光经济（击杀掉落全在地面、18s TTL，蹲楼顶等于断收入）+ 台缘四面暴露。
 // 所有可站平台的顶面都按任务定稿取整（裙台/天桥/板台 1.9、停车楼 0.95/1.9/2.85），
 // 因此这里的 solid() 不再加顶盖（cap），高度即平台顶面。
 export class Downtown {
@@ -36,9 +39,9 @@ export class Downtown {
       [0, 9], [-26, 0], [34, 0],
       [0, -33], [-19, -19], [26, 19],
     ];
-    // 主 5（楼峡一线）/ 侧 3（东西横街口 + 商场北侧口）/ 远 2（西北/东北环角）
+    // 主 5（楼峡一线，横向铺开拉纵深）/ 侧 3（东西横街口 + 商场北侧口）/ 远 2（西北/东北环角）
     this.zombieSpawnPoints = [
-      [0, -43], [-5, -42], [5, -42], [0, -37], [3, -39],
+      [0, -43], [-6, -41], [6, -41], [-4, -37], [4, -39],
       [-41, 0], [41, 0], [26, -39],
       [-41, -30], [41, -30],
     ];
@@ -55,12 +58,14 @@ export class Downtown {
     this.matGreen = toon(0x556b3a);
     this.matWreck = toon(0x4a4440);
     this.matAccent = toon(0xd8a02a);
-    // 玻璃幕墙：贴图同时做 map 与 emissiveMap，亮窗格自发光（黄昏塔窗的灵魂）
+    // 玻璃幕墙：贴图同时做 map 与 emissiveMap，亮窗格自发光（黄昏塔窗的灵魂）。
+    // 窗光色 0xffe6c8（视觉评审 B 白炽边 + 终轮亮度收敛再去饱和）：亮窗读作
+    // 「办公室白炽灯」而不是霓虹；强度基线 0.5 由 update() 的闪烁公式接管。
     this.matGlass = new THREE.MeshStandardMaterial({
       map: glassTexture(),
       emissiveMap: glassTexture(),
-      emissive: 0xffa050,
-      emissiveIntensity: 0.35,
+      emissive: 0xffe6c8,
+      emissiveIntensity: 0.5,
       roughness: 0.5,
       metalness: 0.15,
     });
@@ -184,7 +189,9 @@ export class Downtown {
     }
   }
 
-  groundText(x, z, size, text, color) {
+  // 地面导语：纯装饰（无碰撞，不进 platforms/colliders/walls）。y 可选：铺在台面上的
+  // 导语（高线入口/桥面）抬到台面 +0.02，默认贴地 0.02 防 z-fight。
+  groundText(x, z, size, text, color, y = 0.02) {
     const c = document.createElement('canvas');
     c.width = c.height = 256;
     const ctx = c.getContext('2d');
@@ -204,7 +211,7 @@ export class Downtown {
     });
     const plane = new THREE.Mesh(new THREE.PlaneGeometry(size, size), mat);
     plane.rotation.set(-Math.PI / 2, 0, 0);
-    plane.position.set(x, 0.02, z);
+    plane.position.set(x, y, z);
     this.root.add(plane);
   }
 
@@ -220,6 +227,7 @@ export class Downtown {
     this.buildSE();
     this.buildPlaza();
     this.buildBunkers();
+    this.buildWestFacade();
     this.buildRing();
     this.buildDistant();
     this.buildMotes();
@@ -227,11 +235,15 @@ export class Downtown {
   }
 
   buildLights() {
-    const hemi = new THREE.HemisphereLight(0xff9a50, 0x2e2440, 0.6);
+    // 终轮亮度收敛：hemi 是唯一能照进塔身背光面/阴影地面的环境光，0.6→1.3、
+    // 地面色 0x2e2440→0x5e577a、天空色去饱和到 0xffbe9a——垂直面吃一半 ground 色，
+    // 原值让背光塔面整片近黑；天空去饱和把暖橙占比压回 8% 以内。
+    const hemi = new THREE.HemisphereLight(0xffbe9a, 0x5e577a, 1.3);
     this.root.add(hemi);
 
-    // 低角度暖橙主光：黄昏太阳压在西天上
-    const sun = new THREE.DirectionalLight(0xffa060, 1.7);
+    // 低角度暖光主光：黄昏太阳压在西天上。0xffa060→0xffe2c4 两轮去饱和（视觉评审 A
+    // + 终轮亮度收敛）：提亮的同时把暖橙像素占比压回 3~8% 窄带，混凝土/沥青的蓝灰可读。
+    const sun = new THREE.DirectionalLight(0xffe2c4, 2.1);
     sun.position.set(-40, 18, 20);
     sun.target.position.set(0, 0, 0);
     sun.castShadow = true;
@@ -248,8 +260,10 @@ export class Downtown {
     this.root.add(sun);
     this.root.add(sun.target);
 
-    // 冷蓝补光：从东面把背光面托起来，避免整个场子闷成一片
-    const fill = new THREE.DirectionalLight(0x4a6a9a, 0.5);
+    // 冷蓝补光：从东面把背光面托起来，避免整个场子闷成一片。
+    // 强度 0.5 → 1.2（视觉评审 A）→ 3.0（终轮亮度收敛）：冷光补暗面抬亮度，
+    // 不占暖橙预算——菜单/游戏帧的中性灰占比因此回到 40%+。
+    const fill = new THREE.DirectionalLight(0x4a6a9a, 3.0);
     fill.position.set(30, 26, -30);
     this.root.add(fill);
   }
@@ -311,6 +325,17 @@ export class Downtown {
       this.root.add(trim);
 
       this.solid(sx, -18.5, 8, 5, 0.95);
+      // 楼峡中段掩体（P1-3① 分段 29m 裸视线）：一对花坛 crate(±3.5,-30,1.6,0.9)。
+      // 离刷怪点 (0,-37) 7.6m；拾取点 (0,-33) 四周 1.2m 探针格（x∈[-1,1)、z∈[-34,-31)）
+      // 必须净空——crate 脚印 x∈[±2.7,±4.3] 含 0.55 padding 后 x∈[±2.15,±4.85]，不冲突。
+      this.crate(3.5, -30, 1.6, 0.9, this.matPlanter);
+      this.crate(-3.5, -30, 1.6, 0.9, this.matPlanter);
+      for (const px of [-3.5, 3.5]) {
+        const soil = new THREE.Mesh(new THREE.BoxGeometry(1.48, 0.08, 1.48), this.matGreen);
+        soil.position.set(px, 0.9 + 0.04, -30);
+        soil.receiveShadow = true;
+        this.root.add(soil);
+      }
     }
   }
 
@@ -344,11 +369,16 @@ export class Downtown {
     this.plate(26, -9.75, 8, 16.5); // z ∈ [-18.0, -1.5]，北端与裙台南沿相接、南端接主跨
     this.plate(26, 0, 8, 3); // 主跨（定稿占位 {x:26,z:0,w:8,d:3,h:1.9}）
     this.plate(26, 8.75, 8, 14.5); // z ∈ [1.5, 16.0]
-    this.plate(23, 18.1, 2, 4.2); // 窄跳板 z ∈ [16.0, 20.2]，南端接板台北沿
+    // 窄跳板东移（P1-4 东横街绕行税）：x 23 → 24.4，在桥板西侧让出 1.4m 的南绕行缝。
+    // 东沿停在 25.4：blockPlatforms 的 0.55 padding 外扩到 25.95，必须 <26 才不会标障
+    // 拾取点 (26,19) 北探针格 x∈[26,27)（maps.test 拾取探针契约只有这一格可用）。
+    // 南端 d=4.22 压进板台 0.02（z∈[16.0,20.22]）：缝会踩空/钉死，宁可重叠——两板顶面
+    // 同为 1.9，重叠方向沿支撑面，落点支撑连续。
+    this.plate(24.4, 18.11, 2, 4.22); // 窄跳板 z ∈ [16.0, 20.22]，南端压进板台北沿
     this.railPair(26, -9.75, 16.3, 8, 'z');
     this.railPair(26, 0, 7.9, 3, 'x');
     this.railPair(26, 8.75, 14.3, 8, 'z');
-    this.railPair(23, 18.1, 4.0, 2, 'z');
+    this.railPair(24.4, 18.1, 4.0, 2, 'z');
   }
 
   // NW 停车楼：三级 10×10 跳链 0.95 → 1.9 → 2.85，顶面是楼顶停车场。
@@ -392,6 +422,17 @@ export class Downtown {
 
   // 中央广场掩体群：纪念碑是视觉锚点，毁车/花坛把 32 米广场切成可绕的掩体阵。
   buildPlaza() {
+    // 广场铺装（视觉评审 E）：32×32 混凝土分缝铺装贴地片，比沥青浅一档勾出广场边界。
+    // y=0.01 防 z-fight；纯视觉——不进 platforms/colliders/walls，与拾取/刷怪探针无关。
+    const pave = new THREE.Mesh(
+      new THREE.PlaneGeometry(32, 32),
+      new THREE.MeshLambertMaterial({ map: plazaTexture() })
+    );
+    pave.rotation.x = -Math.PI / 2;
+    pave.position.set(0, 0.01, 0);
+    pave.receiveShadow = true;
+    this.root.add(pave);
+
     this.solid(0, -1, 4.4, 4.4, 1.2, { mat: this.matConcreteDark });
     // 碑顶方尖柱：platform 挡人（顶面 3.6 不可达）、walls 挡投掷物
     const obelisk = new THREE.Mesh(new THREE.BoxGeometry(0.9, 2.4, 0.9), this.matDeck);
@@ -415,11 +456,35 @@ export class Downtown {
   }
 
   // 横街分段掩体：把 14 米横街的视线切碎（略外移到 ±4.5，给横街拾取点留流场探针净空）。
+  // P1-3②③：西横街一对从 (-26,±4.5) 移到 (-33,±2.2)——中线切段（含 0.55 padding 后
+  // z∈[-4,4) 全断，僵尸贴街沿绕行）；拾取点 (-26,0) 的探针格不变仍净空。
+  // 南主街 (0,28) 补一对花坛，切掉广场南沿到南环街的裸视线。
   buildBunkers() {
-    this.crate(-26, -4.5, 1.6, 0.9, this.matPlanter);
-    this.crate(-26, 4.5, 1.6, 0.9, this.matPlanter);
+    this.crate(-33, -2.2, 1.6, 0.9, this.matPlanter);
+    this.crate(-33, 2.2, 1.6, 0.9, this.matPlanter);
     this.crate(34, -4.5, 1.6, 0.9, this.matPlanter);
     this.crate(34, 4.5, 1.6, 0.9, this.matPlanter);
+    this.crate(-2.5, 28, 1.4, 0.9, this.matPlanter);
+    this.crate(2.5, 28, 1.4, 0.9, this.matPlanter);
+    for (const [px, pz] of [[-2.5, 28], [2.5, 28]]) {
+      const soil = new THREE.Mesh(new THREE.BoxGeometry(1.28, 0.08, 1.28), this.matGreen);
+      soil.position.set(px, 0.9 + 0.04, pz);
+      soil.receiveShadow = true;
+      this.root.add(soil);
+    }
+  }
+
+  // 西横街立面（P2-5，只做西侧——东侧桥板本身就是立面）：四块街廓体块收紧走廊，
+  // 高低交错（x=-20 两块 4.6、x=-33 两块 2.2）。净空自证：离拾取点 (-26,0) 探针格
+  // （x∈[-27,-25)、z∈[-2,2)）≥1.2m——体块脚印 x∈[-23,-17]/[-36,-30]、z∈[10,14]/[-14,-10]；
+  // 离刷怪点 (-41,0) 最近角 (-36,-10) 距离 11.2m ≥1.6m。z=-12 两块与停车楼一级台
+  // （x∈[-31,-21]，z∈[-19.5,-9.5]）的东北/西北角有 2m/1m 脚印重叠：台面只做支撑、
+  // 体块只做侧推（顶面 4.6/2.2 不可达），无对缝无来回推挤，视觉上是贴着停车楼的街廓连体。
+  buildWestFacade() {
+    this.solid(-20, 12, 6, 4, 4.6);
+    this.solid(-20, -12, 6, 4, 4.6);
+    this.solid(-33, -12, 6, 4, 2.2);
+    this.solid(-33, 12, 6, 4, 2.2);
   }
 
   // 环街灯柱：外圈 8 米净空里只放灯柱装饰，24 根走两个 InstancedMesh（每种 1 个 draw call）。
@@ -460,8 +525,10 @@ export class Downtown {
   }
 
   // 远景：围墙外一圈楼群剪影（12～30 米高），借雾色融进黄昏天际，不投影。
+  // 0x332847 → 0x4d3c6a（视觉评审 F）：原色在黄昏灯下渲染≈黑，与暗部糊死；提亮一档
+  // 让剪影从夜幕里浮出来，仍比雾色（0x4a3c50）暗、保持逆光层次。
   buildDistant() {
-    const mat = new THREE.MeshLambertMaterial({ color: 0x332847 });
+    const mat = new THREE.MeshLambertMaterial({ color: 0x594678 });
     for (let i = 0; i < 9; i++) {
       const a = (i / 9) * TAU + rand(-0.18, 0.18);
       const dist = rand(58, 84);
@@ -504,10 +571,16 @@ export class Downtown {
   buildText() {
     this.groundText(0, 16.5, 3.2, 'PLAZA', 'rgba(232,190,130,0.5)');
     this.groundText(0, -33, 3.2, 'CANYON', 'rgba(232,190,130,0.55)');
-    this.groundText(26, 12, 3.0, 'EAST', 'rgba(232,190,130,0.45)');
+    // P2-7：EAST 原 (26,12) 埋在天桥脚印下（玩家推挤区，走近不了）→ 移 (34,12) 东通道。
+    this.groundText(34, 12, 3.0, 'EAST', 'rgba(232,190,130,0.45)');
     this.groundText(-26, 12, 3.0, 'WEST', 'rgba(232,190,130,0.45)');
     this.groundText(0, 40, 3.2, 'SOUTH', 'rgba(232,190,130,0.5)');
     this.groundText(0, -40, 3.0, 'NORTH', 'rgba(232,190,130,0.5)');
+    // 高线入口导语（P2-7）：PARK 画在停车楼一级台面上（(-26,-11) 在 0.95 台脚印内，
+    // 贴地会埋进实体）；SITE 在工地口；BRIDGE 画在南板桥面上提示上桥过街（同理抬到板面）。
+    this.groundText(-26, -11, 3.0, 'PARK', 'rgba(232,190,130,0.45)', 0.97);
+    this.groundText(31.5, 17, 3.0, 'SITE', 'rgba(232,190,130,0.45)');
+    this.groundText(24.5, 15, 3.0, 'BRIDGE', 'rgba(232,190,130,0.5)', 1.92);
   }
 
   updateNav(player, dt) {
@@ -524,16 +597,30 @@ export class Downtown {
     this.root.visible = true;
   }
 
+  // 菜单机位（视觉评审 D 定稿）：低机位掠景——y≈14、半径 30、看向广场偏北 (0,1,-6)，
+  // 让双塔剪影 + 发光窗带成为画面主体（原 26 米俯瞰机位塔窗缩成一团色块）。
+  // 契约（maps.test）：y>0、horiz<200、看向场地中心 dot>0.6、位置随 t 移动。
   menuCamera(camera, time) {
     const a = time * 0.06;
-    camera.position.set(Math.cos(a) * 34, 26 + Math.sin(time * 0.17) * 0.4, Math.sin(a) * 34);
-    camera.lookAt(0, 0, 0);
+    camera.position.set(Math.cos(a) * 30, 14 + Math.sin(time * 0.17) * 0.4, Math.sin(a) * 30);
+    camera.lookAt(0, 1, -6);
+  }
+
+  // Game.setMap 统一喂入 PMREM 环境贴图（NightForest.setFlash 同款「按地图开关」接线）。
+  // 幕墙材质是构造期单例：重复 setMap 重复调用是幂等的——重复赋同一张 envMap 无副作用，
+  // 材质不重建。metalness 0.15 → 0.28 让玻璃塔挂上天空与街谷反射（视觉评审 C）。
+  setEnv(env) {
+    if (!env || this.matGlass.envMap === env) return;
+    this.matGlass.envMap = env;
+    this.matGlass.metalness = 0.28;
+    this.matGlass.needsUpdate = true;
   }
 
   update(dt) {
     this.time += dt;
     // 塔窗与路灯微闪：只动材质强度，不碰碰撞/平台/拾取表。
-    this.matGlass.emissiveIntensity = 0.34 + Math.sin(this.time * 1.7) * 0.07;
+    // 自发光基线 0.34→0.5（终轮亮度收敛）：菜单低机位下亮窗占画面小、整帧亮度靠它托一段
+    this.matGlass.emissiveIntensity = 0.5 + Math.sin(this.time * 1.7) * 0.07;
     this.lampMat.emissiveIntensity = 0.8 + Math.sin(this.time * 2.3 + 1) * 0.12;
     const p = this.moteData;
     for (let i = 0; i < MOTE_COUNT; i++) {

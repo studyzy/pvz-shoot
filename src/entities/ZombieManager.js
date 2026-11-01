@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { Zombie } from './Zombie.js';
 import { zombieModel } from './ZombieModel.js';
-import { ZOMBIES, DUO, BOUNTY, FOREST, bossForWave, wavePlan, duoWavePlan, waveMaxAlive, waveSpawnInterval, waveAirQuota, zombieHpMul, zombieSpeedMul, SKELETON_MAX_ALIVE, SKELETON_MAPS } from '../config.js';
+import { ZOMBIES, DUO, BOUNTY, FOREST, DOWNTOWN, bossForWave, wavePlan, duoWavePlan, waveMaxAlive, waveSpawnInterval, waveAirQuota, zombieHpMul, zombieSpeedMul, SKELETON_MAX_ALIVE, SKELETON_MAPS } from '../config.js';
 import { rand, clamp } from '../utils.js';
 
 export class ZombieManager {
@@ -112,9 +112,16 @@ export class ZombieManager {
       }
       if (this.queue.length === 0 && this.zombies.length === 0 && this.pendingSplits.length === 0) {
         this.state = 'intermission';
-        this.intermission = this.ctx.map && this.ctx.map.id === 'forest'
-          ? (bossForWave(this.wave) ? FOREST.bossIntermission : FOREST.intermission)
-          : (this.duo ? DUO.intermission : 6.5);
+        // 休整时长按地图分流：森林（FOREST）与摩天街区（DOWNTOWN）图大、反攻纵深长，
+        // 各自走 config 的普通/Boss 两档；其余地图维持 6.5s（双人按 DUO 缩）。
+        const mapId = this.ctx.map && this.ctx.map.id;
+        if (mapId === 'forest') {
+          this.intermission = bossForWave(this.wave) ? FOREST.bossIntermission : FOREST.intermission;
+        } else if (mapId === 'downtown') {
+          this.intermission = bossForWave(this.wave) ? DOWNTOWN.bossIntermission : DOWNTOWN.intermission;
+        } else {
+          this.intermission = this.duo ? DUO.intermission : 6.5;
+        }
         this.ctx.onWaveClear(this.wave);
       }
     } else if (this.state === 'intermission') {
@@ -308,8 +315,12 @@ export class ZombieManager {
     if (forestPoint) {
       [x, z] = forestPoint;
     } else if (points && points.length) {
+      // 首波教学：地图声明 openingSpawnPoints 时，波 1 只从教学表选点（沿用 >12m 重掷与
+      // 净空规则）。此前这张表只有上面的森林分支会读，摩天街区等地图的「首波主向可读」
+      // 是死配置——通用分支补上后 GAMEPLAY「首波只从楼峡出」的声明才成立。
+      const table = this.wave === 1 && map.openingSpawnPoints ? map.openingSpawnPoints : points;
       for (let attempt = 0; attempt < 10; attempt++) {
-        const p = points[Math.floor(rand(0, points.length))];
+        const p = table[Math.floor(rand(0, table.length))];
         x = p[0] + rand(-1.6, 1.6);
         z = p[1] + rand(-1.6, 1.6);
         if (Math.hypot(x - player.pos.x, z - player.pos.z) > 12) break;

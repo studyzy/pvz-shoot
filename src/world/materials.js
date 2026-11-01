@@ -530,7 +530,10 @@ export function glassTexture() {
   const c = document.createElement('canvas');
   c.width = c.height = size;
   const ctx = c.getContext('2d');
-  ctx.fillStyle = '#4b4b52';
+  // 终轮亮度收敛：基底/框梃/灭窗两轮提亮（4b4b52→6e6e7a 一档）——菜单低机位下
+  // 塔身暗面曾贡献全帧约 1/3 近黑；亮窗仍靠自发光（emissive）出跳，
+  // 灭窗现在是「有 ambient 的暗玻璃」而不是黑洞。摩天街区专属贴图，改色不影响其它图。
+  ctx.fillStyle = '#6e6e7a';
   ctx.fillRect(0, 0, size, size);
   const bay = 64;
   for (let gy = 0; gy < 4; gy++) {
@@ -542,7 +545,7 @@ export function glassTexture() {
       const x = gx * bay;
       const y = gy * bay;
       // 楼层框与竖梃
-      ctx.fillStyle = '#2c2c33';
+      ctx.fillStyle = '#464654';
       ctx.fillRect(x, y + bay - 7, bay, 7);
       ctx.fillRect(x, y, 5, bay);
       // 窗格：亮灭按楼层氛围；亮格接近纯暖白（自发光拉满）、灭格中性灰微变
@@ -553,14 +556,16 @@ export function glassTexture() {
       if (run > 0 || Math.random() < litP) {
         run = run > 0 ? run - 1 : (Math.random() < 0.5 ? 1 + (Math.random() * 2 | 0) : 0);
         const g = ctx.createLinearGradient(px, py, px, py + ph);
-        const warm = Math.random() < 0.75 ? '255,214,150' : '255,186,100';
+        // 终轮亮度收敛：窗光从 255,214,150/255,186,100 去饱和到奶油白炽——暖橙像素占比
+        // 被压回 8% 以内，且更贴「办公室白炽灯」而不是霓虹
+        const warm = Math.random() < 0.75 ? '255,224,186' : '255,208,146';
         g.addColorStop(0, 'rgba(' + warm + ',1)');
         g.addColorStop(1, 'rgba(' + warm + ',0.86)');
         ctx.fillStyle = g;
       } else if (Math.random() < 0.05) {
         ctx.fillStyle = 'rgba(198,218,248,0.85)'; // 稀少的冷色荧屏窗，添生活感
       } else {
-        ctx.fillStyle = Math.random() < 0.5 ? '#575662' : '#4f4e58';
+        ctx.fillStyle = Math.random() < 0.5 ? '#787788' : '#706f7c';
       }
       ctx.fillRect(px, py, pw, ph);
       // 窗格内的横向分隔（窗扇）
@@ -591,7 +596,7 @@ export function asphaltTexture() {
   const c = document.createElement('canvas');
   c.width = c.height = size;
   const ctx = c.getContext('2d');
-  ctx.fillStyle = '#6b675f';
+  ctx.fillStyle = '#8f8a79';
   ctx.fillRect(0, 0, size, size);
   for (let i = 0; i < 16; i++) {
     const x = Math.random() * size;
@@ -625,10 +630,53 @@ export function asphaltTexture() {
   return tex;
 }
 
+let _plaza = null;
+// 广场混凝土分缝铺装（视觉评审 E）：比沥青浅一档的混凝土底 + 方格分缝 + 淡淡的浇筑块色差，
+// 中央广场 32×32 贴地片专用。亮底是为了在黄昏暖光下仍读出「广场铺装 ≠ 马路」的层次。
+export function plazaTexture() {
+  if (_plaza) return _plaza;
+  const size = 256;
+  const c = document.createElement('canvas');
+  c.width = c.height = size;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#9d968a';
+  ctx.fillRect(0, 0, size, size);
+  // 4×4 米格的分缝铺装：每格亮度微变（混凝土浇筑块），缝压深一档
+  const bay = 64;
+  for (let gy = 0; gy < 4; gy++) {
+    for (let gx = 0; gx < 4; gx++) {
+      const tint = Math.random() * 0.1 - 0.05;
+      ctx.fillStyle = tint > 0 ? 'rgba(255,250,238,' + tint + ')' : 'rgba(30,26,20,' + -tint + ')';
+      ctx.fillRect(gx * bay + 2, gy * bay + 2, bay - 4, bay - 4);
+    }
+  }
+  ctx.fillStyle = 'rgba(58,54,46,0.85)';
+  for (let i = 0; i <= 4; i++) {
+    ctx.fillRect(i * bay - 1, 0, 2, size);
+    ctx.fillRect(0, i * bay - 1, size, 2);
+  }
+  // 磨损噪点：亮粒提神、暗粒拖底
+  for (let i = 0; i < 900; i++) {
+    const a = 0.05 + Math.random() * 0.1;
+    ctx.fillStyle = Math.random() < 0.5 ? 'rgba(226,220,204,' + a + ')' : 'rgba(52,48,42,' + a + ')';
+    const s = 1 + Math.random() * 2;
+    ctx.fillRect(Math.random() * size, Math.random() * size, s, s);
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(8, 8);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
+  _plaza = tex;
+  return tex;
+}
+
 let _duskSky = null;
 // 黄昏天空（非平铺，整幅铺到屏幕）：暮紫天顶占上 1/4，暖橙光带压到纹理中段——
 // 第一人称平视时可见天空只有纹理上半幅，暖带不上移就会被楼群整体剪掉；两层楼群剪影
 // 与低垂太阳都落在这段可见带里，逆光剪影叠在暖光上才有「暮色将至」。
+// 终轮亮度收敛：整条渐变提亮一档、暖带再上移半档（菜单低机位 y≈14 的画面上沿曾整片
+// 落在近黑夜空里）；天顶仍是暮紫、暖带仍是窄带，「黄昏将至」的逆光结构不变。
 export function duskSkyTexture() {
   if (_duskSky) return _duskSky;
   const w = 512;
@@ -638,12 +686,12 @@ export function duskSkyTexture() {
   c.height = h;
   const ctx = c.getContext('2d');
   const grd = ctx.createLinearGradient(0, 0, 0, h);
-  grd.addColorStop(0, '#241d3d');
-  grd.addColorStop(0.26, '#46345c');
-  grd.addColorStop(0.44, '#7c4658');
-  grd.addColorStop(0.58, '#b8613e');
-  grd.addColorStop(0.72, '#e08a48');
-  grd.addColorStop(0.86, '#f0a458');
+  grd.addColorStop(0, '#3d3363');
+  grd.addColorStop(0.22, '#68537f');
+  grd.addColorStop(0.36, '#8a4f5e');
+  grd.addColorStop(0.46, '#c06a42');
+  grd.addColorStop(0.6, '#e08a48');
+  grd.addColorStop(0.74, '#f0a458');
   grd.addColorStop(1, '#f6b96e');
   ctx.fillStyle = grd;
   ctx.fillRect(0, 0, w, h);
@@ -674,8 +722,9 @@ export function duskSkyTexture() {
       x += bw + 4 + random() * 16;
     }
   };
-  skyline(h * 0.6, 'rgba(76,54,104,0.8)', 36, 140);
-  skyline(h * 0.8, 'rgba(30,22,48,0.95)', 26, 100);
+  // 剪影层同步提亮一档：远景楼群要「浮在暖带上」而不是沉进黑夜（终轮亮度收敛）
+  skyline(h * 0.6, 'rgba(96,70,128,0.8)', 36, 140);
+  skyline(h * 0.8, 'rgba(42,32,62,0.95)', 26, 100);
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
   _duskSky = tex;
