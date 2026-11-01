@@ -152,10 +152,14 @@ export async function createGame(options = {}) {
 export async function readyGame() {
   const booted = await createGame();
   const { zombieModel } = await import('../../src/entities/ZombieModel.js');
-  // 多个 glb 是先后多次 load，骷髅（Boss 用）/ 橄榄球通常比僵尸晚一个宏任务就绪，
-  // 只等 ready 会让对应类型撞上"模型没就绪所以不刷怪"。
-  const ready = () => zombieModel.ready && zombieModel.skeleton.ready && zombieModel.football.ready;
-  for (let i = 0; i < 40 && !ready(); i++) await new Promise((r) => setTimeout(r, 0));
+  // 多个 glb 是先后多次 load，骷髅（Boss 用）/ 橄榄球 / 炼金（普通僵尸）通常比僵尸晚就绪，
+  // 只等 ready 会让对应类型撞上"模型没就绪所以不刷怪"，spawnZombieAt 拿到 null。
+  // 用真实时间兜底而不是「N 个宏任务」：慢 runner / 覆盖率插桩下 tick 数差很多。
+  const ready = () => zombieModel.ready && zombieModel.skeleton.ready
+    && zombieModel.football.ready && zombieModel.alchemist.ready;
+  const deadline = Date.now() + 5000;
+  while (!ready() && Date.now() < deadline) await new Promise((r) => setTimeout(r, 0));
+  if (!ready()) throw new Error('zombieModel 没在 5 秒内就绪（glb 替身加载不完整）');
   return booted;
 }
 

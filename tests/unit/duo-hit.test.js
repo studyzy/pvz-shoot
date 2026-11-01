@@ -39,7 +39,11 @@ beforeAll(async () => {
 
 async function boot() {
   const { game } = await createGame();
-  await new Promise((r) => setTimeout(r, 50));
+  // 固定 50ms 墙钟在慢机器/覆盖率插桩下不够：glb 替身是异步 load 的，
+  // 没就绪时 spawnOne() 返回 null，下面的用例会拿到空僵尸。
+  const { zombieModel } = await import('../../src/entities/ZombieModel.js');
+  const ready = () => zombieModel.ready && zombieModel.alchemist.ready;
+  for (let i = 0; i < 200 && !ready(); i++) await new Promise((r) => setTimeout(r, 0));
   return game;
 }
 
