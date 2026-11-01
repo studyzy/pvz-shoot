@@ -23,6 +23,58 @@ function round(v, n = 2) {
   return Math.round(v * p) / p;
 }
 
+// M0 探针：量化「房主掉帧 → 快照变稀 → 客人跳变」这条链路。
+// 只有在 window.__netProbe 被打开时才累积；平时 push 一次数组的成本，不参与游戏逻辑。
+export function makeNetProbe() {
+  const stats = (arr) => {
+    if (!arr.length) return null;
+    const s = arr.slice().sort((a, b) => a - b);
+    const at = (p) => s[Math.min(s.length - 1, Math.floor(p * s.length))];
+    return { n: s.length, p50: +at(0.5).toFixed(2), p95: +at(0.95).toFixed(2), max: +s[s.length - 1].toFixed(2) };
+  };
+  const probe = {
+    on: false,
+    sendGaps: [],
+    jumps: [],
+    snapKB: [],
+    lastSendAt: 0,
+    push(arr, v) {
+      if (!this.on) return;
+      arr.push(v);
+      if (arr.length > 900) arr.shift();
+    },
+    // 房主侧：每发出一包快照调一次
+    onSnapshot(bytes) {
+      if (!this.on) return;
+      const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+      if (this.lastSendAt) this.push(this.sendGaps, now - this.lastSendAt);
+      this.lastSendAt = now;
+      this.push(this.snapKB, bytes / 1024);
+    },
+    // 客人侧：每次应用远端快照，记下这只僵尸相对上一帧跳了多远
+    onApply(prevX, prevZ, x, z) {
+      if (!this.on) return;
+      if (!Number.isFinite(prevX) || !Number.isFinite(prevZ)) return;
+      this.push(this.jumps, Math.hypot(x - prevX, z - prevZ));
+    },
+    reset() {
+      this.sendGaps.length = 0;
+      this.jumps.length = 0;
+      this.snapKB.length = 0;
+      this.lastSendAt = 0;
+    },
+    report(hz) {
+      return {
+        nominalHz: hz,
+        sendGapMs: stats(this.sendGaps),
+        jumpM: stats(this.jumps),
+        snapKB: stats(this.snapKB),
+      };
+    },
+  };
+  return probe;
+}
+
 export function readJoinParam(loc) {
   const l = loc === undefined ? (typeof location !== 'undefined' ? location : null) : loc;
   if (!l || !l.search) return null;
@@ -84,6 +136,8 @@ export class DuoSession {
     this.pendingWeapon = 'pea';
     this.snapSeq = 0;
     this.history = [];
+    // M0 探针：只在 window.__netProbe = true 时累积（见 makeNetProbe）
+    this.probe = opts.probe || makeNetProbe();
   }
 
   start({ name, mapId, url, join } = {}) {
@@ -357,23 +411,23 @@ export class DuoSession {
     const seq = ++this.snapSeq;
     this.history.push({ seq, z: zs, g: gs });
     if (this.history.length > 20) this.history.shift();
-    this.net.relay(
-      encode('pstate', {
-        seq,
-        h,
-        g: gs,
-        z: zs,
-        sun: Math.round(g.sun || 0),
-        scores: g.duoStats ? g.duoStats.slice() : [0, 0],
-        kills: g.duoKills ? g.duoKills.slice() : [0, 0],
-        wave: g.zombies ? g.zombies.wave : 0,
-        ws: g.zombies ? g.zombies.state : 'idle',
-        wt: g.zombies ? round(g.zombies.intermission || 0, 1) : 0,
-        bossHp: boss ? Math.max(0, boss.hp / boss.maxHp) : 0,
-        o: g.sunOrbs ? g.sunOrbs.serialize() : [],
-        c: g.mapId === 'cloud' && g.cloud ? g.cloud.serialize() : undefined,
-      })
-    );
+    const payload = encode('pstate', {
+      seq,
+      h,
+      g: gs,
+      z: zs,
+      sun: Math.round(g.sun || 0),
+      scores: g.duoStats ? g.duoStats.slice() : [0, 0],
+      kills: g.duoKills ? g.duoKills.slice() : [0, 0],
+      wave: g.zombies ? g.zombies.wave : 0,
+      ws: g.zombies ? g.zombies.state : 'idle',
+      wt: g.zombies ? round(g.zombies.intermission || 0, 1) : 0,
+      bossHp: boss ? Math.max(0, boss.hp / boss.maxHp) : 0,
+      o: g.sunOrbs ? g.sunOrbs.serialize() : [],
+      c: g.mapId === 'cloud' && g.cloud ? g.cloud.serialize() : undefined,
+    });
+    this.net.relay(payload);
+    if (this.probe) this.probe.onSnapshot(payload.length);
   }
 
   // host 用 guest 看到的那个快照做命中回退：seq 是 guest 最后一次 pstate 的序号。

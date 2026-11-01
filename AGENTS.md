@@ -24,7 +24,8 @@ npm run duo       # build 后直接起双人服务器
 
 - **不能用 `file://` 直接打开 `dist/index.html`**：ES Module 与音频权限会被浏览器拦截，必须走 HTTP。
 - 构建产物由 `vite.config.js` 的 `base: './'` 支持子路径部署。
-- 部署：推送到 `main` 后由 `.github/workflows/deploy.yml` 自动构建 `dist/` 并发布到 GitHub Pages（https://studyzy.github.io/pvz-shoot/）；Pages Source 使用 GitHub Actions，不要提交 `dist/`。**Pages 只跑单人**；双人需要 VPS（`npm run duo`）或在 Pages workflow 注入 `VITE_NET_URL`。
+- 部署：推送到 `main` 后由 `.github/workflows/deploy.yml` 自动构建 `dist/` 并发布到 GitHub Pages（https://studyzy.github.io/pvz-shoot/）；Pages Source 使用 GitHub Actions，不要提交 `dist/`。**Pages 只跑单人**；双人需要自建服务器。
+- **生产服务器（双人）**：`ssh -F /dev/null ubuntu@124.221.164.209`，站点 https://124.221.164.209/pvz/ ，联机 `wss://124.221.164.209/ws`。源码 `/home/ubuntu/pvz-shoot`、发布目录 `/var/www/pvz`、发布脚本 `~/bin/pvz-deploy.sh`、systemd `pvz-duo`（127.0.0.1:8090，Caddy 反代）。**全部实机核实过，细节见 [server/DEPLOYMENT.md](server/DEPLOYMENT.md)**。
 - 测试：`npm test`（Vitest 4 + jsdom，UT + 集成测试，约 15 秒）、`npm run test:coverage`、`npm run test:e2e`（真实 Chromium + WebGL）。写法与约定见 [docs/TESTING.md](docs/TESTING.md)。
 - **改代码前先跑 `npm test`，改完再跑一次**；动到数值/结构/地图/UI 时按 TESTING.md 第 3 节补测试。
 
@@ -82,6 +83,7 @@ npm run duo       # build 后直接起双人服务器
 | `tools/build-boss-model.py` | 僵尸博士 FBX → GLB：Blender 抽面 12k（保留顶点组/UV）、修 0.01 armature 缩放、转 +Z 朝向、贴图 1024/512 + WebP；见 [docs/ZOMBIE-MODELS.md](docs/ZOMBIE-MODELS.md) |
 | `tools/preview-glb.mjs` | glb 预览截图：本地 HTTP + Chromium 渲染单个模型出 jpg，烘焙后人工目检用 |
 | `server/README.md` | 服务器启动、环境变量、systemd/Caddy 部署 |
+| `server/DEPLOYMENT.md` | **生产服务器事实记录**：入口地址、实机规格、目录、Caddy 路由、静态资源构成、发布流程、SSH 注意事项 |
 | `docs/design/DESIGN-duo-online.md` | 双人玩法设计稿（M0/M1 已实现，M2 僵尸同步未开始） |
 | `docs/GAMEPLAY.md` | 玩家向完整数值文档；**改数值后同步更新** |
 
@@ -354,7 +356,7 @@ npm run duo       # build 后直接起双人服务器
 ### 5.12 双人联机（M0 / M1 + M2 input/僵尸/命中/救援）
 
 - **范围**：自动配对（有人等待就加入，没人等待就新建一场并等待）、多场并发（默认 `MAX_MATCHES=8`）、断线重连（45 s）、同场玩家 input 同步；**僵尸由 host 模拟、20 Hz 快照 + spawn/dead 事件同步**；guest 的命中/爆炸发请求，host 用视线 + seq 快照 + 墙体/冷却重算；共享阳光值、个人分、倒地救援已接。**共享补给 claim、阳光球同步、结算页、resync、双人缩放还没做**；常规补给目前是每客户端本地掉落，常规球的 host-only。
-- **跑起来**：`npm run build && npm run server`（或开发时 `npm run dev` + `npm run server`）。客户端在 DEV 下连 `ws://<当前主机名>:8080/ws`，生产同源连 `/ws`。详见 [server/README.md](server/README.md)。
+- **跑起来**：`npm run build && npm run server`（或开发时 `npm run dev` + `npm run server`）。客户端在 DEV 下连 `ws://<当前主机名>:8080/ws`，生产同源连 `/ws`。详见 [server/README.md](server/README.md)；生产环境见 [server/DEPLOYMENT.md](server/DEPLOYMENT.md)。
 - **协议**：`src/net/protocol.js`；顶层消息 `hello/welcome/queue/peer/start/map/relay/ping/pong/error/end/bye`。`relay` 里再包一层游戏内消息（`input` / `pstate` / `evt` / `pause` / `resume`），不要绕过 `cleanRelay` 的 32 KB 上限。
 - **配对**：服务器只维护 `waiting` FIFO 和 `matches`；seat 0 是房主，seat 1 是客人。`start` 后服务器只转发，不模拟。
 - **邀请链接**：等待中的房主 `welcome.joinToken`（12 位）→ 客户端把地址栏改成 `?join=`，并显示「复制邀请链接」；朋友打开即加入。`hello.join` 优先于 FIFO，失效返回 `JOIN_EXPIRED`（客户端清掉参数，可重新匹配）。

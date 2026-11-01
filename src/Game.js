@@ -513,6 +513,13 @@ export class Game {
         return;
       }
       this.duoSession = new DuoSession(this);
+      // M0：window.__netProbe = true 时开始采集（见 docs/plans/2026-11-01-netcode-refactor.md §M0）
+      this.netProbe = this.duoSession.probe;
+      try {
+        if (typeof window !== 'undefined' && window.__netProbe) this.netProbe.on = true;
+      } catch (e) {
+        // 隐私模式忽略
+      }
       this.duoSession.start({ name: '戴夫', mapId: this.mapId });
     } catch (e) {
       console.error(e);
@@ -717,6 +724,16 @@ export class Game {
       this.hud.showBanner('第 ' + d.wave + ' 波', 2);
     }
     if (Array.isArray(d.z)) this.zombies.netSnapshot(d.z);
+    // M0 探针：客人侧量「每一包快照把僵尸瞬移了多远」，这是肉眼卡顿的直接指标
+    const probe = this.duoSession && this.duoSession.probe;
+    if (probe && probe.on && Array.isArray(d.z)) {
+      for (let i = 0; i < d.z.length; i++) {
+        const s = d.z[i];
+        const z = this.zombies.zombies.find((x) => x.netId === s.id);
+        if (z) probe.onApply(z.root.position.x, z.root.position.z, s.x, s.z);
+      }
+    }
+    if (this.netProbe) this.netProbe.on = true;
     if (typeof d.bossHp === 'number') {
       if (d.bossHp > 0) {
         if (this.zombies.boss) this.hud.setBossName(this.zombies.boss.def.title);
