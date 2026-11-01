@@ -13,6 +13,7 @@
 // 单独跑某几个场景：E2E_ONLY=startup,glb node tests/integration/browser.e2e.webgl.mjs
 // 失败截图落到 tests/integration/.artifacts/。
 import { spawn } from 'node:child_process';
+import http from 'node:http';
 import { existsSync, mkdirSync, readdirSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -67,15 +68,24 @@ function findChromium() {
   return null;
 }
 
-async function waitForServer(url, timeoutMs = 60000) {
+// TCP 探活：http 库不依赖 undici。CI 上出现过 fetch() 自己卡住 60s
+// （server 早已打印出 Local 地址）的情形，所以每次探测都带超时、失败也会换下一轮。
+async function probeOnce(host, port, timeoutMs = 3000) {
+  return new Promise((resolve) => {
+    const req = http.get({ host, port, path: '/', timeout: timeoutMs }, (res) => {
+      res.resume();
+      resolve(!!res.statusCode && res.statusCode < 500);
+    });
+    req.on('timeout', () => { req.destroy(); resolve(false); });
+    req.on('error', () => resolve(false));
+  });
+}
+
+async function waitForServer(url, timeoutMs = 120000) {
+  const { hostname, port } = new URL(url);
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
-    try {
-      const res = await fetch(url);
-      if (res.ok) return true;
-    } catch (e) {
-      // 还没起来
-    }
+    if (await probeOnce(hostname, port)) return true;
     await new Promise((r) => setTimeout(r, 400));
   }
   return false;
