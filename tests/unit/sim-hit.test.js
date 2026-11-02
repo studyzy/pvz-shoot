@@ -540,3 +540,146 @@ describe('MatchSim · 受击与死亡事件', () => {
     expect(sim.drainEvents().filter((e) => e.t === 'hitPlayer')).toHaveLength(0);
   });
 });
+
+describe('snapshot · 状态位与边界分支', () => {
+  it('玩家倒地/死亡状态位正确编码', async () => {
+    const { encodeSnapshot, decodeSnapshot } = await import('../../src/sim/snapshot.js');
+    const sim = {
+      tick: 1, sun: 0, scores: [0, 0], kills: [0, 0], players: [{}, {}],
+      playerState: (i) => ({
+        x: 0, y: 0, z: 0, yaw: 0, pitch: 0, hp: 100, maxHp: 100,
+        downed: i === 0, dead: i === 1, downTimer: i === 0 ? 12.5 : 0,
+      }),
+      zombieStates: () => [], zombies: { wave: 1, state: 'idle' },
+    };
+    const d = decodeSnapshot(encodeSnapshot(sim));
+    expect(d.players[0].downed).toBe(true);
+    expect(d.players[0].dead).toBe(false);
+    expect(d.players[0].downTimer).toBeCloseTo(12.5, 1);
+    expect(d.players[1].dead).toBe(true);
+  });
+
+  it('僵尸的减速/悬赏/协同/空中状态位都编码', async () => {
+    const { encodeSnapshot, decodeSnapshot } = await import('../../src/sim/snapshot.js');
+    const sim = {
+      tick: 1, sun: 0, scores: [0, 0], kills: [0, 0], players: [{}],
+      playerState: () => ({ x: 0, y: 0, z: 0, yaw: 0, pitch: 0, hp: 100, maxHp: 100, downed: false, dead: false }),
+      zombieStates: () => [
+        { id: 1, t: 'normal', x: 0, y: 0, z: 0, yaw: 0, hp: 50, st: 3, sl: 1, bo: 1, co: 1, ab: 1, sp: 1, ar: 7 },
+      ],
+      zombies: { wave: 2, state: 'spawning' },
+    };
+    const d = decodeSnapshot(encodeSnapshot(sim));
+    const z = d.zombies[0];
+    expect(z.st).toBe(3);
+    expect(z.sl).toBe(1);
+    expect(z.bo).toBe(1);
+    expect(z.co).toBe(1);
+    expect(z.ab).toBe(1);
+    expect(z.ar).toBe(7);
+  });
+
+  it('错误的帧类型被拒绝', async () => {
+    const { decodeSnapshot, decodeInput, decodeFire } = await import('../../src/sim/snapshot.js');
+    const snapBytes = new Uint8Array(20);
+    snapBytes[0] = 0xff; // 不是 SNAP
+    expect(decodeSnapshot(snapBytes)).toBeNull();
+    const inpBytes = new Uint8Array(12);
+    inpBytes[0] = 0xff;
+    expect(decodeInput(inpBytes)).toBeNull();
+    const fireBytes = new Uint8Array(14);
+    fireBytes[0] = 0xff;
+    expect(decodeFire(fireBytes)).toBeNull();
+  });
+
+  it('僵尸段被截断时只丢弃不完整的部分，不抛异常', async () => {
+    const { encodeSnapshot, decodeSnapshot } = await import('../../src/sim/snapshot.js');
+    const sim = {
+      tick: 1, sun: 0, scores: [0, 0], kills: [0, 0], players: [{}],
+      playerState: () => ({ x: 0, y: 0, z: 0, yaw: 0, hp: 100, maxHp: 100, downed: false, dead: false, downTimer: 0 }),
+      zombieStates: () => [
+        { id: 1, t: 'normal', x: 0, y: 0, z: 0, yaw: 0, hp: 100, st: 0, sl: 0, bo: 0, co: 0, ab: 0, sp: 1, ar: 0 },
+        { id: 2, t: 'normal', x: 1, y: 0, z: 1, yaw: 0, hp: 100, st: 0, sl: 0, bo: 0, co: 0, ab: 0, sp: 1, ar: 0 },
+      ],
+      zombies: { wave: 1, state: 'idle' },
+    };
+    const full = encodeSnapshot(sim);
+    // 砍掉最后 8 字节，让第二只僵尸读不全
+    const cut = full.subarray(0, full.byteLength - 8);
+    const d = decodeSnapshot(cut);
+    expect(d).toBeTruthy();
+    expect(d.zombies.length).toBe(1); // 只保留完整的
+  });
+});
+
+describe('MatchSim · 波次与 Boss 回调', () => {
+  it('清波给双方各加 150×波次 的分', async () => {
+    const { headlessMap, duoStartSpawns } = await import('../../src/sim/headlessMap.js');
+    const map = headlessMap('backyard');
+    const sim = new MatchSim({ map, duo: true, spawns: duoStartSpawns(map) });
+    const before = sim.scores.slice();
+    sim.ctx.onWaveClear(3);
+    expect(sim.scores[0] - before[0]).toBe(450);
+    expect(sim.scores[1] - before[1]).toBe(450);
+    expect(sim.drainEvents().some((e) => e.t === 'waveClear' && e.n === 3)).toBe(true);
+  });
+
+  it('Boss 出现/死亡发出带名字的事件', async () => {
+    const { headlessMap, duoStartSpawns } = await import('../../src/sim/headlessMap.js');
+    const map = headlessMap('backyard');
+    const sim = new MatchSim({ map, duo: true, spawns: duoStartSpawns(map) });
+    sim.ctx.onBossSpawn({ def: { title: '巨人' } });
+    sim.ctx.onBossDead({ def: { title: '巨人' } });
+    // 没有 title 时兜底 BOSS
+    sim.ctx.onBossSpawn({ def: {} });
+    const evs = sim.drainEvents();
+    expect(evs.find((e) => e.t === 'boss').name).toBe('巨人');
+    expect(evs.find((e) => e.t === 'bossDead').name).toBe('巨人');
+    expect(evs.filter((e) => e.t === 'boss')[1].name).toBe('BOSS');
+  });
+
+  it('onAttackHook 可以接管僵尸攻击（测试/表现层观察用）', async () => {
+    const { headlessMap, duoStartSpawns } = await import('../../src/sim/headlessMap.js');
+    const map = headlessMap('backyard');
+    const sim = new MatchSim({ map, duo: true, spawns: duoStartSpawns(map) });
+    let hooked = 0;
+    sim.onAttackHook = () => hooked++;
+    sim.ctx.onZombieAttack({ def: { damage: 1 }, targetSeat: 0 });
+    expect(hooked).toBe(1);
+  });
+});
+
+describe('hit.js · 头部/身体命中的取舍', () => {
+  it('身体命中（头球没碰到）走 t1 分支', async () => {
+    const { adjudicateShot, eyePos } = await import('../../src/sim/hit.js');
+    const { headlessMap } = await import('../../src/sim/headlessMap.js');
+    const map = headlessMap('backyard');
+    const { ZombieManager, headlessCtx } = await import('../../src/sim/index.js');
+    const zm = new ZombieManager(headlessCtx({ map }));
+    const z = zm.spawnAt('normal', 1, 0, -5, 1, 1);
+    z.spawnT = 1;
+    const p = { pos: { x: 0, y: 0, z: 0 } };
+    const eye = eyePos(p);
+    // 瞄准胸口高度
+    const chestH = z.root.position.y + z.chestY * z.scaleFactor;
+    const pitch = Math.atan2(chestH - eye.y, 5);
+    const hit = adjudicateShot(p, 0, pitch, [z], map);
+    expect(hit).toBeTruthy();
+    expect(hit.head).toBe(false);
+  });
+
+  it('死亡中的僵尸被跳过', async () => {
+    const { raycastZombies, lookDir } = await import('../../src/sim/hit.js');
+    const { headlessMap } = await import('../../src/sim/headlessMap.js');
+    const map = headlessMap('backyard');
+    const { ZombieManager, headlessCtx } = await import('../../src/sim/index.js');
+    const zm = new ZombieManager(headlessCtx({ map }));
+    const z = zm.spawnAt('normal', 1, 0, -5, 1, 1);
+    z.spawnT = 1;
+    z.dying = true;
+    const hit = raycastZombies({ x: 0, y: 1.66, z: 0 }, lookDir(0, 0), [z], {
+      walls: map.walls, bounds: map.bounds,
+    });
+    expect(hit).toBeNull();
+  });
+});

@@ -653,3 +653,65 @@ describe('ClientNet · 邀请链接与自动加入', () => {
     expect(game.hud.setDuoStatus).toHaveBeenCalled();
   });
 });
+
+describe('ClientNet · 异常兜底与防御性分支', () => {
+  it('readJoinParam 在 URL 解析抛错时返回 null', async () => {
+    const { readJoinParam } = await import('../../src/net/ClientNet.js');
+    // search 是非法结构 → URLSearchParams 抛错
+    expect(readJoinParam({ search: { toString() { throw new Error('x'); } } })).toBeNull();
+  });
+
+  it('shouldAutoJoin 在 storage 访问抛错时安全', async () => {
+    const { shouldAutoJoin } = await import('../../src/net/ClientNet.js');
+    const orig = globalThis.sessionStorage;
+    try {
+      Object.defineProperty(globalThis, 'sessionStorage', {
+        configurable: true,
+        get() { throw new Error('denied'); },
+      });
+      // 访问被拒绝时按「没有房主标记」处理，不抛异常
+      expect(typeof shouldAutoJoin()).toBe('boolean');
+    } finally {
+      Object.defineProperty(globalThis, 'sessionStorage', { configurable: true, value: orig });
+    }
+  });
+
+  it('未注入 createNet 时用默认 NetClient', () => {
+    const game = makeGame();
+    // 不传 createNet：走默认构造（不会真的连网，只验证分支）
+    const s = new ClientNet(game);
+    expect(typeof s.createNet).toBe('function');
+  });
+
+  it('closed 状态下 onStatus 不再改 HUD', () => {
+    const game = makeGame();
+    const { session } = mk(game);
+    session.state = 'closed';
+    session.onStatus('open');
+    expect(game.hud.setDuoStatus).not.toHaveBeenCalled();
+  });
+
+  it('没有 hud 时 onStatus 安全', () => {
+    const game = makeGame();
+    game.hud = null;
+    const { session } = mk(game);
+    expect(() => session.onStatus('open')).not.toThrow();
+  });
+
+  it('captureInput 返回 null 时不发输入', () => {
+    const game = makeGame();
+    const { session, net } = mk(game);
+    session.start({});
+    startPlaying(session);
+    game.player = null;
+    session.update(1 / 30);
+    expect(net().sendBinary).not.toHaveBeenCalled();
+  });
+
+  it('replaceUrl 传空值直接返回', () => {
+    const game = makeGame();
+    const { session } = mk(game);
+    expect(() => session.replaceUrl('')).not.toThrow();
+    expect(() => session.replaceUrl(null)).not.toThrow();
+  });
+});

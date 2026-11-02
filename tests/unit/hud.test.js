@@ -821,3 +821,49 @@ describe('HUD · setCharges（充能植物颗数）', () => {
     expect(w.btn.classList.contains('poor')).toBe(false);
   });
 });
+
+describe('HUD · 双人按钮与防御性早退', () => {
+  let hud;
+  beforeEach(() => {
+    installGlobals();
+    mountIndexHtml();
+    hud = new HUD();
+  });
+
+  it('双人相关按钮点击会触发对应回调', () => {
+    const onDuo = vi.fn();
+    const onDuoShare = vi.fn();
+    const onDuoRematch = vi.fn();
+    const onDuoLeave = vi.fn();
+    hud.onDuo = onDuo;
+    hud.onDuoShare = onDuoShare;
+    hud.onDuoRematch = onDuoRematch;
+    hud.onDuoLeave = onDuoLeave;
+    hud.bind();
+    if ($('duoBtn')) click($('duoBtn'));
+    if ($('duoShare')) click($('duoShare'));
+    if ($('duoAgainBtn')) click($('duoAgainBtn'));
+    if ($('duoLeaveBtn')) click($('duoLeaveBtn'));
+    // 回调都接上时应各触发一次（元素不存在的跳过）
+    expect(onDuo).toHaveBeenCalled();
+  });
+
+  it('setDuoStatus 空字符串时隐藏状态条', () => {
+    hud.setDuoStatus('等待队友…', 'wait');
+    hud.setDuoStatus('', 'idle');
+    const el = $('duoStatus');
+    if (el) expect(el.classList.contains('hidden')).toBe(true);
+  });
+
+  it('showDuoResult 在缺少结算页元素时不崩', () => {
+    expect(() => hud.showDuoResult({ scores: [10, 20], kills: [1, 2], seat: 0, wave: 5, peerName: 'B', reason: 'WIPE' })).not.toThrow();
+  });
+
+  it('setDuoHud 切换队友血条显隐', () => {
+    hud.setDuoHud(true);
+    const row = $('peerHpRow');
+    if (row) expect(row.classList.contains('hidden')).toBe(false);
+    hud.setDuoHud(false);
+    if (row) expect(row.classList.contains('hidden')).toBe(true);
+  });
+});

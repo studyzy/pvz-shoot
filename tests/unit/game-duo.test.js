@@ -49,6 +49,8 @@ vi.mock('../../src/net/ClientNet.js', () => ({
       this.closed = true;
     }
   },
+  // autoJoinDuo 会动态 import 这个函数来决定是否自动连服务器
+  shouldAutoJoin: () => sessionStorage.getItem('pvz-duo-host') === '1' || /[?&]join=/.test(location.search),
 }));
 
 async function installThreeMock() {
@@ -869,5 +871,247 @@ describe('Game · 相机与镜头震动（覆盖渲染辅助路径）', () => {
     const hp0 = game.player.hp;
     game.onZombieAttack({ def: { damage: 10 }, targetSeat: 0 });
     expect(game.player.hp).toBeLessThan(hp0);
+  });
+});
+
+describe('Game · applyGuestHit 的剩余裁决分支', () => {
+  async function setup() {
+    const game = await boot();
+    game.startDuo({ mapId: 'backyard', seat: 0, peerName: 'B' });
+    game.duoSession = {
+      getZombieAt: (id) => {
+        const z = game.zombies.zombies.find((x) => x.netId === id);
+        return z && z.root ? { id, x: z.root.position.x, y: z.root.position.y, z: z.root.position.z, ys: 1, ab: z.airborne ? 1 : 0 } : null;
+      },
+      sendEvent: vi.fn(),
+    };
+    game.netGuest = { pos: { x: 0, y: 0, z: 0 }, yaw: 0, pitch: 0, dead: false, downed: false };
+    return game;
+  }
+  function fakeZ(over = {}) {
+    return {
+      netId: 1, alive: true, dying: false, hitRadiusScale: 1, scaleFactor: 1,
+      chestY: 1.02, headY: 1.52, airborne: false,
+      root: { position: { x: 0, y: 0, z: -5 } },
+      hit: vi.fn(() => false),
+      ...over,
+    };
+  }
+
+  it('中间有墙挡住时判定不通过', async () => {
+    const game = await setup();
+    const z = fakeZ();
+    game.zombies.zombies = [z];
+    // 在玩家与僵尸之间放一面墙（OBB 字段必须齐全）
+    game.map.walls = [{ x: 0, y: 1.5, z: -2.5, hx: 10, hy: 1.5, hz: 0.2, c: 1, s: 0 }];
+    game.applyGuestHit({ w: 'pea', zid: 1, dir: [0, 0, -1], seq: 1 });
+    expect(z.hit).not.toHaveBeenCalled();
+  });
+
+  it('空中单位：地面平射打不到（对空白名单生效）', async () => {
+    const game = await setup();
+    // 气球浮在 2.2 米高，玩家在地面平射 —— 垂直差不够，豌豆应被对空规则拒绝
+    const z = fakeZ({ airborne: true, root: { position: { x: 0, y: 2.2, z: -3 } } });
+    game.zombies.zombies = [z];
+    game.map.walls = [];
+    game.guestHit.clear();
+    game.applyGuestHit({ w: 'pea', zid: 1, dir: [0, 0, -1], seq: 1 });
+    expect(z.hit).not.toHaveBeenCalled();
+  });
+
+  it('击杀时调用 handleKill 结算', async () => {
+    const game = await setup();
+    const z = fakeZ({ hit: vi.fn(() => true) });
+    game.zombies.zombies = [z];
+    game.map.walls = [];
+    game.guestHit.clear();
+    const kill = vi.spyOn(game.zombies, 'handleKill').mockImplementation(() => {});
+    game.applyGuestHit({ w: 'pea', zid: 1, dir: [0, 0, -1], seq: 1 });
+    expect(kill).toHaveBeenCalledWith(z, expect.any(Boolean));
+    kill.mockRestore();
+  });
+
+  it('seq 非法或快照里没有这只僵尸时丢弃', async () => {
+    const game = await setup();
+    const z = fakeZ();
+    game.zombies.zombies = [z];
+    game.map.walls = [];
+    game.duoSession.getZombieAt = () => null;
+    game.applyGuestHit({ w: 'pea', zid: 1, dir: [0, 0, -1], seq: 1 });
+    expect(z.hit).not.toHaveBeenCalled();
+    // seq 非正整数
+    game.applyGuestHit({ w: 'pea', zid: 1, dir: [0, 0, -1], seq: 0 });
+    game.applyGuestHit({ w: 'pea', zid: 1, dir: [0, 0, -1], seq: -3 });
+    game.applyGuestHit({ w: 'pea', zid: 1, dir: [0, 0, -1], seq: 1.5 });
+    expect(z.hit).not.toHaveBeenCalled();
+  });
+});
+
+describe('Game · applyResync 的完整还原路径', () => {
+  it('未进局/非客人时先缓存，不立即应用', async () => {
+    const game = await boot();
+    game.applyResync({ wave: 3 });
+    expect(game.pendingResync).toEqual({ wave: 3 });
+    // 房主（seat 0）也不直接应用
+    game.startDuo({ mapId: 'backyard', seat: 0, peerName: 'B' });
+    game.applyResync({ wave: 5 });
+    expect(game.pendingResync).toEqual({ wave: 5 });
+  });
+
+  it('客人状态下逐项还原：波次/阳光/比分/击杀/僵尸/补给/阳光球/Boss', async () => {
+    const game = await boot();
+    game.startDuo({ mapId: 'backyard', seat: 1, peerName: 'A' });
+    const setWave = vi.spyOn(game.hud, 'setWave');
+    const setBossVisible = vi.spyOn(game.hud, 'setBossVisible');
+    const setBossHp = vi.spyOn(game.hud, 'setBossHp');
+    const netSpawn = vi.spyOn(game.zombies, 'netSpawn');
+    const applyNetList = vi.spyOn(game.pickups, 'applyNetList').mockImplementation(() => {});
+    const applyNet = vi.spyOn(game.sunOrbs, 'applyNet').mockImplementation(() => {});
+
+    game.applyResync({
+      wave: 7,
+      sun: 145,
+      scores: [120, 340],
+      kills: [3, 8],
+      z: [{ id: 11, t: 'normal', x: 0, y: 0, z: -5, yaw: 0, hp: 90, st: 0, sl: 0 }],
+      pickups: [{ id: 1, i: 2, x: 1, z: 2 }],
+      orbs: [{ id: 5, x: 0, y: 0.5, z: 0, s: 0 }],
+      bossHp: 0.6,
+    });
+
+    expect(game.pendingResync).toBeNull();
+    expect(game.zombies.wave).toBe(7);
+    expect(game.stats.wave).toBe(7);
+    expect(setWave).toHaveBeenCalledWith(7);
+    expect(game.sun).toBe(145);
+    expect(game.duoStats).toEqual([120, 340]);
+    expect(game.stats.score).toBe(340); // seat 1 看自己的分
+    expect(game.duoKills).toEqual([3, 8]);
+    expect(game.stats.kills).toBe(8);
+    expect(netSpawn).toHaveBeenCalled();
+    expect(applyNetList).toHaveBeenCalled();
+    expect(applyNet).toHaveBeenCalled();
+    expect(setBossVisible).toHaveBeenCalledWith(true);
+    expect(setBossHp).toHaveBeenCalledWith(0.6);
+  });
+
+  it('bossHp 为 0 时不点亮 Boss 血条', async () => {
+    const game = await boot();
+    game.startDuo({ mapId: 'backyard', seat: 1, peerName: 'A' });
+    const setBossVisible = vi.spyOn(game.hud, 'setBossVisible');
+    game.applyResync({ bossHp: 0 });
+    expect(setBossVisible).not.toHaveBeenCalledWith(true);
+  });
+
+  it('空对象/null 都安全', async () => {
+    const game = await boot();
+    game.startDuo({ mapId: 'backyard', seat: 1, peerName: 'A' });
+    expect(() => game.applyResync(null)).not.toThrow();
+    expect(() => game.applyResync({})).not.toThrow();
+  });
+});
+
+describe('Game · applyGuestAoe 范围伤害裁决', () => {
+  async function setup() {
+    const game = await boot();
+    game.startDuo({ mapId: 'backyard', seat: 0, peerName: 'B' });
+    game.duoSession = { sendEvent: vi.fn() };
+    game.netGuest = { pos: { x: 0, y: 0, z: 0 }, yaw: 0, pitch: 0, dead: false, downed: false };
+    return game;
+  }
+
+  it('合法爆炸请求触发范围伤害', async () => {
+    const game = await setup();
+    const area = vi.spyOn(game.zombies, 'damageArea').mockImplementation(() => 0);
+    game.guestHit.clear();
+    game.applyGuestAoe({ w: 'cherry', x: 3, y: 0, z: -4 });
+    expect(area).toHaveBeenCalled();
+    const [center, radius, damage] = area.mock.calls[0];
+    expect(center.z).toBe(-4);
+    expect(radius).toBeGreaterThan(0);
+    expect(damage).toBeGreaterThan(0);
+    area.mockRestore();
+  });
+
+  it('非法输入被丢弃', async () => {
+    const game = await setup();
+    const area = vi.spyOn(game.zombies, 'damageArea').mockImplementation(() => 0);
+    game.guestHit.clear();
+    game.applyGuestAoe(null);
+    game.applyGuestAoe({ w: '不存在的武器', x: 0, y: 0, z: 0 });
+    game.applyGuestAoe({ w: 'pea', x: 0, y: 0, z: 0 }); // 豌豆没有 radius
+    game.applyGuestAoe({ w: 'cherry', x: NaN, y: 0, z: 0 });
+    expect(area).not.toHaveBeenCalled();
+    area.mockRestore();
+  });
+
+  it('冷却内重复请求被限流', async () => {
+    const game = await setup();
+    const area = vi.spyOn(game.zombies, 'damageArea').mockImplementation(() => 0);
+    game.guestHit.clear();
+    game.applyGuestAoe({ w: 'cherry', x: 0, y: 0, z: -4 });
+    game.applyGuestAoe({ w: 'cherry', x: 0, y: 0, z: -4 });
+    expect(area).toHaveBeenCalledTimes(1);
+    area.mockRestore();
+  });
+
+  it('非房主（seat 1）不处理 guest 的 aoe 请求', async () => {
+    const game = await boot();
+    game.startDuo({ mapId: 'backyard', seat: 1, peerName: 'A' });
+    const area = vi.spyOn(game.zombies, 'damageArea').mockImplementation(() => 0);
+    game.applyGuestAoe({ w: 'cherry', x: 0, y: 0, z: -4 });
+    expect(area).not.toHaveBeenCalled();
+    area.mockRestore();
+  });
+});
+
+describe('Game · autoJoinDuo 自动进双人', () => {
+  it('房主标记存在时自动调用 toggleDuo', async () => {
+    const game = await boot();
+    const toggle = vi.spyOn(game, 'toggleDuo').mockResolvedValue();
+    try {
+      // 房主刷新：地址栏可能没有 join，靠 sessionStorage 标记识别
+      sessionStorage.setItem('pvz-duo-host', '1');
+      const joined = await game.autoJoinDuo();
+      expect(joined).toBe(true);
+      expect(toggle).toHaveBeenCalled();
+    } finally {
+      sessionStorage.removeItem('pvz-duo-host');
+    }
+    toggle.mockRestore();
+  });
+
+  it('没有 join 参数且没有房主标记时不自动加入（单人路径）', async () => {
+    const game = await boot();
+    const toggle = vi.spyOn(game, 'toggleDuo').mockResolvedValue();
+    const orig = globalThis.location;
+    try {
+      Object.defineProperty(globalThis, 'location', { configurable: true, value: { search: '' } });
+      sessionStorage.removeItem('pvz-duo-host');
+      expect(await game.autoJoinDuo()).toBe(false);
+      expect(toggle).not.toHaveBeenCalled();
+    } finally {
+      Object.defineProperty(globalThis, 'location', { configurable: true, value: orig });
+    }
+    toggle.mockRestore();
+  });
+
+  it('非菜单态/已在会话中/正在连接时直接返回 false', async () => {
+    const game = await boot();
+    game.state = 'playing';
+    expect(await game.autoJoinDuo()).toBe(false);
+    game.state = 'menu';
+    game.duoSession = {};
+    expect(await game.autoJoinDuo()).toBe(false);
+    game.duoSession = null;
+    game.duoPending = true;
+    expect(await game.autoJoinDuo()).toBe(false);
+  });
+
+  it('toggleDuo 在 pending 时不重复连接', async () => {
+    const game = await boot();
+    game.duoPending = true;
+    await game.toggleDuo();
+    expect(game.duoSession).toBeFalsy();
   });
 });

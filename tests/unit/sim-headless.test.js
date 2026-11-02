@@ -158,3 +158,57 @@ describe('headlessMap · 地图数据重建', () => {
     }
   });
 });
+
+describe('Zombie · 无头分支的视觉方法全部安全短路', () => {
+  async function headlessZombie(type = 'normal') {
+    const { Zombie } = await import('../../src/entities/Zombie.js');
+    const { headlessMap } = await import('../../src/sim/headlessMap.js');
+    const map = headlessMap('backyard');
+    return new Zombie(type, 1, 0, 0, { headless: true, map, scene: null, env: null }, 1, 1);
+  }
+
+  it('无头僵尸不建材质/骨骼/动画，但逻辑字段齐全', async () => {
+    const z = await headlessZombie();
+    expect(z.headless).toBe(true);
+    expect(z.body).toBeNull();
+    expect(z.mixer).toBeNull();
+    expect(z.mats).toEqual([]);
+    expect(z.hp).toBeGreaterThan(0);
+    expect(z.root.position).toBeTruthy();
+  });
+
+  it('所有视觉方法在无头模式下不抛异常', async () => {
+    const z = await headlessZombie();
+    expect(() => z.applyFlash(0.5)).not.toThrow();
+    expect(() => z.applyTint(0.5)).not.toThrow();
+    expect(() => z.play('walk', 0.2)).not.toThrow();
+    expect(() => z.updateProcAnim(0.016, true, false)).not.toThrow();
+    expect(() => z.mountHeadTop()).not.toThrow();
+    expect(() => z.setCoopMark(true)).not.toThrow();
+    expect(() => z.setBounty(true)).not.toThrow();
+    // 悬赏是逻辑状态，必须真的写进去（曾经被早退一起跳过）
+    expect(z.bounty).toBe(true);
+  });
+
+  it('破甲/死亡/技能在无头模式下也能推进', async () => {
+    const z = await headlessZombie('bucket'); // 带护甲
+    expect(z.armorHp).toBeGreaterThan(0);
+    z.spawnT = 1;
+    z.hit(9999, false, false, { type: 'pea', source: 0 });
+    expect(z.dying || z.dead).toBe(true);
+  });
+
+  it('带配件的类型也能无头构造（不挂帽子但字段在）', async () => {
+    for (const t of ['cone', 'bucket', 'football', 'boss']) {
+      const z = await headlessZombie(t);
+      expect(z.headless, t).toBe(true);
+      expect(z.def.acc !== undefined || t === 'football', t).toBe(true);
+    }
+  });
+
+  it('空中单位无头下的高度正确', async () => {
+    const z = await headlessZombie('balloon');
+    expect(z.airborne).toBe(true);
+    expect(z.root.position.y).toBeGreaterThan(0);
+  });
+});
