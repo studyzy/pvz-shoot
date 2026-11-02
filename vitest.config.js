@@ -74,6 +74,11 @@ const SOURCE_FILES = [
   'src/gallery/presets.js',
   'stress.html',
   'src/stress/main.js',
+  'src/sim/index.js',
+  'src/entities/Zombie.js',
+  'src/entities/ZombieManager.js',
+  'src/entities/Player.js',
+  'src/entities/SkySun.js',
 ];
 
 const FIXTURES = {

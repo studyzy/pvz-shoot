@@ -108,6 +108,7 @@ export class NetClient {
       this.startPing();
     };
     ws.onmessage = (ev) => this.handle(ev && ev.data);
+    if (ws.binaryType !== undefined) ws.binaryType = 'arraybuffer';
     ws.onclose = () => {
       if (this.ws === ws) this.ws = null;
       this.stopPing();
@@ -120,6 +121,12 @@ export class NetClient {
   }
 
   handle(raw) {
+    // 二进制帧（服务器快照/事件）：交给 ClientNet 的 onBinary
+    if (raw && typeof raw !== 'string' && (raw instanceof ArrayBuffer || raw instanceof Uint8Array)) {
+      const bytes = raw instanceof Uint8Array ? raw : new Uint8Array(raw);
+      if (this.onBinary) this.onBinary(bytes);
+      return;
+    }
     const msg = decode(typeof raw === 'string' ? raw : '');
     if (!msg) return;
     if (msg.t === MSG.PONG) {
@@ -141,6 +148,17 @@ export class NetClient {
     if (!this.ws || this.ws.readyState !== 1) return false;
     this.ws.send(encode(type, data));
     return true;
+  }
+
+  // 二进制直发：快照/输入帧走这里，不经过 JSON 与 relay 的 32KB 上限
+  sendBinary(bytes) {
+    if (!this.ws || this.ws.readyState !== 1) return false;
+    try {
+      this.ws.send(bytes);
+      return true;
+    } catch (e) {
+      return false;
+    }
   }
 
   relay(payload) {

@@ -4,8 +4,13 @@ import { zombieModel } from './ZombieModel.js';
 import { ZOMBIES, DUO, BOUNTY, FOREST, DOWNTOWN, bossForWave, wavePlan, duoWavePlan, waveMaxAlive, waveSpawnInterval, waveAirQuota, zombieHpMul, zombieSpeedMul, SKELETON_MAX_ALIVE, SKELETON_MAPS } from '../config.js';
 import { rand, clamp } from '../utils.js';
 
+// 无头模拟的空壳：粒子/音效/HUD 都是纯表现，服务器一律不产生
+const NOOP_FX = new Proxy({}, { get: () => () => {} });
+
 export class ZombieManager {
   constructor(ctx) {
+    // 无头（服务器权威）：没有粒子 / 音效 / HUD，统一空壳兜底，逻辑路径不变
+    if (ctx.headless) ctx = { ...ctx, particles: NOOP_FX, sfx: NOOP_FX, hud: NOOP_FX };
     this.ctx = ctx;
     this.scene = ctx.scene;
     this.zombies = [];
@@ -287,6 +292,8 @@ export class ZombieManager {
   // 某种僵尸用的 glb 是否已就绪。模型按 ZOMBIES[type].model 分槽（不写就是 zombie.glb）：
   // 普通僵尸现在用 alchemist 模型，所以不能再只看 zombieModel.ready。
   modelReady(type) {
+    // 服务器不加载任何 glb，模型永远「就绪」
+    if (this.ctx.headless) return true;
     const def = ZOMBIES[type];
     const id = (def && def.model) || 'zombie';
     if (id === 'zombie') return !!zombieModel.ready;
@@ -355,6 +362,8 @@ export class ZombieManager {
 
   spawnAt(type, wave, x, z, hpMul, speedMul, source = 0) {
     const zombie = new Zombie(type, wave, x, z, {
+      // 无头（服务器）：不给场景、不建材质，Zombie 走 headless 分支
+      headless: !!this.ctx.headless,
       scene: this.scene,
       map: this.ctx.map,
       zombies: this,

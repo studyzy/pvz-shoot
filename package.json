@@ -14,7 +14,10 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "webgl-check": "node tests/integration/spawnZombies.webgl.mjs",
-    "test:e2e": "node tests/integration/browser.e2e.webgl.mjs"
+    "test:e2e": "node tests/integration/browser.e2e.webgl.mjs",
+    "test:e2e:duo": "node tests/integration/duo-authority.e2e.mjs",
+    "sim:headless": "node tools/sim-smoke.mjs",
+    "extract:maps": "node tools/extract-map-data.mjs"
   },
   "dependencies": {
     "three": "^0.169.0",

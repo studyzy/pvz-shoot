@@ -116,30 +116,53 @@ describe('双人倒地/救援', () => {
     expect(game.player.hp).toBe(50);
   });
 
-  it('僵尸攻击按 targetSeat 落到对应玩家；僵尸选最近目标并跳过倒地者', async () => {
-    const game = await boot();
-    game.duoSession = makeSession();
-    game.startDuo({ mapId: 'backyard', seat: 0, peerName: '队友 B' });
-    const hpGuest = game.netGuest.hp;
-    game.onZombieAttack({ def: { damage: 10 }, targetSeat: 1, type: 'normal', airborne: false });
-    expect(game.netGuest.hp).toBe(hpGuest - 10);
-    const hpHost = game.player.hp;
-    game.onZombieAttack({ def: { damage: 10 }, targetSeat: 0, type: 'normal', airborne: false });
-    expect(game.player.hp).toBe(hpHost - 10);
+  it('僵尸攻击按 targetSeat 落到对应玩家；选最近目标并跳过倒地者（服务器侧）', async () => {
+    const { MatchSim } = await import('../../src/sim/MatchSim.js');
+    const { headlessMap, duoStartSpawns } = await import('../../src/sim/headlessMap.js');
+    const map = headlessMap('backyard');
+    const sim = new MatchSim({ map, duo: true, spawns: duoStartSpawns(map) });
+    const [p0, p1] = sim.players;
 
-    const z = game.zombies.spawnOne(game.player);
+    // 攻击按 targetSeat 落到对应玩家
+    const hp1 = p1.hp;
+    sim.onZombieAttack({ def: { damage: 10 }, targetSeat: 1, type: 'normal', airborne: false });
+    expect(p1.hp).toBe(hp1 - 10);
+    const hp0 = p0.hp;
+    sim.onZombieAttack({ def: { damage: 10 }, targetSeat: 0, type: 'normal', airborne: false });
+    expect(p0.hp).toBe(hp0 - 10);
+
+    // 僵尸选最近的目标
+    const z = sim.zombies.spawnAt('normal', 1, 1, 10, 1, 1);
     z.spawnT = 1;
-    game.player.pos.set(0, 0, 13);
-    game.netGuest.pos.set(4, 0, 13);
+    p0.pos.set(0, 0, 13);
+    p1.pos.set(4, 0, 13);
     z.root.position.set(1, 0, 10);
-    z.update(0.05, [game.player, game.netGuest], game.map.colliders);
+    z.update(0.05, [p0, p1], map.colliders);
     expect(z.targetSeat).toBe(0);
-    game.player.downed = true;
-    z.update(0.05, [game.player, game.netGuest], game.map.colliders);
+
+    // 最近的那个倒地后，改选另一个
+    p0.downed = true;
+    z.update(0.05, [p0, p1], map.colliders);
     expect(z.targetSeat).toBe(1);
-    game.netGuest.downed = true;
-    expect(() => z.update(0.05, [game.player, game.netGuest], game.map.colliders)).not.toThrow();
-    game.player.downed = false;
-    game.netGuest.downed = false;
+
+    // 两人都倒地时不崩
+    p1.downed = true;
+    expect(() => z.update(0.05, [p0, p1], map.colliders)).not.toThrow();
+  });
+
+  it('双人：血量归零进入倒地而不是死亡，两人都倒地 = 团灭', async () => {
+    const { MatchSim } = await import('../../src/sim/MatchSim.js');
+    const { headlessMap, duoStartSpawns } = await import('../../src/sim/headlessMap.js');
+    const map = headlessMap('backyard');
+    const sim = new MatchSim({ map, duo: true, spawns: duoStartSpawns(map) });
+    for (const p of sim.players) p.hp = 5;
+    sim.onZombieAttack({ def: { damage: 10 }, targetSeat: 0, type: 'normal' });
+    expect(sim.players[0].downed).toBe(true);
+    expect(sim.players[0].dead).toBeFalsy();
+    expect(sim.over).toBe(false);
+    sim.onZombieAttack({ def: { damage: 10 }, targetSeat: 1, type: 'normal' });
+    expect(sim.players[1].downed).toBe(true);
+    expect(sim.over).toBe(true);
+    expect(sim.overReason).toBe('WIPE');
   });
 });

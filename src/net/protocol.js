@@ -3,7 +3,9 @@
 
 export const PROTOCOL_VERSION = 1;
 
-export const MAP_IDS = Object.freeze(['backyard', 'snow', 'dust', 'forest', 'cloud']);
+// 所有可联机的地图 id。**新增地图必须同步这里**，否则 cleanMapId 会把它静默改回后院
+// （表现为「双人选了新地图，进去还是后院」）。tests/unit/net-protocol.test.js 有守卫。
+export const MAP_IDS = Object.freeze(['backyard', 'snow', 'dust', 'forest', 'cloud', 'downtown']);
 export const DEFAULT_MAP = 'backyard';
 
 export const MAX_NAME = 16;

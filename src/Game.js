@@ -135,16 +135,22 @@ export class Game {
     ctx.shake = (a) => this.shake(a);
     ctx.onHit = (head) => this.hud.hitmarker(head);
     ctx.onExplosion = (pos, radius) => this.onExplosion(pos, radius);
-    ctx.onFire = () => this.hud.fadeTutorial();
+    // 每次成功开火都会调这里（含豌豆/爆炸/手雷/护盾）。
+    // 双人时要上报服务器 —— 这是「我扣了扳机」的唯一可靠信号。
+    // 不能用本地命中（onGuestHit）上报：打空、被墙挡、爆炸武器都不会触发本地命中，
+    // 那样「怎么打都不掉血」。
+    ctx.onFire = (def) => {
+      this.hud.fadeTutorial();
+      if (this.duo && this.duoSession && this.duoSession.sendFire) {
+        this.duoSession.sendFire(def && def.id ? def.id : 'pea');
+      }
+    };
 
     ctx.onKill = (z, score, headshot, source) => this.onKill(z, score, headshot, source);
-    // guest 的命中只发请求；host 的本地命中不会走 sendHit（sendHit 里 host 直接 return）。
-    ctx.onGuestHit = (z, weaponId, dir) => {
-      if (this.duoSession) this.duoSession.sendHit(weaponId, z.netId, dir);
-    };
-    ctx.onGuestAoe = (weaponId, pos) => {
-      if (this.duoSession) this.duoSession.sendAoe(weaponId, pos);
-    };
+    // 双人：开火上报统一走 ctx.onFire（扣扳机时），这里不再发请求 ——
+    // 否则同一枪会发两次，而且打空的目标根本走不到这里。
+    ctx.onGuestHit = () => {};
+    ctx.onGuestAoe = () => {};
     ctx.onBellHit = (id, weaponId, dir, origin) => this.onBellHit(id, weaponId, dir, origin);
     ctx.onWaveStart = (n) => this.onWaveStart(n);
     ctx.onWaveClear = (n) => this.onWaveClear(n);
@@ -464,42 +470,37 @@ export class Game {
     return !!(this.duo && this.seat === 1);
   }
 
+  // 双人：服务器权威。两个客户端都只是「发输入 + 渲染」，没有房主/客人之分。
   setupDuoWorld() {
-    const host = this.seat === 0;
-    this.zombies.setRemote(!host);
-    this.zombies.setDuo(host);
-    this.zombies.onNetSpawn = host
-      ? (z) => {
-          if (this.duoSession) this.duoSession.sendZombieSpawn(z);
-        }
-      : null;
-    this.zombies.onNetDead = host
-      ? (z) => {
-          if (this.duoSession) this.duoSession.sendZombieDead(z);
-        }
-      : null;
-    // 共享补给：host 权威刷/捡/丢并广播列表；guest 只镜像 + claim。
-    if (host) {
-      this.pickups.setShared(false);
-      this.pickups.onChange = (list) => {
-        if (this.duoSession) this.duoSession.sendPickups(list);
-      };
-      this.pickups.onLocalPickup = (item, index) => {
-        if (item.air) this.grantAirdrop(0);
-        if (this.duoSession) {
-          this.duoSession.sendEvent({ type: 'pickup', id: item.id, seat: 0, index, air: item.air ? 1 : 0 });
-        }
-      };
-    } else {
-      this.pickups.setShared(true);
-      this.pickups.onClaim = (id) => {
-        if (this.duoSession) this.duoSession.sendClaim('pickup', id);
-      };
-      this.pickups.onDrop = (index, x, z) => {
-        if (this.duoSession) this.duoSession.sendPickupDrop(index, x, z);
-      };
+    // 僵尸世界一律由服务器快照驱动，本地不跑 AI、不刷怪、不结算
+    this.zombies.setRemote(true);
+    this.zombies.setDuo(false);
+    this.zombies.onNetSpawn = null;
+    this.zombies.onNetDead = null;
+    // 补给同样以服务器为准：本地只管显示与发起 claim
+    this.pickups.setShared(true);
+    this.pickups.onChange = null;
+    this.pickups.onLocalPickup = null;
+    this.pickups.onClaim = (id) => {
+      if (this.duoSession && this.duoSession.sendClaim) this.duoSession.sendClaim('pickup', id);
+    };
+    this.pickups.onDrop = null;
+  }
+
+  // 邀请链接（?join=）或房主刷新：进菜单后自动连服务器。
+  // 单人模式不会走到这里（地址栏没有 join 参数、也没有房主标记）。
+  async autoJoinDuo() {
+    if (this.state !== 'menu' || this.duoSession || this.duoPending) return false;
+    let auto = false;
+    try {
+      const { shouldAutoJoin } = await import('./net/ClientNet.js');
+      auto = shouldAutoJoin();
+    } catch (e) {
+      return false;
     }
-    if (host) this.zombies.startWave(1);
+    if (!auto) return false;
+    await this.toggleDuo();
+    return true;
   }
 
   async toggleDuo() {
@@ -513,13 +514,20 @@ export class Game {
     this.hud.setDuoMode(true);
     this.hud.setDuoStatus('正在连接服务器…', 'wait');
     try {
-      const { DuoSession } = await import('./net/DuoSession.js');
+      const { ClientNet } = await import('./net/ClientNet.js');
       if (this.state !== 'menu') {
         this.hud.setDuoMode(false);
         this.hud.setDuoStatus('', 'idle');
         return;
       }
-      this.duoSession = new DuoSession(this);
+      this.duoSession = new ClientNet(this);
+      // M0：window.__netProbe = true 时开始采集（见 docs/plans/2026-11-01-netcode-refactor.md §M0）
+      this.netProbe = this.duoSession.probe;
+      try {
+        if (typeof window !== 'undefined' && window.__netProbe) this.netProbe.on = true;
+      } catch (e) {
+        // 隐私模式忽略
+      }
       this.duoSession.start({ name: '戴夫', mapId: this.mapId });
     } catch (e) {
       console.error(e);
@@ -713,6 +721,93 @@ export class Game {
     this.applyWorldState(d);
   }
 
+  // ---- 服务器权威快照（ClientNet 调用）----
+  // 这是新架构下客户端唯一的「世界真相」来源：僵尸、队友、阳光、比分全部来自这里。
+  applyServerSnapshot(snap) {
+    if (!this.duo) return;
+    const seat = this.seat;
+    const me = snap.players[seat];
+    const peer = snap.players[1 - seat];
+
+    // 自己：本地已经预测过移动，这里只做校正（不直接覆盖，否则会抖）
+    if (me && this.duoSession && this.duoSession.reconcile) {
+      this.duoSession.reconcile(me);
+    }
+
+    // 队友：插值后的位置交给 RemotePlayer 平滑
+    if (peer && this.remote) {
+      this.peerHp = peer.hp;
+      if (peer.downed !== this.remoteDown) {
+        this.remoteDown = !!peer.downed;
+        this.remote.setDown(this.remoteDown);
+      }
+      this.remote.setTarget(peer.x, peer.z, peer.yaw, peer.y);
+      const speed = Math.hypot(peer.x - this.lastPeerX, peer.z - this.lastPeerZ) * 30;
+      this.lastPeerX = peer.x;
+      this.lastPeerZ = peer.z;
+      this.remote.setMoving(speed > 0.6, speed);
+    }
+
+    // 世界状态
+    this.sun = snap.sun;
+    this.hud.setSun(this.sun);
+    this.zombies.wave = snap.wave;
+    this.zombies.state = snap.state;
+    this.hud.setWave(snap.wave);
+
+    // 比分与击杀：服务器权威，客户端只显示
+    if (Array.isArray(snap.scores)) {
+      this.duoStats = snap.scores.slice();
+      this.stats.score = this.duoStats[seat] || 0;
+      this.hud.setScore(this.stats.score);
+    }
+    if (Array.isArray(snap.kills)) {
+      this.duoKills = snap.kills.slice();
+      this.stats.kills = this.duoKills[seat] || 0;
+      this.hud.setKills(this.stats.kills);
+    }
+
+    // 僵尸：交给现有 netSnapshot（按 id 增量 spawn/更新/回收）
+    this.zombies.netSnapshot(snap.zombies);
+  }
+
+  // 服务器事件：只做表现，不改权威状态
+  applyServerEvent(ev) {
+    if (!ev || !this.duo) return;
+    switch (ev.t) {
+      case 'wave':
+        this.onWaveStart(ev.n);
+        break;
+      case 'waveClear':
+        this.hud.showBanner('第 ' + ev.n + ' 波 守住了!', 2.0);
+        this.sfx.waveClear();
+        break;
+      case 'shot':
+        // 服务器确认命中：播命中反馈（伤害数字/白闪以服务器为准）
+        if (ev.seat === this.seat && ev.hit) this.hud.hitmarker(!!ev.head);
+        break;
+      case 'kill':
+        if (ev.seat === this.seat) {
+          this.hud.hitmarker(!!ev.head);
+        }
+        break;
+      case 'down':
+        if (ev.seat === 1 - this.seat) this.hud.showBanner('队友倒下了！靠近 2.5 秒可救起', 3);
+        break;
+      case 'rescue':
+        this.hud.showBanner('队友站起来了', 2);
+        break;
+      case 'over': {
+        const scores = this.duoStats ? this.duoStats.slice() : [0, 0];
+        const kills = this.duoKills ? this.duoKills.slice() : [0, 0];
+        this.finishDuoRound({ scores, kills }, ev.reason || 'WIPE');
+        break;
+      }
+      default:
+        break;
+    }
+  }
+
   applyWorldState(d) {
     if (d.ws === 'intermission' || d.ws === 'spawning') {
       this.zombies.state = d.ws;
@@ -724,6 +819,16 @@ export class Game {
       this.hud.showBanner('第 ' + d.wave + ' 波', 2);
     }
     if (Array.isArray(d.z)) this.zombies.netSnapshot(d.z);
+    // M0 探针：客人侧量「每一包快照把僵尸瞬移了多远」，这是肉眼卡顿的直接指标
+    const probe = this.duoSession && this.duoSession.probe;
+    if (probe && probe.on && Array.isArray(d.z)) {
+      for (let i = 0; i < d.z.length; i++) {
+        const s = d.z[i];
+        const z = this.zombies.zombies.find((x) => x.netId === s.id);
+        if (z) probe.onApply(z.root.position.x, z.root.position.z, s.x, s.z);
+      }
+    }
+    if (this.netProbe) this.netProbe.on = true;
     if (typeof d.bossHp === 'number') {
       if (d.bossHp > 0) {
         if (this.zombies.boss) this.hud.setBossName(this.zombies.boss.def.title);
@@ -1394,17 +1499,14 @@ export class Game {
 
   spendSun(n) {
     if (n <= 0) return true;
-    // guest 的池子是 host 的：本地先预测扣款，host 收到 sun 请求后再以 pstate.sun 校正。
-    if (this.duo && this.seat === 1) {
-      if (this.sun < n) return false;
-      this.sun -= n;
-      this.hud.setSun(this.sun);
-      if (this.duoSession) this.duoSession.sendSunRequest(n);
-      return true;
-    }
     if (this.sun < n) return false;
+    // 本地先扣：手感必须跟手，不能等服务器往返
     this.sun -= n;
     this.hud.setSun(this.sun);
+    // 双人：服务器是权威，扣款要上报（否则下一帧快照会把余额盖回来，等于白花）
+    if (this.duo && this.duoSession && this.duoSession.sendSunSpend) {
+      this.duoSession.sendSunSpend(n);
+    }
     return true;
   }
 
@@ -1540,12 +1642,14 @@ export class Game {
   update(dt) {
     this.controls.update();
     this.player.update(dt, this.controls, this.map, this.zombies.zombies);
-    if (this.duoSession) this.duoSession.captureInput();
     this.player.applyCamera(this.camera);
     this.applyShake(dt);
     if (!this.player.downed) this.weapons.update(dt, this.controls);
     this.wallNuts.update(dt);
-    if (this.map.updateNav && !this.isGuestWorld()) this.map.updateNav(this.player, dt);
+    // 双人：僵尸 AI / 寻路全部由服务器算，本地一行都不跑。
+    // ZombieManager 处于 remote 模式时，update() 只推进动画与插值，不做 AI 决策。
+    // 单人：本地即权威，invokeNav + AI 正常跑。
+    if (!this.duo && this.map.updateNav) this.map.updateNav(this.player, dt);
     this.zombies.update(dt, this.player, this.map.colliders, this.netGuest ? [this.player, this.netGuest] : null);
     if (this.netGuest && this.netControls) {
       // 客人掉线/卡住时 input 会停；300ms 没新包就把移动与开火归零，别让代理一直往前走。

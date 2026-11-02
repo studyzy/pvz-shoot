@@ -6,6 +6,10 @@ import { ZOMBIES, ARMOR_MATERIALS, COOP, BOSS_AGGRO } from '../config.js';
 import { zombieModel, ZOMBIE_SCALE, MODELS, findClip } from './ZombieModel.js';
 import { clamp, rand, TAU } from '../utils.js';
 
+// 无头模拟（服务器权威）用的空壳：粒子与音效是纯表现，服务器一律不产生。
+// 放在模块级常量上，避免每个僵尸各建一个对象。
+const NOOP_FX = new Proxy({}, { get: () => () => {} });
+
 const ICE = new THREE.Color(0x9fe4ff);
 const WHITE = new THREE.Color(0xffffff);
 const tmpV = new THREE.Vector3();
@@ -280,6 +284,8 @@ export class Zombie {
   constructor(type, wave, x, z, ctx, hpMul, speedMul) {
     this.type = type;
     this.def = ZOMBIES[type];
+    // 无头模式：服务器没有粒子 / 音效 / 材质，用空壳兜底，逻辑路径统一不改
+    if (ctx.headless) ctx = { ...ctx, particles: NOOP_FX, sfx: NOOP_FX, env: null };
     this.ctx = ctx;
     this.map = ctx.map || null;
     this.wave = wave;
@@ -380,6 +386,23 @@ export class Zombie {
     this.root.position.set(x, this.airHeight, z);
     this.root.scale.setScalar(this.scaleFactor);
 
+    // 无头模式（服务器权威模拟）：只建纯逻辑对象，不进场景、不加载 glb、不建材质。
+    // blob 影子要读 canvas（document），服务器没有 DOM，所以这条分支要**在建影子之前**返回。
+    // root/model/shadow 仍是 Object3D，位置语义（脚底、+Z 朝向）与渲染侧完全一致，
+    // 所以 AI / 命中 / 技能那几千行代码一行都不用改。
+    if (this.ctx.headless) {
+      this.shadow = new THREE.Object3D();
+      this.root.add(this.shadow);
+      this.model = new THREE.Group();
+      this.model.position.y = -2.3;
+      this.root.add(this.model);
+      this.buildRig();
+      this.buildSkillCue();
+      this.root.rotation.y = this.rotY;
+      this.headless = true;
+      return;
+    }
+
     const shadow = new THREE.Mesh(shadowGeometry, shadowMaterial());
     shadow.rotation.x = -Math.PI / 2;
     // root 在空中时影子要落回地面，而不是跟着飞；气球再缩小一圈，作为「它在天上」的线索
@@ -420,6 +443,17 @@ export class Zombie {
   buildRig() {
     // 按 def.model 选模型：不写就是普通僵尸 glb，'skeleton' 是 KayKit 骷髅，'alchemist' 是炼金僵尸，'football' 是橄榄球僵尸
     this.modelId = MODELS[this.def.model] ? this.def.model : 'zombie';
+    // 无头：没有任何 glb / 材质 / 骨骼，命中球口径由 syncHitSpheres 的查表给出
+    if (this.ctx.headless) {
+      this.isSkeleton = this.modelId === 'skeleton';
+      this.mats = [];
+      this.matBase = [];
+      this.body = null;
+      this.mixer = null;
+      this.actions = null;
+      this.hat = null;
+      return;
+    }
     const src = this.modelSource();
     const def = MODELS[this.modelId];
     this.isSkeleton = this.modelId === 'skeleton';
@@ -477,6 +511,7 @@ export class Zombie {
   // 骨骼动画：idle / walk / attack / die / hit 各一条，同一时刻只播一条。
   // 两套模型的动作名不同，按模型用不同候选名。
   buildAnimations() {
+    if (this.ctx.headless) return;
     const src = this.modelSource();
     const clips = (src && src.clips) || [];
     this.mixer = clips.length ? new THREE.AnimationMixer(this.body) : null;
@@ -523,6 +558,7 @@ export class Zombie {
   }
 
   play(name, fade) {
+    if (this.ctx.headless) return;
     // 程序化骨架不走进这里：它每帧由 updateProcAnim 重新摆，切「动作」没有意义
     if (this.procRig) return;
     const next = this.actions[name];
@@ -546,6 +582,7 @@ export class Zombie {
   //   脊柱/头：局部 X（前后点头）、局部 Z（侧倾）
   // 基准 = 每个骨骼克隆时的绑定局部旋转，每帧在它上面叠角度，永不累积。
   buildProcRig() {
+    if (this.ctx.headless) return;
     const get = (n) => this.body.getObjectByName(n) || null;
     const bones = {
       hips: get('Hips'), spine: get('Spine'), spine1: get('Spine1'), head: get('Head'),
@@ -560,6 +597,7 @@ export class Zombie {
 
   // 每帧调用：moving 决定迈步幅度，attackAnim/死亡分别给手臂与整体姿态加权。
   updateProcAnim(dt, moving, dead) {
+    if (this.ctx.headless) return;
     const rig = this.procRig;
     if (!rig) return;
     rig.t += dt;
@@ -607,6 +645,7 @@ export class Zombie {
 
   // 交通锥 / 铁桶：加在 glb 头顶（模型单位，Y 向上，头骨顶约 1.0）
   buildHat() {
+    if (this.ctx.headless) return;
     const acc = this.def.acc;
     // 玩具卫兵的胸甲是 glb 里自带的可拆卸网格（见 tools/build-toy-models.mjs），
     // 不在这里新建几何，只把那块 mesh 当作 this.hat，破甲时直接隐藏。
@@ -822,6 +861,7 @@ export class Zombie {
 
   // 游戏、图鉴和压测共用同一挂点；首帧骨骼/蒙皮稳定后再落帽。
   mountHeadTop() {
+    if (this.ctx.headless) return;
     const acc = this.def.acc;
     if (acc !== 'cone' && acc !== 'bucket' && acc !== 'helmet') return;
     this._hatPending = false;
@@ -847,10 +887,12 @@ export class Zombie {
 
   // 白闪 / 寒冰要同时作用到身体和帽子，所以遍历所有材质
   applyFlash(v) {
+    if (this.ctx.headless) return;
     for (let i = 0; i < this.mats.length; i++) this.mats[i].emissiveIntensity = v;
   }
 
   applyTint(ice) {
+    if (this.ctx.headless) return;
     for (let i = 0; i < this.mats.length; i++) {
       const m = this.mats[i];
       m.color.copy(this.matBase[i]);
@@ -1008,6 +1050,7 @@ export class Zombie {
   // host 快照里的单只僵尸：id/type/位置/朝向/血量/动画状态/减速。
   // 悬赏/协同的头顶标记：用一张发光贴图，不额外建几何
   setCoopMark(on) {
+    if (this.ctx.headless) return;
     if (on && !this.markCoop) {
       const m = new THREE.Sprite(
         new THREE.SpriteMaterial({
@@ -1028,7 +1071,9 @@ export class Zombie {
   }
 
   setBounty(on) {
+    // 逻辑字段是权威状态（进快照、影响计分），必须无条件写
     this.bounty = !!on;
+    if (this.ctx.headless) return;
     if (on && !this.markBounty) {
       const m = new THREE.Sprite(
         new THREE.SpriteMaterial({
@@ -1049,6 +1094,7 @@ export class Zombie {
   }
 
   buildSkillCue() {
+    if (this.ctx.headless) return;
     if (!this.def.slam && !this.def.duck && !this.def.landing && !this.def.dive && !this.def.ambush &&
         !this.def.charge && !this.def.tea && !this.def.punch && !this.def.clock && !this.def.flight) return;
     this.skillCue = new THREE.Mesh(skillGeometry, new THREE.MeshBasicMaterial({

@@ -21,3 +21,4 @@ tests/integration/.artifacts/
 # Python 字节码缓存（.dsh/skills 里的工具脚本会产生）
 __pycache__/
 *.py[cod]
+node_modules
