@@ -1115,3 +1115,112 @@ describe('Game · autoJoinDuo 自动进双人', () => {
     expect(game.duoSession).toBeFalsy();
   });
 });
+
+describe('Game · buildResync 生成完整世界快照', () => {
+  it('打包波次/阳光/比分/僵尸/补给/阳光球/Boss', async () => {
+    const game = await boot();
+    game.startDuo({ mapId: 'backyard', seat: 0, peerName: 'B' });
+    game.zombies.wave = 4;
+    game.zombies.state = 'spawning';
+    game.zombies.intermission = 3;
+    game.sun = 240;
+    game.duoStats = [100, 250];
+    game.duoKills = [2, 6];
+    game.zombies.boss = { hp: 500, maxHp: 1000 };
+    const snap = game.buildResync();
+    expect(snap.wave).toBe(4);
+    expect(snap.ws).toBe('spawning');
+    expect(snap.wt).toBe(3);
+    expect(snap.sun).toBe(240);
+    expect(snap.scores).toEqual([100, 250]);
+    expect(snap.kills).toEqual([2, 6]);
+    expect(snap.bossHp).toBe(0.5);
+    expect(Array.isArray(snap.z)).toBe(true);
+    expect(Array.isArray(snap.pickups)).toBe(true);
+    expect(Array.isArray(snap.orbs)).toBe(true);
+  });
+
+  it('没有 Boss/僵尸时也能安全产出', async () => {
+    const game = await boot();
+    game.startDuo({ mapId: 'backyard', seat: 0, peerName: 'B' });
+    game.zombies.boss = null;
+    game.zombies.zombies = [];
+    const snap = game.buildResync();
+    expect(snap.bossHp).toBe(0);
+    expect(snap.z).toEqual([]);
+  });
+
+  it('云园地图带公共钟状态', async () => {
+    const game = await boot();
+    game.setMap('cloud');
+    game.startDuo({ mapId: 'cloud', seat: 0, peerName: 'B' });
+    game.mapId = 'cloud';
+    const snap = game.buildResync();
+    expect(snap.c).toBeTruthy();
+  });
+});
+
+describe('Game · applyWorldState 与 applyWorldEvent', () => {
+  it('applyWorldState 落地休整/刷怪状态与剩余时间', async () => {
+    const game = await boot();
+    game.startDuo({ mapId: 'backyard', seat: 1, peerName: 'A' });
+    game.applyWorldState({ ws: 'intermission', wt: 7 });
+    expect(game.zombies.state).toBe('intermission');
+    expect(game.zombies.intermission).toBe(7);
+    // 负数时间钳到 0
+    game.applyWorldState({ ws: 'spawning', wt: -5 });
+    expect(game.zombies.intermission).toBe(0);
+  });
+
+  it('applyWorldState 换波时出横幅', async () => {
+    const game = await boot();
+    game.startDuo({ mapId: 'backyard', seat: 1, peerName: 'A' });
+    const banners = [];
+    game.hud.showBanner = (t) => banners.push(t);
+    game.zombies.wave = 1;
+    game.applyWorldState({ wave: 6 });
+    expect(game.zombies.wave).toBe(6);
+    expect(banners.some((b) => b.includes('第 6 波'))).toBe(true);
+  });
+
+  it('applyWorldState 的 Boss 血条：>0 显示、=0 隐藏', async () => {
+    const game = await boot();
+    game.startDuo({ mapId: 'backyard', seat: 1, peerName: 'A' });
+    const vis = vi.spyOn(game.hud, 'setBossVisible');
+    game.zombies.boss = { def: { title: '巨人' } };
+    game.applyWorldState({ bossHp: 0.4 });
+    expect(vis).toHaveBeenCalledWith(true);
+    game.applyWorldState({ bossHp: 0 });
+    expect(vis).toHaveBeenCalledWith(false);
+  });
+
+  it('applyWorldEvent 分发 zspawn/zdead/pickups/sun/air', async () => {
+    const game = await boot();
+    game.startDuo({ mapId: 'backyard', seat: 1, peerName: 'A' });
+    const spawn = vi.spyOn(game.zombies, 'netSpawn').mockImplementation(() => null);
+    const despawn = vi.spyOn(game.zombies, 'netDespawn').mockImplementation(() => {});
+    const applyNetList = vi.spyOn(game.pickups, 'applyNetList').mockImplementation(() => {});
+    const collect = vi.spyOn(game.sunOrbs, 'collectById').mockImplementation(() => ({ id: 1 }));
+    const beam = vi.spyOn(game.pickups, 'beamAt').mockImplementation(() => {});
+    const pickupSfx = vi.spyOn(game.sfx, 'pickup').mockImplementation(() => {});
+    const pickupEvt = vi.spyOn(game, 'applyPickupEvent').mockImplementation(() => {});
+
+    expect(() => game.applyWorldEvent(null)).not.toThrow();
+    game.applyWorldEvent({ type: 'zspawn', z: { id: 1 } });
+    game.applyWorldEvent({ type: 'zdead', id: 1 });
+    game.applyWorldEvent({ type: 'pickups', list: [] });
+    game.applyWorldEvent({ type: 'pickup', id: 3 });
+    game.applyWorldEvent({ type: 'sun', id: 5 });
+    game.applyWorldEvent({ type: 'air', x: 1, z: 2 });
+    game.applyWorldEvent({ type: 'air', x: NaN, z: 2 }); // 非法坐标忽略
+    game.applyWorldEvent({ type: 'unknown' });
+
+    expect(spawn).toHaveBeenCalled();
+    expect(despawn).toHaveBeenCalled();
+    expect(applyNetList).toHaveBeenCalled();
+    expect(pickupEvt).toHaveBeenCalled();
+    expect(collect).toHaveBeenCalled();
+    expect(pickupSfx).toHaveBeenCalled();
+    expect(beam).toHaveBeenCalledTimes(1);
+  });
+});
