@@ -520,10 +520,221 @@ export function cloudTexture() {
   return tex;
 }
 
+let _glass = null;
+// 玻璃幕墙：深蓝灰底 + 按楼层分氛围的暖橙窗格（亮层/常态/熄灯层交替，才有办公楼的呼吸感）。
+// 发光靠 MeshStandardMaterial 的 emissiveMap 复用同一张贴图：亮格 texel 顶到接近纯暖白，
+// 让 0.35 档的 emissiveIntensity 在暮紫天空下仍读得出「亮着的楼层」；灭格几乎不发光。
+export function glassTexture() {
+  if (_glass) return _glass;
+  const size = 256;
+  const c = document.createElement('canvas');
+  c.width = c.height = size;
+  const ctx = c.getContext('2d');
+  // 终轮亮度收敛：基底/框梃/灭窗两轮提亮（4b4b52→6e6e7a 一档）——菜单低机位下
+  // 塔身暗面曾贡献全帧约 1/3 近黑；亮窗仍靠自发光（emissive）出跳，
+  // 灭窗现在是「有 ambient 的暗玻璃」而不是黑洞。摩天街区专属贴图，改色不影响其它图。
+  ctx.fillStyle = '#6e6e7a';
+  ctx.fillRect(0, 0, size, size);
+  const bay = 64;
+  for (let gy = 0; gy < 4; gy++) {
+    // 楼层氛围：22% 加班亮层（六七成窗亮）、38% 常态、40% 熄灯层——竖向节奏代替均匀棋盘
+    const mood = Math.random();
+    const litP = mood < 0.22 ? 0.58 + Math.random() * 0.3 : mood < 0.6 ? 0.18 + Math.random() * 0.16 : 0.04 + Math.random() * 0.08;
+    let run = 0; // 连亮游程：同层亮窗常连成排（办公室整排亮灯）
+    for (let gx = 0; gx < 4; gx++) {
+      const x = gx * bay;
+      const y = gy * bay;
+      // 楼层框与竖梃
+      ctx.fillStyle = '#464654';
+      ctx.fillRect(x, y + bay - 7, bay, 7);
+      ctx.fillRect(x, y, 5, bay);
+      // 窗格：亮灭按楼层氛围；亮格接近纯暖白（自发光拉满）、灭格中性灰微变
+      const px = x + 7;
+      const py = y + 4;
+      const pw = bay - 14;
+      const ph = bay - 13;
+      if (run > 0 || Math.random() < litP) {
+        run = run > 0 ? run - 1 : (Math.random() < 0.5 ? 1 + (Math.random() * 2 | 0) : 0);
+        const g = ctx.createLinearGradient(px, py, px, py + ph);
+        // 终轮亮度收敛：窗光从 255,214,150/255,186,100 去饱和到奶油白炽——暖橙像素占比
+        // 被压回 8% 以内，且更贴「办公室白炽灯」而不是霓虹
+        const warm = Math.random() < 0.75 ? '255,224,186' : '255,208,146';
+        g.addColorStop(0, 'rgba(' + warm + ',1)');
+        g.addColorStop(1, 'rgba(' + warm + ',0.86)');
+        ctx.fillStyle = g;
+      } else if (Math.random() < 0.05) {
+        ctx.fillStyle = 'rgba(198,218,248,0.85)'; // 稀少的冷色荧屏窗，添生活感
+      } else {
+        ctx.fillStyle = Math.random() < 0.5 ? '#787788' : '#706f7c';
+      }
+      ctx.fillRect(px, py, pw, ph);
+      // 窗格内的横向分隔（窗扇）
+      ctx.fillStyle = 'rgba(10,14,20,0.4)';
+      ctx.fillRect(px, py + ph * 0.5, pw, 2);
+    }
+  }
+  // 微噪点
+  for (let i = 0; i < 500; i++) {
+    ctx.fillStyle = Math.random() < 0.5 ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.05)';
+    ctx.fillRect(Math.random() * size, Math.random() * size, 2, 2);
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(3, 6);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
+  _glass = tex;
+  return tex;
+}
+
+let _asphalt = null;
+// 沥青地面：中灰底（黄昏低照度下 albedo 会被暖光吃掉蓝绿通道，底色必须够亮才不至于糊成
+// 黑泥；比混凝土裙楼暗一档保住铺装层次）+ 亮粒噪点 + 淡淡的车道虚线。
+export function asphaltTexture() {
+  if (_asphalt) return _asphalt;
+  const size = 256;
+  const c = document.createElement('canvas');
+  c.width = c.height = size;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#8f8a79';
+  ctx.fillRect(0, 0, size, size);
+  for (let i = 0; i < 16; i++) {
+    const x = Math.random() * size;
+    const y = Math.random() * size;
+    const r = 16 + Math.random() * 52;
+    const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+    g.addColorStop(0, Math.random() < 0.5 ? 'rgba(128,122,110,0.22)' : 'rgba(52,48,42,0.22)');
+    g.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(x - r, y - r, r * 2, r * 2);
+  }
+  for (let i = 0; i < 1500; i++) {
+    const a = 0.06 + Math.random() * 0.12;
+    // 亮粒为主的骨料感：暗粒拖底、亮粒提神，远处缩尖后读成细腻沥青而非死黑
+    ctx.fillStyle = Math.random() < 0.55 ? 'rgba(216,210,194,' + a + ')' : 'rgba(46,42,36,' + a + ')';
+    const s = 1 + Math.random() * 2;
+    ctx.fillRect(Math.random() * size, Math.random() * size, s, s);
+  }
+  // 车道虚线（横竖各一条，淡而可读）；手工铺短段——测试环境的 canvas 替身没有 setLineDash
+  ctx.fillStyle = 'rgba(232,228,214,0.22)';
+  for (let i = 0; i < 5; i++) {
+    ctx.fillRect(i * 52 + 6, size / 2 - 2, 30, 4);
+    ctx.fillRect(size / 2 - 2, i * 52 + 6, 4, 30);
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(22, 22);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
+  _asphalt = tex;
+  return tex;
+}
+
+let _plaza = null;
+// 广场混凝土分缝铺装（视觉评审 E）：比沥青浅一档的混凝土底 + 方格分缝 + 淡淡的浇筑块色差，
+// 中央广场 32×32 贴地片专用。亮底是为了在黄昏暖光下仍读出「广场铺装 ≠ 马路」的层次。
+export function plazaTexture() {
+  if (_plaza) return _plaza;
+  const size = 256;
+  const c = document.createElement('canvas');
+  c.width = c.height = size;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#9d968a';
+  ctx.fillRect(0, 0, size, size);
+  // 4×4 米格的分缝铺装：每格亮度微变（混凝土浇筑块），缝压深一档
+  const bay = 64;
+  for (let gy = 0; gy < 4; gy++) {
+    for (let gx = 0; gx < 4; gx++) {
+      const tint = Math.random() * 0.1 - 0.05;
+      ctx.fillStyle = tint > 0 ? 'rgba(255,250,238,' + tint + ')' : 'rgba(30,26,20,' + -tint + ')';
+      ctx.fillRect(gx * bay + 2, gy * bay + 2, bay - 4, bay - 4);
+    }
+  }
+  ctx.fillStyle = 'rgba(58,54,46,0.85)';
+  for (let i = 0; i <= 4; i++) {
+    ctx.fillRect(i * bay - 1, 0, 2, size);
+    ctx.fillRect(0, i * bay - 1, size, 2);
+  }
+  // 磨损噪点：亮粒提神、暗粒拖底
+  for (let i = 0; i < 900; i++) {
+    const a = 0.05 + Math.random() * 0.1;
+    ctx.fillStyle = Math.random() < 0.5 ? 'rgba(226,220,204,' + a + ')' : 'rgba(52,48,42,' + a + ')';
+    const s = 1 + Math.random() * 2;
+    ctx.fillRect(Math.random() * size, Math.random() * size, s, s);
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(8, 8);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
+  _plaza = tex;
+  return tex;
+}
+
+let _duskSky = null;
+// 黄昏天空（非平铺，整幅铺到屏幕）：暮紫天顶占上 1/4，暖橙光带压到纹理中段——
+// 第一人称平视时可见天空只有纹理上半幅，暖带不上移就会被楼群整体剪掉；两层楼群剪影
+// 与低垂太阳都落在这段可见带里，逆光剪影叠在暖光上才有「暮色将至」。
+// 终轮亮度收敛：整条渐变提亮一档、暖带再上移半档（菜单低机位 y≈14 的画面上沿曾整片
+// 落在近黑夜空里）；天顶仍是暮紫、暖带仍是窄带，「黄昏将至」的逆光结构不变。
+export function duskSkyTexture() {
+  if (_duskSky) return _duskSky;
+  const w = 512;
+  const h = 512;
+  const c = document.createElement('canvas');
+  c.width = w;
+  c.height = h;
+  const ctx = c.getContext('2d');
+  const grd = ctx.createLinearGradient(0, 0, 0, h);
+  grd.addColorStop(0, '#3d3363');
+  grd.addColorStop(0.22, '#68537f');
+  grd.addColorStop(0.36, '#8a4f5e');
+  grd.addColorStop(0.46, '#c06a42');
+  grd.addColorStop(0.6, '#e08a48');
+  grd.addColorStop(0.74, '#f0a458');
+  grd.addColorStop(1, '#f6b96e');
+  ctx.fillStyle = grd;
+  ctx.fillRect(0, 0, w, h);
+  // 低垂的太阳：压在地平线上，炽核放大（核心近白到 0.22 半径），让天空自带一个炽亮锚点
+  const sun = ctx.createRadialGradient(w * 0.7, h * 0.52, 6, w * 0.7, h * 0.52, 170);
+  sun.addColorStop(0, 'rgba(255,250,232,1)');
+  sun.addColorStop(0.22, 'rgba(255,236,196,0.9)');
+  sun.addColorStop(0.5, 'rgba(255,190,110,0.5)');
+  sun.addColorStop(1, 'rgba(255,150,80,0)');
+  ctx.fillStyle = sun;
+  ctx.fillRect(w * 0.7 - 180, h * 0.52 - 180, 360, 360);
+  // 远近两层楼群剪影：叠在暖光带上（太阳先画，剪影盖上去成逆光）
+  let seed = 0x9e3779b9;
+  const random = () => {
+    seed ^= seed << 13;
+    seed ^= seed >>> 17;
+    seed ^= seed << 5;
+    return (seed >>> 0) / 4294967296;
+  };
+  const skyline = (base, color, minH, maxH) => {
+    ctx.fillStyle = color;
+    let x = -10;
+    while (x < w + 10) {
+      const bw = 12 + random() * 36;
+      const bh = minH + random() * (maxH - minH);
+      ctx.fillRect(x, base - bh, bw, bh);
+      if (random() < 0.3) ctx.fillRect(x + bw * 0.4, base - bh - 8 - random() * 14, 2, 10 + random() * 14);
+      x += bw + 4 + random() * 16;
+    }
+  };
+  // 剪影层同步提亮一档：远景楼群要「浮在暖带上」而不是沉进黑夜（终轮亮度收敛）
+  skyline(h * 0.6, 'rgba(96,70,128,0.8)', 36, 140);
+  skyline(h * 0.8, 'rgba(42,32,62,0.95)', 26, 100);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  _duskSky = tex;
+  return tex;
+}
+
 let _envs = null;
 // 程序化户外环境贴图（PMREM）：只给 PBR 材质提供反射与高光，不参与场景雾/背景。
 export function outdoorEnvironment(renderer, mapId) {
-  const key = mapId === 'snow' ? 'snow' : mapId === 'dust' ? 'dust' : mapId === 'forest' ? 'forest' : mapId === 'cloud' ? 'cloud' : 'backyard';
+  const key = mapId === 'snow' ? 'snow' : mapId === 'dust' ? 'dust' : mapId === 'forest' ? 'forest' : mapId === 'cloud' ? 'cloud' : mapId === 'downtown' ? 'downtown' : 'backyard';
   if (_envs && _envs[key]) return _envs[key];
   if (!_envs) _envs = {};
 
@@ -554,6 +765,12 @@ export function outdoorEnvironment(renderer, mapId) {
     sky.addColorStop(0.5, '#1b2b4d');
     sky.addColorStop(0.82, '#3b4a6b');
     sky.addColorStop(1, '#55627e');
+  } else if (key === 'downtown') {
+    // 摩天街区：黄昏 CBD——暮紫天顶、暖橙地平线，反射里带一点街谷的暖光
+    sky.addColorStop(0, '#181430');
+    sky.addColorStop(0.5, '#3a2c50');
+    sky.addColorStop(0.82, '#c06e40');
+    sky.addColorStop(1, '#f0a85e');
   } else {
     sky.addColorStop(0, '#2b6ab8');
     sky.addColorStop(0.45, '#8ecdf5');
@@ -576,6 +793,9 @@ export function outdoorEnvironment(renderer, mapId) {
   } else if (key === 'forest') {
     ground.addColorStop(0, '#24401f');
     ground.addColorStop(1, '#0d1a0b');
+  } else if (key === 'downtown') {
+    ground.addColorStop(0, '#54485c');
+    ground.addColorStop(1, '#221a30');
   } else {
     ground.addColorStop(0, '#7ba24a');
     ground.addColorStop(1, '#3d5320');

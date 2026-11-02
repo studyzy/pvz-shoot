@@ -275,7 +275,8 @@ async function main() {
     await S.waitForFunction(() => window.__game && window.__game.state === 'menu', { timeout: 30000 });
     await S.click('#startBtn');
     await S.waitForFunction(() => window.__game.state === 'playing', { timeout: 30000 });
-    await sleep(2500);
+    // 僵尸是异步加载 glb 之后才刷的，给足时间（之前固定 2.5s 会偶发没刷出来）
+    await S.waitForFunction(() => window.__game.zombies.zombies.length > 0, { timeout: 30000 }).catch(() => {});
     const sState = await S.evaluate(() => ({
       state: window.__game.state,
       duo: window.__game.duo,

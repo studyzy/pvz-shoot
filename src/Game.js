@@ -337,9 +337,16 @@ export class Game {
     this.mapId = map.id;
     this.ctx.map = map;
     this.ctx.env = outdoorEnvironment(this.renderer, map.id);
+    // 地图可选 setEnv：把 PMREM 环境贴图挂给地图自带的单例材质（摩天街区玻璃幕墙反射）。
+    // NightForest.setFlash 同款「按地图开关」先例；重复 setMap 幂等，材质不重建。
+    if (typeof map.setEnv === 'function') map.setEnv(this.ctx.env);
     // 夜之森林整图关实时投影：省掉一遍 1024 PCFSoft shadow pass，
     // 夜景本来就靠雾和自发光撑氛围。其它地图照旧开着。
     this.renderer.shadowMap.enabled = !map.noShadows;
+    // 摩天街区黄昏整图曝光 +0.25 档（终验「菜单帧过暗」收敛）：材质/灯光提亮一轮后
+    // 均色亮度仍低于其它图，曝光是把整帧抬到可比水平的最后一个全局常数；
+    // 其它地图回落 1.0（shadowMap.enabled 同款按地图开关先例），幂等无副作用。
+    this.renderer.toneMappingExposure = map.id === 'downtown' ? 1.5 : 1.0;
     // 手电是挂相机的（全局存在），不会被 root.visible 关掉：activate 里点亮它、
     // 同时把其它地图的手电关掉。TECH-flashlight.md §4 的"按地图开关"就落在这里。
     for (let i = 0; i < this.maps.length; i++) {

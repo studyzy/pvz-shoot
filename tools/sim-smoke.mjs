@@ -4,7 +4,7 @@ import { MatchSim } from '../src/sim/MatchSim.js';
 import { headlessMap, duoStartSpawns } from '../src/sim/headlessMap.js';
 
 const seconds = Number(process.argv[2] || 30);
-const MAPS = ['backyard', 'snow', 'dust', 'forest', 'cloud'];
+const MAPS = ['backyard', 'snow', 'dust', 'forest', 'cloud', 'downtown'];
 let failed = 0;
 
 for (const id of MAPS) {

@@ -133,7 +133,7 @@ describe('服务器权威命中判定', () => {
   });
 
   it('地图数据完整性：墙体保留 OBB 字段（否则所有射线都被判成打墙）', () => {
-    for (const id of ['backyard', 'snow', 'dust', 'forest', 'cloud']) {
+    for (const id of ['backyard', 'snow', 'dust', 'forest', 'cloud', 'downtown']) {
       const map = headlessMap(id);
       expect(map.walls.length, id).toBeGreaterThan(0);
       for (const w of map.walls) {

@@ -3,6 +3,7 @@ import { IceWorld } from './IceWorld.js';
 import { DustYard } from './DustYard.js';
 import { NightForest } from './NightForest.js';
 import { CloudCarnival } from './CloudCarnival.js';
+import { Downtown } from './Downtown.js';
 
 export const MAPS = [
   {
@@ -50,6 +51,15 @@ export const MAPS = [
     desc: '72 米云海上的发条游乐园：钟楼报时停住所有发条玩具',
     startLabel: '登上云上发条游乐园',
     create: (scene) => new CloudCarnival(scene),
+  },
+  {
+    id: 'downtown',
+    name: '摩天街区',
+    short: '街区',
+    tag: 'DOWNTOWN',
+    desc: '黄昏 CBD 十字大道攻防：双塔楼峡、天桥高线与停车楼顶',
+    startLabel: '进入摩天街区',
+    create: (scene) => new Downtown(scene),
   },
 ];
 

@@ -342,6 +342,32 @@ describe('ZombieManager · 清波与换波', () => {
     expect(zm.intermission).toBeCloseTo(6.5 - DT, 9);
   });
 
+  it('摩天街区休整走 config DOWNTOWN：普通波 9s、Boss 波 14s（照 FOREST 接线）', () => {
+    const zm = sharedGame.zombies;
+    const realMap = sharedGame.ctx.map;
+    sharedGame.ctx.map = { id: 'downtown' };
+    try {
+      zm.startWave(3);
+      zm.queue.length = 0;
+      zm.update(DT, sharedGame.player, sharedGame.map.colliders);
+      expect(zm.state).toBe('intermission');
+      expect(zm.intermission).toBe(9);
+      // Boss 波（n%5===0）走 bossIntermission
+      zm.startWave(5);
+      zm.queue.length = 0;
+      zm.update(DT, sharedGame.player, sharedGame.map.colliders);
+      expect(zm.intermission).toBe(14);
+      // 其它地图不受影响：清掉 stub 后回到默认分支
+      sharedGame.ctx.map = realMap;
+      zm.startWave(3);
+      zm.queue.length = 0;
+      zm.update(DT, sharedGame.player, sharedGame.map.colliders);
+      expect(zm.intermission).toBe(6.5);
+    } finally {
+      sharedGame.ctx.map = realMap;
+    }
+  });
+
   it('intermission 倒数到 0 自动 startWave(wave+1)', () => {
     const zm = sharedGame.zombies;
     const calls = collectCtx();
@@ -473,6 +499,44 @@ describe('ZombieManager · 出生点', () => {
       pump(10);
       assertSpawnsSane(game.map, game.player);
     });
+  });
+
+  it('非森林地图首波读 openingSpawnPoints：落点∈教学表（P0-1 修复教学死配置）', () => {
+    // stub 出带 openingSpawnPoints 的假地图：教学表与通用表远离，落点归属无歧义。
+    // 此前 openingSpawnPoints 只被 forestSpawnPoint 读且被 map.id==='forest' 短路，
+    // 摩天街区等地图的「首波只从教学表出」是死配置。
+    const zm = sharedGame.zombies;
+    const stub = {
+      id: 'stub-city',
+      bounds: { x: 45, z: 45 },
+      colliders: [],
+      zombieSpawnPoints: [[41, 0], [-41, 0], [0, 43]],
+      openingSpawnPoints: [[0, -40], [-3, -41], [3, -41], [0, -36]],
+    };
+    const realMap = sharedGame.ctx.map;
+    sharedGame.ctx.map = stub;
+    try {
+      zm.startWave(1);
+      zm.queue = new Array(12).fill('normal');
+      zm.spawnTimer = 0;
+      while (zm.queue.length > 0 && zm.zombies.length < 10) zm.spawnOne(sharedGame.player);
+      expect(zm.zombies.length).toBeGreaterThan(0);
+      const px = sharedGame.player.pos.x;
+      const pz = sharedGame.player.pos.z;
+      for (const z of zm.zombies) {
+        const x = z.root.position.x;
+        const zz = z.root.position.z;
+        // 落点 = 教学点 ±1.6 抖动（每轴独立，再经 clamp/clearOfColliders，stub 无碰撞体不推移）
+        const near = stub.openingSpawnPoints.some(([sx, sz]) => Math.abs(x - sx) <= 1.6 + 1e-6 && Math.abs(zz - sz) <= 1.6 + 1e-6);
+        expect(near, `首波落点 (${x.toFixed(1)}, ${zz.toFixed(1)}) 不在教学表`).toBe(true);
+        // 沿用 >12m 重掷规则
+        expect(Math.hypot(x - px, zz - pz)).toBeGreaterThan(11);
+      }
+    } finally {
+      sharedGame.ctx.map = realMap;
+      zm.reset();
+      sharedGame.ctx.sunOrbs.spawn = vi.fn();
+    }
   });
 
   it('clearOfColliders：把点推出碰撞圆，两轮迭代收敛', () => {

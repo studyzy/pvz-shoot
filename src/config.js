@@ -41,6 +41,13 @@ export const CLOUD = {
   attackMax: 2,
 };
 
+// 摩天街区：90×90 图的反攻纵深需要更长整备——阵地链（research §5.8）要求「广场→楼峡中段」
+// 32m/5.9s 的反攻走位，默认 6.5s 不够走完；Boss 波再放长一档。接线方式照 FOREST 先例。
+export const DOWNTOWN = {
+  intermission: 9,
+  bossIntermission: 14,
+};
+
 // 天降阳光：小福利，主收入仍然靠击杀掉落
 export const SUN_SKY = {
   interval: 30,
