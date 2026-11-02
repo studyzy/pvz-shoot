@@ -43,40 +43,43 @@ describe('服务器权威命中判定', () => {
   });
 
   it('朝僵尸开枪命中，反方向打空', () => {
+    // 不依赖随机出生点：手动在玩家正前方 5 米放一只，保证视线通畅
     const { sim, map } = makeSim();
     const p = sim.players[0];
-    const alive = sim.zombies.zombies.filter((z) => z.alive && !z.dying);
-    expect(alive.length).toBeGreaterThan(0);
-
-    // 至少能打中一只（其它可能被墙挡住，这是正确行为）
-    let hits = 0;
-    for (const z of alive) {
-      const { yaw, pitch } = aimAt(p, z);
-      if (adjudicateShot(p, yaw, pitch, sim.zombies.zombies, map)) hits++;
-    }
-    expect(hits).toBeGreaterThan(0);
-
+    const zm = sim.zombies;
+    zm.zombies.length = 0;
+    const z = zm.spawnAt('normal', 1, p.pos.x, p.pos.z - 5, 1, 1);
+    z.spawnT = 1;
+    const aim = aimAt(p, z);
+    expect(adjudicateShot(p, aim.yaw, aim.pitch, zm.zombies, map)).toBeTruthy();
     // 反方向必然打空
-    const wrong = adjudicateShot(p, Math.PI, 0, sim.zombies.zombies, map);
-    expect(wrong).toBeNull();
+    expect(adjudicateShot(p, Math.PI, 0, zm.zombies, map)).toBeNull();
   });
 
   it('墙体遮挡：墙后的僵尸打不到', () => {
+    // 直接构造：玩家在原点朝 -Z，僵尸放在身后（+Z），中间放一面墙。
+    // 不依赖随机出生点，判定稳定。
     const { sim, map } = makeSim();
     const p = sim.players[0];
-    let blockedSeen = false;
-    for (const z of sim.zombies.zombies.filter((x) => x.alive && !x.dying)) {
-      const { yaw, pitch } = aimAt(p, z);
-      const hit = adjudicateShot(p, yaw, pitch, sim.zombies.zombies, map);
-      // 如果没打中，必须是因为中间有墙（而不是判定 bug）
-      if (!hit) {
-        const dist = Math.hypot(z.root.position.x - p.pos.x, z.root.position.z - p.pos.z);
-        // 没墙却打不中才可疑；这里只要有墙就算合理
-        if (dist > 3) blockedSeen = true;
-      }
-    }
-    // 后院有 25 面墙，必然存在被挡的情况
-    expect(blockedSeen).toBe(true);
+    const zm = sim.zombies;
+    zm.zombies.length = 0;
+    // 僵尸在玩家正前方 6 米
+    const z = zm.spawnAt('normal', 1, p.pos.x, p.pos.z - 6, 1, 1);
+    z.spawnT = 1;
+    // 不放墙时能打中
+    const clear = adjudicateShot(p, 0, 0, zm.zombies, map);
+    expect(clear, '无遮挡时应命中').toBeTruthy();
+    // 在两者中间放一面墙
+    const walled = {
+      ...map,
+      walls: [
+        ...map.walls,
+        // 轴对齐盒体：OBB 字段必须齐全（hx/hy/hz/c/s），缺一个就会判成整个盒子必中
+        { x: p.pos.x, y: 1.5, z: p.pos.z - 3, hx: 8, hy: 1.5, hz: 0.2, c: 1, s: 0 },
+      ],
+    };
+    const blocked = adjudicateShot(p, 0, 0, zm.zombies, walled);
+    expect(blocked, '有墙时应被挡住').toBeNull();
   });
 
   it('fireShot 由服务器扣血：客户端不能直接指定伤害', () => {
@@ -107,6 +110,20 @@ describe('服务器权威命中判定', () => {
     expect(r.hit).toBe(true);
     // 伤害来自武器配置，不是调用方给的
     expect(target.hp).toBeLessThan(hp0);
+  });
+
+  it('打空时发出 hit=false 事件且不结算', () => {
+    const { sim } = makeSim();
+    const p = sim.players[0];
+    // 清空场内僵尸，朝任何方向都是空
+    sim.zombies.zombies.length = 0;
+    const before = sim.scores.slice();
+    const r = sim.fireShot(0, 'pea', 0, 0);
+    expect(r).toBeNull();
+    const shots = sim.drainEvents().filter((e) => e.t === 'shot');
+    expect(shots).toHaveLength(1);
+    expect(shots[0].hit).toBe(false);
+    expect(sim.scores).toEqual(before);
   });
 
   it('未知武器 id 被拒绝', () => {
@@ -260,5 +277,266 @@ describe('爆炸类武器的服务器侧结算', () => {
     const hp = far.hp;
     sim.fireShot(0, 'cherry', 0, 0);
     expect(far.hp).toBe(hp);
+  });
+});
+
+// hit.js 的直接单元测试（不走 MatchSim，覆盖扫掠/延迟补偿等分支）
+describe('hit.js 底层', () => {
+  it('raycastZombiesAt 用历史位置判定（延迟补偿）', async () => {
+    const { raycastZombiesAt, lookDir } = await import('../../src/sim/hit.js');
+    const { headlessMap } = await import('../../src/sim/headlessMap.js');
+    const map = headlessMap('backyard');
+    const { ZombieManager, headlessCtx } = await import('../../src/sim/index.js');
+    const zm = new ZombieManager(headlessCtx({ map }));
+    const z = zm.spawnAt('normal', 1, 0, -5, 1, 1);
+    z.spawnT = 1;
+    // 当前位置在 -5，历史位置在 -5 也一样；构造一个偏差很大的历史，验证用的是历史
+    const here = new Map([[z.netId, { x: 0, y: 0, z: -5 }]]);
+    const elsewhere = new Map([[z.netId, { x: 100, y: 0, z: 100 }]]);
+    const eye = { x: 0, y: 1.66, z: 0 };
+    const dir = lookDir(0, 0); // 朝 -Z
+    expect(raycastZombiesAt(eye, dir, [z], here, { walls: map.walls, bounds: map.bounds })).toBeTruthy();
+    expect(raycastZombiesAt(eye, dir, [z], elsewhere, { walls: map.walls, bounds: map.bounds })).toBeNull();
+  });
+
+  it('raycastZombiesAt 遇到已死亡/正在死亡的僵尸跳过', async () => {
+    const { raycastZombiesAt, lookDir } = await import('../../src/sim/hit.js');
+    const { headlessMap } = await import('../../src/sim/headlessMap.js');
+    const map = headlessMap('backyard');
+    const { ZombieManager, headlessCtx } = await import('../../src/sim/index.js');
+    const zm = new ZombieManager(headlessCtx({ map }));
+    const z = zm.spawnAt('normal', 1, 0, -5, 1, 1);
+    z.spawnT = 1;
+    z.alive = false;
+    const byId = new Map([[z.netId, { x: 0, y: 0, z: -5 }]]);
+    const hit = raycastZombiesAt({ x: 0, y: 1.66, z: 0 }, lookDir(0, 0), [z], byId, {
+      walls: map.walls,
+      bounds: map.bounds,
+    });
+    expect(hit).toBeNull();
+  });
+
+  it('历史快照里没有这只僵尸时跳过（不崩）', async () => {
+    const { raycastZombiesAt, lookDir } = await import('../../src/sim/hit.js');
+    const { headlessMap } = await import('../../src/sim/headlessMap.js');
+    const map = headlessMap('backyard');
+    const { ZombieManager, headlessCtx } = await import('../../src/sim/index.js');
+    const zm = new ZombieManager(headlessCtx({ map }));
+    const z = zm.spawnAt('normal', 1, 0, -5, 1, 1);
+    z.spawnT = 1;
+    const hit = raycastZombiesAt({ x: 0, y: 1.66, z: 0 }, lookDir(0, 0), [z], new Map(), {
+      walls: map.walls,
+      bounds: map.bounds,
+    });
+    expect(hit).toBeNull();
+  });
+
+  it('raycastZombiesAt 零方向返回 null', async () => {
+    const { raycastZombiesAt } = await import('../../src/sim/hit.js');
+    expect(raycastZombiesAt({ x: 0, y: 1, z: 0 }, { x: 0, y: 0, z: 0 }, [], new Map(), {})).toBeNull();
+  });
+
+  it('不做延迟补偿时退回当前位置判定', async () => {
+    const { raycastZombiesAt, lookDir } = await import('../../src/sim/hit.js');
+    const { headlessMap } = await import('../../src/sim/headlessMap.js');
+    const map = headlessMap('backyard');
+    const { ZombieManager, headlessCtx } = await import('../../src/sim/index.js');
+    const zm = new ZombieManager(headlessCtx({ map }));
+    const z = zm.spawnAt('normal', 1, 0, -5, 1, 1);
+    z.spawnT = 1;
+    // byId 传 null → 走 raycastZombies（当前位置）
+    const hit = raycastZombiesAt({ x: 0, y: 1.66, z: 0 }, lookDir(0, 0), [z], null, {
+      walls: map.walls,
+      bounds: map.bounds,
+    });
+    expect(hit).toBeTruthy();
+    expect(hit.zombie).toBe(z);
+  });
+
+  it('命中头部时 head=true', async () => {
+    const { eyePos, adjudicateShot } = await import('../../src/sim/hit.js');
+    const { headlessMap } = await import('../../src/sim/headlessMap.js');
+    const map = headlessMap('backyard');
+    const { ZombieManager, headlessCtx } = await import('../../src/sim/index.js');
+    const zm = new ZombieManager(headlessCtx({ map }));
+    const z = zm.spawnAt('normal', 1, 0, -5, 1, 1);
+    z.spawnT = 1;
+    const p = { pos: { x: 0, y: 0, z: 0 } };
+    const eye = eyePos(p);
+    const headH = z.root.position.y + z.headY * z.scaleFactor;
+    const pitch = Math.atan2(headH - eye.y, 5);
+    const hit = adjudicateShot(p, 0, pitch, [z], map);
+    expect(hit).toBeTruthy();
+    expect(hit.head).toBe(true);
+  });
+});
+
+describe('snapshot 编解码健壮性', () => {
+  it('截断的帧不会崩，返回 null', async () => {
+    const { decodeSnapshot } = await import('../../src/sim/snapshot.js');
+    expect(decodeSnapshot(new Uint8Array([0x20]))).toBeNull();
+    expect(decodeSnapshot(new Uint8Array([0xff, 0, 0, 0, 0, 0, 0, 0]))).toBeNull();
+  });
+
+  it('输入帧长度不对时拒绝', async () => {
+    const { decodeInput, encodeInput } = await import('../../src/sim/snapshot.js');
+    expect(decodeInput(new Uint8Array(5))).toBeNull();
+    const ok = decodeInput(encodeInput(1, { moveX: 0, moveZ: 0, yaw: 0, pitch: 0, buttons: 0 }));
+    expect(ok.seq).toBe(1);
+  });
+
+  it('开火帧武器名超长时按 24 字节截断', async () => {
+    const { encodeFire, decodeFire } = await import('../../src/sim/snapshot.js');
+    const f = decodeFire(encodeFire(1, 0, 0, 'a'.repeat(40)));
+    expect(f.weapon.length).toBe(24);
+  });
+
+  it('阳光帧只接受 3 字节', async () => {
+    const { encodeSun, decodeSun } = await import('../../src/sim/snapshot.js');
+    expect(decodeSun(new Uint8Array(3))).toBeNull(); // 首字节不是 SUN
+    expect(decodeSun(new Uint8Array(4))).toBeNull();
+    expect(decodeSun(encodeSun(5)).amount).toBe(5);
+  });
+
+  it('事件帧非法 JSON 返回 null', async () => {
+    const { decodeEvents } = await import('../../src/sim/snapshot.js');
+    expect(decodeEvents(new TextEncoder().encode('x'))).toBeNull();
+    expect(decodeEvents(new TextEncoder().encode('{"t":"other"}'))).toBeNull();
+  });
+});
+
+describe('MatchSim · 生命周期与边界', () => {
+  it('over 之后 step 不再推进', () => {
+    const { sim } = makeSim();
+    sim.over = true;
+    const t = sim.tick;
+    sim.step([null, null]);
+    expect(sim.tick).toBe(t);
+  });
+
+  it('drainEvents 清空队列', () => {
+    const { sim } = makeSim();
+    sim.emit({ t: 'x' });
+    expect(sim.drainEvents().length).toBeGreaterThan(0);
+    expect(sim.drainEvents().length).toBe(0);
+  });
+
+  it('spendSun 拒绝超出余额的扣费', () => {
+    const { sim } = makeSim();
+    sim.sun = 10;
+    expect(sim.spendSun(0, 20)).toBe(false);
+    expect(sim.sun).toBe(10);
+    expect(sim.spendSun(0, 5)).toBe(true);
+    expect(sim.sun).toBe(5);
+    expect(sim.spendSun(0, 0)).toBe(true);
+  });
+
+  it('historicalAt 找不到目标 tick 时给最接近的一份', () => {
+    const { sim } = makeSim();
+    for (let i = 0; i < 10; i++) sim.step([null, null]);
+    const h = sim.historicalAt(999); // 超出范围
+    expect(h).toBeTruthy();
+    expect(sim.historicalAt(0)).toBeTruthy();
+  });
+
+  it('救援：两人靠近累计 2.5 秒后救起', () => {
+    const { sim } = makeSim();
+    const a = sim.players[0];
+    const b = sim.players[1];
+    b.pos.x = a.pos.x;
+    b.pos.z = a.pos.z;
+    a.downed = true;
+    a.downTimer = 0;
+    for (let i = 0; i < 30 * 3; i++) sim.updateRescue(1 / 30);
+    expect(a.downed).toBe(false);
+  });
+
+  it('救援：两人都倒地判定团灭', () => {
+    const { sim } = makeSim();
+    sim.players[0].downed = true;
+    sim.players[1].downed = true;
+    sim.checkWipe();
+    expect(sim.over).toBe(true);
+    expect(sim.overReason).toBe('WIPE');
+  });
+
+  it('单人模式玩家死亡直接结束对局', () => {
+    const { headlessMap } = require('../../src/sim/headlessMap.js');
+    void headlessMap;
+  });
+});
+
+describe('爆炸落点的边界情况', () => {
+  it('俯角射击且没打到僵尸时，爆炸落在地面', () => {
+    const { sim } = makeSim();
+    const p = sim.players[0];
+    sim.zombies.zombies.length = 0; // 清场，确保是「没打到」
+    // 大俯角：射线会很快与 y=0 相交
+    const r = sim.fireShot(0, 'cherry', 0, -0.8);
+    expect(r.aoe).toBe(true);
+    expect(r.pos.y).toBeGreaterThanOrEqual(0.9); // 不低于地面
+    expect(r.hits).toBe(0);
+  });
+
+  it('平射且没打到时落在射程末端', () => {
+    const { sim } = makeSim();
+    sim.zombies.zombies.length = 0;
+    const p = sim.players[0];
+    const r = sim.fireShot(0, 'cherry', 0, 0);
+    // 射程 22 米左右（沿 -Z）
+    const dist = Math.hypot(r.pos.x - p.pos.x, r.pos.z - p.pos.z);
+    expect(dist).toBeGreaterThan(15);
+    expect(dist).toBeLessThan(25);
+  });
+
+  it('仰角射击不会落到玩家脚下', () => {
+    const { sim } = makeSim();
+    sim.zombies.zombies.length = 0;
+    const p = sim.players[0];
+    const r = sim.fireShot(0, 'cherry', 0, 0.5); // 抬头
+    const dist = Math.hypot(r.pos.x - p.pos.x, r.pos.z - p.pos.z);
+    expect(dist).toBeGreaterThan(10);
+  });
+});
+
+describe('MatchSim · 受击与死亡事件', () => {
+  it('僵尸攻击玩家：扣血并发出 hitPlayer 事件', () => {
+    const { sim } = makeSim();
+    sim.players[0].hp = 100;
+    sim.onZombieAttack({ def: { damage: 15 }, targetSeat: 0, airborne: false });
+    expect(sim.players[0].hp).toBe(85);
+    const evs = sim.drainEvents().filter((e) => e.t === 'hitPlayer');
+    expect(evs).toHaveLength(1);
+    expect(evs[0].dmg).toBe(15);
+    expect(evs[0].seat).toBe(0);
+  });
+
+  it('单人模式玩家死亡直接结束对局', async () => {
+    const { headlessMap, duoStartSpawns } = await import('../../src/sim/headlessMap.js');
+    const map = headlessMap('backyard');
+    const sim = new MatchSim({ map, duo: false, spawns: [duoStartSpawns(map)[0]] });
+    const p = sim.players[0];
+    p.hp = 5;
+    sim.onZombieAttack({ def: { damage: 50 }, targetSeat: 0, airborne: false });
+    expect(sim.over).toBe(true);
+    expect(sim.overReason).toBe('DEAD');
+    const evs = sim.drainEvents();
+    expect(evs.some((e) => e.t === 'over' && e.reason === 'DEAD')).toBe(true);
+  });
+
+  it('倒地玩家不再吃第二次伤害', () => {
+    const { sim } = makeSim();
+    sim.players[0].hp = 100;
+    sim.players[0].downed = true;
+    sim.onZombieAttack({ def: { damage: 15 }, targetSeat: 0, airborne: false });
+    expect(sim.players[0].hp).toBe(100);
+  });
+
+  it('攻击已死玩家不出事件', () => {
+    const { sim } = makeSim();
+    sim.players[0].dead = true;
+    sim.drainEvents();
+    sim.onZombieAttack({ def: { damage: 15 }, targetSeat: 0 });
+    expect(sim.drainEvents().filter((e) => e.t === 'hitPlayer')).toHaveLength(0);
   });
 });

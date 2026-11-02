@@ -133,6 +133,9 @@ export function encodeSnapshot(sim, opts = {}) {
 }
 
 export function decodeSnapshot(bytes) {
+  // 网络数据不可信：截断/伪造的帧必须返回 null，不能让 DataView 越界抛异常。
+  // （客户端每 33ms 解一包，一次抛错就可能中断渲染循环）
+  if (!bytes || bytes.byteLength < 16) return null;
   const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   let o = 0;
   const kind = dv.getUint8(o++);
@@ -174,6 +177,8 @@ export function decodeSnapshot(bytes) {
 
   const zombies = [];
   for (let i = 0; i < nZ; i++) {
+    // 帧被截断时剩下的僵尸读不全，直接丢弃这批 —— 宁可少一帧也不要抛异常
+    if (o + Z_BYTES > bytes.byteLength) break;
     const id = dv.getUint16(o, true);
     o += 2;
     const t = typeAt(dv.getUint8(o++));

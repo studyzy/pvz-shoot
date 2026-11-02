@@ -159,8 +159,7 @@ export class MatchSim {
 
   // 开局
   start(wave = 1) {
-    if (this.duo) this.zombies.startWave(wave);
-    else this.zombies.startWave(wave);
+    this.zombies.startWave(wave);
   }
 
   /**

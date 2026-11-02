@@ -110,7 +110,14 @@ export default defineConfig({
       include: ['src/**/*.js'],
       // 图鉴页 / 压测页是独立 WebGL 入口，和 src/main.js 一样由浏览器级 E2E 覆盖；
       // 纯数据与计算在 presets.js / stress/metrics.js，由单元测试覆盖。
-      exclude: ['src/main.js', 'src/gallery/main.js', 'src/stress/main.js'],
+      exclude: [
+        'src/main.js',
+        'src/gallery/main.js',
+        'src/stress/main.js',
+        // 纯数据文件，不是代码：构建期由 tools/extract-map-data.mjs 从真实地图榨出来，
+        // 参与覆盖率统计没有任何意义（永远是 0%，只会稀释全局数字）
+        'src/sim/mapdata.json',
+      ],
       // --coverage 在并行 worker 下偶发 ENOENT（读 .tmp 时被另一 worker 清掉），每次先清空目录
       clean: true,
       reportsDirectory: 'coverage',

@@ -296,3 +296,118 @@ describe('NetClient · connect 的异常与重复调用', () => {
     expect(client.ws).toBe(null);
   });
 });
+
+describe('NetClient · 二进制帧', () => {
+  function fakeWs() {
+    const sent = [];
+    const ws = {
+      readyState: 1,
+      binaryType: 'blob', // 真浏览器默认是 blob
+      sent,
+      send: (b) => sent.push(b),
+      close() {},
+    };
+    return ws;
+  }
+
+  it('sendBinary 直发二进制，不走 JSON', () => {
+    const client = new NetClient({ wsFactory: () => fakeWs() });
+    client.connect();
+    const bytes = new Uint8Array([0x40, 1, 2, 3]);
+    expect(client.sendBinary(bytes)).toBe(true);
+    expect(client.ws.sent[0]).toBe(bytes);
+  });
+
+  it('未连接时 sendBinary 返回 false', () => {
+    const client = new NetClient({ wsFactory: () => fakeWs() });
+    expect(client.sendBinary(new Uint8Array([1]))).toBe(false);
+    client.connect();
+    client.ws.readyState = 3;
+    expect(client.sendBinary(new Uint8Array([1]))).toBe(false);
+  });
+
+  it('send 抛异常时 sendBinary 吞掉并返回 false', () => {
+    const client = new NetClient({ wsFactory: () => fakeWs() });
+    client.connect();
+    client.ws.send = () => {
+      throw new Error('boom');
+    };
+    expect(client.sendBinary(new Uint8Array([1]))).toBe(false);
+  });
+
+  it('收到二进制帧时转给 onBinary，不当作控制消息', () => {
+    const client = new NetClient({ wsFactory: () => fakeWs() });
+    const got = [];
+    client.onBinary = (b) => got.push(b);
+    const onMessage = vi.fn();
+    client.onMessage = onMessage;
+    client.handle(new Uint8Array([0x20, 9, 9]));
+    expect(got).toHaveLength(1);
+    expect(onMessage).not.toHaveBeenCalled();
+    // ArrayBuffer 也支持
+    client.handle(new Uint8Array([0x20, 1]).buffer);
+    expect(got).toHaveLength(2);
+  });
+
+  it('连接时把 binaryType 设成 arraybuffer', () => {
+    const ws = fakeWs();
+    const client = new NetClient({ wsFactory: () => ws });
+    client.connect();
+    expect(ws.binaryType).toBe('arraybuffer');
+  });
+});
+
+describe('NetClient · 心跳与重连', () => {
+  it('收到 pong 时更新 rtt', () => {
+    const client = new NetClient({ wsFactory: () => ({ readyState: 1, binaryType: 'blob', send() {}, close() {} }) });
+    const onMessage = vi.fn();
+    client.onMessage = onMessage;
+    client.handle(encode(MSG.PONG, { t: performance.now() - 50 }));
+    expect(client.rtt).toBeGreaterThanOrEqual(0);
+    // pong 不进业务回调
+    expect(onMessage).not.toHaveBeenCalled();
+  });
+
+  it('pong 时间戳非法时不改 rtt', () => {
+    const client = new NetClient({ wsFactory: () => ({ readyState: 1, binaryType: 'blob', send() {}, close() {} }) });
+    client.rtt = 7;
+    client.handle(encode(MSG.PONG, { t: 'abc' }));
+    expect(client.rtt).toBe(7);
+  });
+
+  it('welcome 带回新 token 时持久化', () => {
+    const client = new NetClient({ wsFactory: () => ({ readyState: 1, binaryType: 'blob', send() {}, close() {} }) });
+    client.handle(encode(MSG.WELCOME, { token: 'newtoken123456' }));
+    expect(client.token).toBe('newtoken123456');
+  });
+
+  it('autoReconnect 关闭时不排重连', () => {
+    const client = new NetClient({ autoReconnect: false, wsFactory: () => ({ readyState: 1, binaryType: 'blob', send() {}, close() {} }) });
+    client.scheduleReconnect();
+    expect(client.retryTimer).toBeNull();
+    expect(client.retry).toBe(0);
+  });
+
+  it('manualClose 之后不再排重连', () => {
+    const client = new NetClient({ wsFactory: () => ({ readyState: 1, binaryType: 'blob', send() {}, close() {} }) });
+    client.manualClose = true;
+    client.scheduleReconnect();
+    expect(client.retryTimer).toBeNull();
+  });
+
+  it('多次 scheduleReconnect 只保留一个定时器', () => {
+    vi.useFakeTimers();
+    try {
+      const client = new NetClient({ wsFactory: () => ({ readyState: 1, binaryType: 'blob', send() {}, close() {} }) });
+      client.connect();
+      client.scheduleReconnect();
+      const t1 = client.retryTimer;
+      client.scheduleReconnect();
+      expect(client.retryTimer).not.toBe(t1);
+      expect(client.retry).toBe(2);
+      client.close();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

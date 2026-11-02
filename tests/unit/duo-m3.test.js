@@ -223,24 +223,27 @@ describe('坚果盾按玩家独立结算', () => {
 });
 
 describe('resync / 结算 / 再来一局', () => {
-  it('guest 应用 host 完整快照', async () => {
+  it('世界状态通过服务器快照落地（不再有 host→guest 的 resync）', async () => {
     const game = await boot();
     game.startDuo({ mapId: 'backyard', seat: 1, peerName: '戴夫 A' });
-    game.applyResync({
+    game.applyServerSnapshot({
+      tick: 4,
       wave: 4,
       sun: 123,
       scores: [10, 20],
       kills: [1, 2],
-      z: [snap({ id: 3 })],
-      pickups: [{ id: 5, i: 4, x: 1, z: 1 }],
-      orbs: [{ id: 8, x: 0, y: 0.5, z: 0, s: 0 }],
+      state: 'spawning',
+      players: [
+        { x: 0, y: 0, z: 10, yaw: 0, pitch: 0, hp: 100, maxHp: 100, downed: false, dead: false, downTimer: 0 },
+        { x: 1, y: 0, z: 10, yaw: 0, pitch: 0, hp: 100, maxHp: 100, downed: false, dead: false, downTimer: 0 },
+      ],
+      zombies: [snap({ id: 3 })],
     });
     expect(game.zombies.wave).toBe(4);
     expect(game.sun).toBe(123);
     expect(game.duoStats).toEqual([10, 20]);
-    expect(game.zombies.zombies).toHaveLength(1);
-    expect(game.pickups.byId(5)).toBeTruthy();
-    expect(game.sunOrbs.serialize()).toHaveLength(1);
+    expect(game.duoKills).toEqual([1, 2]);
+    expect(game.zombies.zombies.some((z) => z.netId === 3)).toBe(true);
   });
 
   it('团灭后停在结算页，再来一局请求发给服务器', async () => {

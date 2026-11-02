@@ -1272,7 +1272,7 @@ export class Game {
     if (!this.duo) return;
     this.hud.showBanner(name + ' 已重连', 2);
     // 客人刷新后本地世界是空的：host 把整局状态补发过去
-    if (this.seat === 0 && this.duoSession) this.duoSession.sendResync(this.buildResync());
+    if (this.duoSession && this.duoSession.sendResync) this.duoSession.sendResync(this.buildResync());
   }
 
   buildResync() {
@@ -1515,26 +1515,15 @@ export class Game {
   }
 
   onKill(z, score, headshot, source = 0) {
-    if (this.duo) {
-      const s = source === 1 ? 1 : 0;
-      this.duoStats[s] += score;
-      // 悬赏尾刀：+300 只记在击杀者账上，按击杀判定的同一套 source
-      if (z && z.bounty) {
-        this.duoStats[s] += BOUNTY.bonus;
-        this.hud.showBanner('悬赏拿下 +' + BOUNTY.bonus, 1.8);
-      }
-      this.duoKills[s] += 1;
-      this.stats.score = this.duoStats[0];
-      this.stats.kills = this.duoKills[0];
-      this.hud.setScore(this.seat === 0 ? this.duoStats[0] : this.duoStats[1]);
-      this.hud.setKills(this.seat === 0 ? this.duoKills[0] : this.duoKills[1]);
-    } else {
+    // 双人：比分与击杀数完全由服务器快照下发（见 applyServerSnapshot），
+    // 本地不再自己累加 —— 两套账并存会让 HUD 在每帧快照之间闪烁。
+    if (!this.duo) {
       this.stats.score += score;
       this.stats.kills += 1;
       this.hud.setScore(this.stats.score);
       this.hud.setKills(this.stats.kills);
+      if (this.stats.kills === 1) this.hud.fadeTutorial();
     }
-    if (this.stats.kills === 1) this.hud.fadeTutorial();
     if (z.def && z.def.boss) this.shake(0.9);
   }
 
@@ -1587,8 +1576,10 @@ export class Game {
     this.zombies.skipIntermission();
   }
 
+  // 提前开波：单人直接跳过休整；双人由服务器统一控制节奏，本地请求后以快照为准
   applyNextWaveRequest() {
-    if (this.duo && this.seat === 0) this.requestNextWave();
+    if (this.duo) return;
+    this.requestNextWave();
   }
 
   onWaveStart(n) {

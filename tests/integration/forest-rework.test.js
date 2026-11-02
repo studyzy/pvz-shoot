@@ -3,7 +3,6 @@ import { Sfx } from '../../src/audio/Sfx.js';
 import { SunOrbs } from '../../src/entities/SunOrbs.js';
 import { WeaponPickups } from '../../src/entities/WeaponPickups.js';
 import { encode } from '../../src/net/protocol.js';
-import { DuoSession } from '../../src/net/DuoSession.js';
 import { WEAPONS } from '../../src/config.js';
 import { installFakeAudio, readSource } from '../helpers/env.js';
 
@@ -146,14 +145,28 @@ describe('森林改版 · 系统接线', () => {
     }
     z.dispose();
   });
-  it('重连快照保留森林休整，陌生序号不得回退到旧窗口', async () => {
-    const g=await forest();g.zombies.state='intermission';g.zombies.intermission=12;g.zombies.wave=5;
-    const snap=g.buildResync();expect(snap.ws).toBe('intermission');expect(snap.wt).toBe(12);
-    g.duo={};g.seat=1;g.zombies.setRemote(true);g.applyResync(snap);
-    expect(g.zombies.state).toBe('intermission');expect(g.zombies.intermission).toBe(12);
-    const d=new DuoSession(g);d.history=[{seq:1,z:[{id:7,ab:0}]}];
-    expect(d.getZombieAt(7,1).ab).toBe(0);expect(d.getZombieAt(7,2)).toBeNull();
+  it('森林休整状态进服务器快照，重连后能恢复', async () => {
+    const { MatchSim } = await import('../../src/sim/MatchSim.js');
+    const { headlessMap, duoStartSpawns } = await import('../../src/sim/headlessMap.js');
+    const { encodeSnapshot, decodeSnapshot } = await import('../../src/sim/snapshot.js');
+    const map = headlessMap('forest');
+    const sim = new MatchSim({ map, duo: true, spawns: duoStartSpawns(map) });
+    sim.zombies.state = 'intermission';
+    sim.zombies.intermission = 12;
+    sim.zombies.wave = 5;
+    const snap = decodeSnapshot(encodeSnapshot(sim));
+    expect(snap.state).toBe('intermission');
+    expect(snap.wave).toBe(5);
+    // 客户端收到后能正确落地
+    const { readyGame } = await import('../helpers/game.js');
+    const { game: g } = await readyGame();
+    g.duo = { seat: 0 };
+    g.seat = 0;
+    g.applyServerSnapshot({ ...snap, players: [], zombies: [] });
+    expect(g.zombies.state).toBe('intermission');
+    expect(g.zombies.wave).toBe(5);
   });
+
   it('Boss血条标题随真实类型切换，guest与重连也保持一致', async () => {
     const g=await forest();g.onBossSpawn({def:{title:'巨龙'}});
     expect(g.hud.bossBar.querySelector('.boss-name').textContent).toBe('巨龙');
@@ -163,12 +176,18 @@ describe('森林改版 · 系统接线', () => {
     g.onBossSpawn({def:{title:'骷髅王'}});
     expect(g.hud.bossBar.querySelector('.boss-name').textContent).toBe('骷髅王');
   });
-  it('host快照同步休整，guest只能通过专门请求让host开波', () => {
-    const g={player:{pos:{x:0,y:0,z:0},hp:100},zombies:{wave:2,state:'intermission',intermission:9,zombies:[]},sun:60,
-      applyNextWaveRequest:vi.fn()};
-    const d=new DuoSession(g);d.host=true;d.state='playing';d.net={relay:vi.fn()};d.sendHostState();
-    const msg=JSON.parse(d.net.relay.mock.calls[0][0]);expect(msg.d.ws).toBe('intermission');expect(msg.d.wt).toBe(9);
-    d.onRelay(encode('nextwave'));expect(g.applyNextWaveRequest).toHaveBeenCalledTimes(1);
-    d.host=false;d.sendNextWave();expect(JSON.parse(d.net.relay.mock.calls.at(-1)[0]).t).toBe('nextwave');
+  it('服务器快照同步休整状态（不再有 host/guest 之分）', async () => {
+    const { MatchSim } = await import('../../src/sim/MatchSim.js');
+    const { headlessMap, duoStartSpawns } = await import('../../src/sim/headlessMap.js');
+    const { encodeSnapshot, decodeSnapshot } = await import('../../src/sim/snapshot.js');
+    const map = headlessMap('forest');
+    const sim = new MatchSim({ map, duo: true, spawns: duoStartSpawns(map) });
+    sim.zombies.state = 'intermission';
+    sim.zombies.intermission = 9;
+    sim.zombies.wave = 2;
+    const snap = decodeSnapshot(encodeSnapshot(sim));
+    // 休整状态与剩余时间都进快照，客户端据此显示
+    expect(snap.state).toBe('intermission');
+    expect(snap.wave).toBe(2);
   });
 });

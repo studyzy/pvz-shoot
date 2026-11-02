@@ -61,3 +61,100 @@ describe('模拟层不依赖地图的渲染外观', () => {
     expect(mapRootUse.length).toBe(0);
   });
 });
+
+describe('sim/index.js · 无头上下文工厂', () => {
+  it('headlessCtx 提供全部必需字段，且粒子/音效是空壳', async () => {
+    const { headlessCtx } = await import('../../src/sim/index.js');
+    const map = { id: 'backyard' };
+    const ctx = headlessCtx({ map });
+    expect(ctx.headless).toBe(true);
+    expect(ctx.map).toBe(map);
+    expect(ctx.scene).toBeNull();
+    expect(ctx.env).toBeNull();
+    // 空壳：调用任意方法都不抛，也不产生副作用
+    expect(() => ctx.particles.burst({})).not.toThrow();
+    expect(() => ctx.sfx.groan(1, 0)).not.toThrow();
+    expect(() => ctx.hud.showBanner('x', 1)).not.toThrow();
+    expect(() => ctx.onKill()).not.toThrow();
+    expect(() => ctx.onWaveStart(1)).not.toThrow();
+    expect(() => ctx.onWaveClear(1)).not.toThrow();
+    expect(() => ctx.onBossSpawn()).not.toThrow();
+    expect(() => ctx.onBossDead()).not.toThrow();
+    expect(() => ctx.onAttack()).not.toThrow();
+    expect(() => ctx.onZombieAttack()).not.toThrow();
+  });
+
+  it('headlessCtx 支持注入回调与 cloud/sunOrbs/pickups', async () => {
+    const { headlessCtx } = await import('../../src/sim/index.js');
+    let killed = 0;
+    const sunOrbs = { spawn() {}, spawnSky() {} };
+    const ctx = headlessCtx({ map: { id: 'cloud' }, onKill: () => killed++, cloud: { x: 1 }, sunOrbs, pickups: { dropAt() {} } });
+    ctx.onKill();
+    expect(killed).toBe(1);
+    expect(ctx.cloud).toEqual({ x: 1 });
+    expect(ctx.sunOrbs).toBe(sunOrbs);
+  });
+
+  it('headlessCtx 不给 cloud 时默认为 null', async () => {
+    const { headlessCtx } = await import('../../src/sim/index.js');
+    expect(headlessCtx({ map: {} }).cloud).toBeNull();
+  });
+});
+
+describe('headlessMap · 地图数据重建', () => {
+  it('带流场的地图能重建 nav 并提供 flowAt/updateNav', async () => {
+    const { headlessMap } = await import('../../src/sim/headlessMap.js');
+    for (const id of ['snow', 'dust', 'forest', 'cloud', 'downtown']) {
+      const map = headlessMap(id);
+      expect(map.nav, id).toBeTruthy();
+      expect(typeof map.flowAt, id).toBe('function');
+      expect(typeof map.updateNav, id).toBe('function');
+      // 更新一次不崩
+      expect(() => map.updateNav({ pos: { x: 0, z: 0 } })).not.toThrow();
+      const out = { x: 0, z: 0 };
+      expect(() => map.flowAt(0, 0, out)).not.toThrow();
+    }
+  });
+
+  it('无流场的地图（后院）返回 null，Zombie 会退化成直线追踪', async () => {
+    const { headlessMap } = await import('../../src/sim/headlessMap.js');
+    const map = headlessMap('backyard');
+    expect(map.nav).toBeNull();
+    expect(map.flowAt).toBeNull();
+    expect(map.updateNav).toBeNull();
+  });
+
+  it('未知地图 id 兜底到第一张，不崩', async () => {
+    const { headlessMap } = await import('../../src/sim/headlessMap.js');
+    const map = headlessMap('no-such-map');
+    expect(map.id).toBeTruthy();
+    expect(map.bounds).toBeTruthy();
+  });
+
+  it('duoSpawn 与客户端 Game.duoSpawn 完全一致（否则开局会瞬移）', async () => {
+    const { duoSpawn, headlessMap } = await import('../../src/sim/headlessMap.js');
+    const map = headlessMap('backyard');
+    const s = map.spawn;
+    expect(duoSpawn(map, 0)).toEqual({ x: s.x - 1.8, z: s.z, yaw: s.yaw });
+    expect(duoSpawn(map, 1)).toEqual({ x: s.x + 1.8, z: s.z, yaw: s.yaw });
+  });
+
+  it('duoSpawn 对缺省地图也能产出出生点', async () => {
+    const { duoSpawn } = await import('../../src/sim/headlessMap.js');
+    expect(duoSpawn(null, 0)).toEqual({ x: -1.8, z: 0, yaw: 0 });
+    expect(duoSpawn({ spawn: null }, 1)).toEqual({ x: 1.8, z: 0, yaw: 0 });
+  });
+
+  it('每张地图都带齐碰撞/平台/墙体/拾取点字段', async () => {
+    const { headlessMap, HEADLESS_MAP_IDS } = await import('../../src/sim/headlessMap.js');
+    expect(HEADLESS_MAP_IDS.length).toBeGreaterThanOrEqual(6);
+    for (const id of HEADLESS_MAP_IDS) {
+      const map = headlessMap(id);
+      expect(Array.isArray(map.colliders), id).toBe(true);
+      expect(Array.isArray(map.platforms), id).toBe(true);
+      expect(Array.isArray(map.walls), id).toBe(true);
+      expect(Array.isArray(map.pickupSpots), id).toBe(true);
+      expect(map.bounds.x).toBeGreaterThan(0);
+    }
+  });
+});

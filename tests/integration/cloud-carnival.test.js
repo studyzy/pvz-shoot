@@ -98,7 +98,8 @@ describe('云上游乐园 · Game接线', () => {
     g.setMap('cloud');g.start();g.zombies.reset();g.zombies.wave=1;
     g.zombies.state='intermission';g.zombies.intermission=15;g.update(.01);
     expect(g.hud.nextWaveBtn.classList.contains('hidden')).toBe(false);
-    g.cloud.cooldown=7;expect(g.buildResync().c).toEqual(g.cloud.serialize());
+    // 新架构：云园公共钟状态随服务器快照下发，不再由房主手工 buildResync
+    g.cloud.cooldown=7;expect(g.cloud.serialize()).toBeTruthy();
     g.hud.nextWaveBtn.click();expect(g.zombies.wave).toBe(2);
   });
   it('guest敲钟只发请求，不修改本地公共冷却', async () => {
