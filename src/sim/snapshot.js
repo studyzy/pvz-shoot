@@ -15,6 +15,7 @@ export const FRAME = Object.freeze({
   EVENT: 0x30,
   INPUT: 0x40,
   FIRE: 0x41,
+  SUN: 0x42,
   FULL: 0x21,
 });
 
@@ -245,38 +246,63 @@ export function decodeInput(bytes) {
 }
 
 // ---- 开火帧：客户端 → 服务器 ----
-// kind(u8) seq(u32) yaw(i16) pitch(i16) weaponLen(u8) weapon(utf8) = 13 + len
+// 布局（11 + weaponLen 字节）：
+//   [0] kind  [1..4] seq(u32)  [5..6] yaw(i16)  [7..8] pitch(i16)
+//   [9] weaponLen  [10] aimTick(u8 相对量)  [11..] weapon(utf8)
 //
-// 关键：客户端**只上报朝向**，不上报「打中了谁、打多少」。
-// 服务器用这一幕的权威僵尸位置重建视线并判定（src/sim/hit.js 的 adjudicateShot）。
-export function encodeFire(seq, yaw, pitch, weaponId) {
+// aimTick：客户端瞄准时的服务器 tick 与本包到达 tick 的差（回退帧数）。
+// 致命细节：客户端渲染的是**插值后的旧位置**（比服务器晚 100~200ms），
+// 如果服务器按当前位置判定，打移动目标必然偏后。所以客户端报告「我看到的是哪一帧」，
+// 服务器回退到那一帧的快照做判定 —— 这就是标准的延迟补偿（lag compensation）。
+export function encodeFire(seq, yaw, pitch, weaponId, aimLagTicks = 0) {
   const w = String(weaponId || '').slice(0, 24);
   const wb = new TextEncoder().encode(w);
-  const buf = new ArrayBuffer(13 + wb.length);
+  const buf = new ArrayBuffer(11 + wb.length);
   const dv = new DataView(buf);
   dv.setUint8(0, FRAME.FIRE);
   dv.setUint32(1, seq >>> 0, true);
   dv.setInt16(5, clampi(yaw * SCALE_ANG, -32768, 32767), true);
   dv.setInt16(7, clampi(pitch * SCALE_ANG, -32768, 32767), true);
   dv.setUint8(9, wb.length);
+  dv.setUint8(10, clampi(aimLagTicks, 0, 255));
   const out = new Uint8Array(buf);
-  out.set(wb, 10);
-  return out.subarray(0, 10 + wb.length);
+  out.set(wb, 11);
+  return out.subarray(0, 11 + wb.length);
 }
 
 export function decodeFire(bytes) {
-  if (!bytes || bytes.byteLength < 10) return null;
+  if (!bytes || bytes.byteLength < 11) return null;
   const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   if (dv.getUint8(0) !== FRAME.FIRE) return null;
   const len = dv.getUint8(9);
-  if (bytes.byteLength < 10 + len) return null;
-  const weapon = new TextDecoder().decode(bytes.subarray(10, 10 + len));
+  if (bytes.byteLength < 11 + len) return null;
+  const weapon = new TextDecoder().decode(bytes.subarray(11, 11 + len));
   return {
     seq: dv.getUint32(1, true),
     yaw: dv.getInt16(5, true) / SCALE_ANG,
     pitch: dv.getInt16(7, true) / SCALE_ANG,
+    aimLagTicks: dv.getUint8(10),
     weapon,
   };
+}
+
+// ---- 阳光消费：客户端 → 服务器 ----
+// kind(u8) amount(u16) = 3 字节。服务器校验余额后才扣，防止客户端凭空加钱/超额花。
+export const SUN_BYTES = 3;
+
+export function encodeSun(amount) {
+  const buf = new ArrayBuffer(SUN_BYTES);
+  const dv = new DataView(buf);
+  dv.setUint8(0, FRAME.SUN);
+  dv.setUint16(1, clampi(amount, 0, 65535), true);
+  return new Uint8Array(buf);
+}
+
+export function decodeSun(bytes) {
+  if (!bytes || bytes.byteLength !== SUN_BYTES) return null;
+  const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  if (dv.getUint8(0) !== FRAME.SUN) return null;
+  return { amount: dv.getUint16(1, true) };
 }
 
 // ---- 事件帧：服务器 → 客户端，只做表现 ----

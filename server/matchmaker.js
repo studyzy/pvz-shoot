@@ -10,7 +10,7 @@ import {
 import { Room } from './room.js';
 import { MatchSim } from '../src/sim/MatchSim.js';
 import { headlessMap, duoStartSpawns } from '../src/sim/headlessMap.js';
-import { decodeInput, decodeFire } from '../src/sim/snapshot.js';
+import { decodeInput, decodeFire, decodeSun } from '../src/sim/snapshot.js';
 
 // 输入帧清洗：长度不对/类型不对一律丢，绝不让脏数据进模拟
 function decodeInputSafe(bytes) {
@@ -358,6 +358,12 @@ export class Matchmaker {
       const fire = decodeFireSafe(bytes);
       if (!fire) return;
       seat.match.room.pushFire(seat.index, fire);
+      return;
+    }
+    if (bytes && bytes[0] === 0x42) {
+      const sun = decodeSun(bytes);
+      if (!sun) return;
+      seat.match.room.queueSun(seat.index, sun.amount);
       return;
     }
     const inp = decodeInputSafe(bytes);

@@ -8,7 +8,7 @@
 import { MSG, encode, decode, cleanMapId } from './protocol.js';
 import { NetClient } from './NetClient.js';
 import { SnapshotBuffer } from './interpolate.js';
-import { FRAME, encodeInput, encodeFire, decodeSnapshot } from '../sim/snapshot.js';
+import { FRAME, encodeInput, encodeFire, encodeSun, decodeSnapshot } from '../sim/snapshot.js';
 import { BTN } from '../sim/MatchSim.js';
 
 // 位置偏差超过这个距离就回滚重放；小偏差直接平滑掉（避免为了毫米级误差抖镜头）
@@ -342,7 +342,11 @@ export class ClientNet {
     const p = this.game.player;
     if (!p || p.dead || p.downed) return false;
     this.fireSeq = (this.fireSeq || 0) + 1;
-    return this.net.sendBinary(encodeFire(this.fireSeq, p.yaw, p.pitch, weaponId));
+    // 延迟补偿：告诉服务器「我瞄准时看到的是几 tick 之前的世界」。
+    // 客户端渲染的是插值后的位置，比服务器当前状态晚 delayMs；
+    // 不补偿的话，打移动目标会系统性偏后（实测打不中）。
+    const lagTicks = Math.round((this.buffer.delayMs || 100) / (1000 / 30));
+    return this.net.sendBinary(encodeFire(this.fireSeq, p.yaw, p.pitch, weaponId, lagTicks));
   }
 
   // 兼容旧调用点：单发开火走 sendFire（参数里的目标/方向一律忽略，服务器不信任）
@@ -353,6 +357,13 @@ export class ClientNet {
   // 范围伤害（爆炸类）：同样只上报武器与朝向，落点由服务器重算
   sendAoe(weaponId) {
     return this.sendFire(weaponId);
+  }
+
+  // 花阳光：本地先预测扣款（手感要跟手），同时上报服务器，由服务器权威扣。
+  sendSunSpend(amount) {
+    if (this.state !== 'playing' || !this.net) return false;
+    if (!(amount > 0)) return false;
+    return this.net.sendBinary(encodeSun(Math.round(amount)));
   }
 
   // 暂停：服务器权威下「暂停」只影响本地表现，不通过网络锁住队友。

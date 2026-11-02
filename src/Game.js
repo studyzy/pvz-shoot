@@ -135,17 +135,22 @@ export class Game {
     ctx.shake = (a) => this.shake(a);
     ctx.onHit = (head) => this.hud.hitmarker(head);
     ctx.onExplosion = (pos, radius) => this.onExplosion(pos, radius);
-    ctx.onFire = () => this.hud.fadeTutorial();
+    // 每次成功开火都会调这里（含豌豆/爆炸/手雷/护盾）。
+    // 双人时要上报服务器 —— 这是「我扣了扳机」的唯一可靠信号。
+    // 不能用本地命中（onGuestHit）上报：打空、被墙挡、爆炸武器都不会触发本地命中，
+    // 那样「怎么打都不掉血」。
+    ctx.onFire = (def) => {
+      this.hud.fadeTutorial();
+      if (this.duo && this.duoSession && this.duoSession.sendFire) {
+        this.duoSession.sendFire(def && def.id ? def.id : 'pea');
+      }
+    };
 
     ctx.onKill = (z, score, headshot, source) => this.onKill(z, score, headshot, source);
-    // 双人：本地算出的「打中了谁」只用于即时反馈，**必须**上报给服务器裁决。
-    // 上报内容只有「武器 + 朝向」，服务器用权威位置重建视线判定伤害。
-    ctx.onGuestHit = (z, weaponId) => {
-      if (this.duo && this.duoSession) this.duoSession.sendFire(weaponId);
-    };
-    ctx.onGuestAoe = (weaponId) => {
-      if (this.duo && this.duoSession) this.duoSession.sendFire(weaponId);
-    };
+    // 双人：开火上报统一走 ctx.onFire（扣扳机时），这里不再发请求 ——
+    // 否则同一枪会发两次，而且打空的目标根本走不到这里。
+    ctx.onGuestHit = () => {};
+    ctx.onGuestAoe = () => {};
     ctx.onBellHit = (id, weaponId, dir, origin) => this.onBellHit(id, weaponId, dir, origin);
     ctx.onWaveStart = (n) => this.onWaveStart(n);
     ctx.onWaveClear = (n) => this.onWaveClear(n);
@@ -1487,17 +1492,14 @@ export class Game {
 
   spendSun(n) {
     if (n <= 0) return true;
-    // guest 的池子是 host 的：本地先预测扣款，host 收到 sun 请求后再以 pstate.sun 校正。
-    if (this.duo && this.seat === 1) {
-      if (this.sun < n) return false;
-      this.sun -= n;
-      this.hud.setSun(this.sun);
-      if (this.duoSession) this.duoSession.sendSunRequest(n);
-      return true;
-    }
     if (this.sun < n) return false;
+    // 本地先扣：手感必须跟手，不能等服务器往返
     this.sun -= n;
     this.hud.setSun(this.sun);
+    // 双人：服务器是权威，扣款要上报（否则下一帧快照会把余额盖回来，等于白花）
+    if (this.duo && this.duoSession && this.duoSession.sendSunSpend) {
+      this.duoSession.sendSunSpend(n);
+    }
     return true;
   }
 

@@ -24,6 +24,8 @@ export class Room {
     // 开火：每个座位一个队列 + 冷却计时，防止客户端超频连发
     this.fireQueue = [[], []];
     this.cooldown = [0, 0];
+    // 阳光消费请求：下一 tick 结算（服务器校验余额）
+    this.sunRequests = [];
     this.tickTimer = null;
     this.running = false;
     this.onTickStats = opts.onTickStats || null;
@@ -54,6 +56,13 @@ export class Room {
     // 一帧最多攒 4 发，防止一次塞爆
     if (q.length >= 4) return;
     q.push(fire);
+  }
+
+  queueSun(seat, amount) {
+    if (seat < 0 || seat > 1) return;
+    if (!(amount > 0) || amount > 500) return; // 单次扣费上限，防脏数据
+    if (this.sunRequests.length > 16) return;
+    this.sunRequests.push({ seat, amount });
   }
 
   start() {
@@ -89,6 +98,12 @@ export class Room {
       }
     }
 
+    // 阳光消费先于 step 结算，保证本 tick 生效
+    while (this.sunRequests.length) {
+      const r = this.sunRequests.shift();
+      this.sim.spendSun(r.seat, r.amount);
+    }
+
     this.sim.step(inputs);
 
     // 处理开火：冷却按秒消耗，到点才允许这一发
@@ -101,7 +116,7 @@ export class Room {
         const def = WEAPONS.find((w) => w.id === f.weapon);
         if (!def) continue;
         this.cooldown[seat] = Math.max(def.cooldown || 0, 1 / TICK_RATE);
-        this.sim.fireShot(seat, f.weapon, f.yaw, f.pitch);
+        this.sim.fireShot(seat, f.weapon, f.yaw, f.pitch, f.aimLagTicks || 0);
       }
       // 冷却没到就继续攒着（下一 tick 再处理），但不无限积压
       if (q.length > 8) q.length = 8;

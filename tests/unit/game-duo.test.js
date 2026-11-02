@@ -197,10 +197,11 @@ describe('Game 双人接入', () => {
     expect(game.sun).toBe(42);
     expect(game.stats.score).toBe(20);
     expect(game.stats.kills).toBe(2);
-    game.duoSession = { sendSunRequest: vi.fn() };
+    // 新架构：阳光消费上报走 sendSunSpend（服务器权威扣款），不再用 pstate 请求
+    game.duoSession = { sendSunSpend: vi.fn() };
     expect(game.spendSun(20)).toBe(true);
     expect(game.sun).toBe(22);
-    expect(game.duoSession.sendSunRequest).toHaveBeenCalledWith(20);
+    expect(game.duoSession.sendSunSpend).toHaveBeenCalledWith(20);
     expect(game.spendSun(999)).toBe(false);
 
     game.seat = 0;

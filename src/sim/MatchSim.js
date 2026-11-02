@@ -11,9 +11,11 @@ import { ZombieManager } from '../entities/ZombieManager.js';
 import { Player } from '../entities/Player.js';
 import { SkySun } from '../entities/SkySun.js';
 import { TUNING, DUO, SUN_SKY, WEAPONS } from '../config.js';
-import { adjudicateShot } from './hit.js';
+import { adjudicateShot, lookDir, EYE_HEIGHT } from './hit.js';
 
 export const TICK_RATE = 30;
+// 爆炸类武器的最大投掷/射击距离（与 WeaponSystem.groundRange 的 22 米一致）
+const EXPLOSION_RANGE = 22;
 export const TICK_MS = 1000 / TICK_RATE;
 
 // 输入位掩码：一个字节塞下所有按键状态
@@ -43,6 +45,9 @@ export class MatchSim {
     this.duo = !!opts.duo;
     this.tick = 0;
     this.events = [];
+    // 历史僵尸位置（用于延迟补偿）：保留最近 1 秒，每 tick 记一份 id→位置
+    this.history = [];
+    this.historySize = TICK_RATE;
     this.over = false;
     this.overReason = null;
 
@@ -178,9 +183,30 @@ export class MatchSim {
     const colliders = this.map.colliders || [];
     this.zombies.update(dt, this.players[0], colliders, this.duo ? targets : null);
     this.skySun.update(dt);
+    this.recordHistory();
 
     // 双人倒地救援：两人靠近 3 米内累计 2.5 秒
     if (this.duo) this.updateRescue(dt);
+  }
+
+  // 记录本 tick 的僵尸位置，供延迟补偿回退
+  recordHistory() {
+    const byId = new Map();
+    for (const z of this.zombies.zombies) {
+      byId.set(z.netId, { x: z.root.position.x, y: z.root.position.y, z: z.root.position.z, yaw: z.rotY });
+    }
+    this.history.push({ tick: this.tick, byId });
+    if (this.history.length > this.historySize) this.history.shift();
+  }
+
+  // 取 tick 相对当前的回退快照（找不到就用最老的一份）
+  historicalAt(lagTicks) {
+    const want = this.tick - Math.max(0, Math.min(60, lagTicks | 0));
+    let best = null;
+    for (const h of this.history) {
+      if (!best || Math.abs(h.tick - want) < Math.abs(best.tick - want)) best = h;
+    }
+    return best;
   }
 
   applyInput(p, inp, dt) {
@@ -250,12 +276,19 @@ export class MatchSim {
    * 打中谁、打多少、是不是爆头，全部由服务器判定。
    * 不信任客户端上报的目标与伤害值。
    */
-  fireShot(seat, weaponId, yaw, pitch) {
+  fireShot(seat, weaponId, yaw, pitch, lagTicks = 0) {
     const p = this.players[seat];
     if (!p || p.dead || p.downed) return null;
     const def = WEAPONS.find((w) => w.id === weaponId);
     if (!def) return null;
-    const hit = adjudicateShot(p, yaw, pitch, this.zombies.zombies, this.map);
+    // 延迟补偿：客户端看到的是插值后的旧画面，回退到它瞄准的那一帧再判定
+    const hist = lagTicks > 0 ? this.historicalAt(lagTicks) : null;
+    const byId = hist ? hist.byId : null;
+    // 爆炸类（cherry / cob / melon / jalapeno）：按准星落点做范围伤害，
+    // 不能用射线 —— 它们本来就是「炸一片」而不是「打一个点」。
+    if (def.aerial === 'explosion') return this.fireExplosion(seat, def, yaw, pitch, byId);
+
+    const hit = adjudicateShot(p, yaw, pitch, this.zombies.zombies, this.map, byId);
     if (!hit) {
       this.emit({ t: 'shot', seat, weapon: weaponId, hit: false });
       return null;
@@ -266,6 +299,55 @@ export class MatchSim {
     this.emit({ t: 'shot', seat, weapon: weaponId, hit: true, zid: z.netId, head: hit.head, pos: hit.pos });
     if (dead) this.zombies.handleKill(z, hit.head);
     return { hit: true, zid: z.netId, head: hit.head, dmg };
+  }
+
+  // 爆炸武器：沿准星方向找落点，以落点为心做范围伤害
+  fireExplosion(seat, def, yaw, pitch, byId) {
+    const p = this.players[seat];
+    const origin = { x: p.pos.x, y: p.pos.y + EYE_HEIGHT, z: p.pos.z };
+    const dir = lookDir(yaw, pitch);
+
+    // 落点优先级：
+    //   1. 射线打到僵尸 → 就落在那只僵尸身上（这是玩家瞄的地方）
+    //   2. 否则落到地面（俯角时）
+    //   3. 再否则落到射程末端
+    // 注意：不能用「先算地面再和僵尸距离取小」，那样俯角射击时爆炸会落在脚下。
+    const hit = adjudicateShot(p, yaw, pitch, this.zombies.zombies, this.map, byId);
+    let dist;
+    if (hit) {
+      dist = hit.dist;
+    } else {
+      dist = EXPLOSION_RANGE;
+      if (dir.y < -0.01) {
+        const groundT = -origin.y / dir.y;
+        if (groundT > 0 && groundT < dist) dist = groundT;
+      }
+    }
+
+    const center = {
+      x: origin.x + dir.x * dist,
+      // 落在僵尸身上时用僵尸胸口高度，落地时用地面高度
+      y: hit ? origin.y + dir.y * dist : Math.max(0.9, origin.y + dir.y * dist),
+      z: origin.z + dir.z * dist,
+    };
+
+    const radius = def.radius || 3;
+    const hits = this.zombies.damageArea(center, radius, def.damage || 0, hit ? hit.zombie : null, TUNING.headshotMul, seat);
+    this.emit({ t: 'shot', seat, weapon: def.id, hit: hits > 0, pos: center, aoe: true });
+    return { hit: hits > 0, aoe: true, hits, pos: center };
+  }
+
+  /**
+   * 服务器权威扣阳光：余额不够就拒绝。
+   * 双人共享一个池子，所以 seat 只用于日志，扣的是同一个 this.sun。
+   */
+  spendSun(seat, amount) {
+    const n = Math.max(0, Math.round(Number(amount) || 0));
+    if (n <= 0) return true;
+    if (this.sun < n) return false;
+    this.sun -= n;
+    this.emit({ t: 'sun', seat, amount: n, left: Math.round(this.sun) });
+    return true;
   }
 
   // ---- 对外只读状态：快照编码从这里取数 ----

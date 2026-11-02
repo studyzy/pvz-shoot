@@ -157,10 +157,11 @@ describe('服务器权威命中判定', () => {
 describe('开火链路（双人打不掉血的回归）', () => {
   it('FIRE 帧只携带朝向，不含「打中了谁」', async () => {
     const { encodeFire, decodeFire, FRAME } = await import('../../src/sim/snapshot.js');
-    const f = decodeFire(encodeFire(7, 1.2, -0.3, 'pea'));
-    expect(f).toEqual({ seq: 7, yaw: 1.2, pitch: -0.3, weapon: 'pea' });
-    // 协议里没有 zid / dmg / head 字段 —— 客户端无法伪造目标与伤害
-    expect(Object.keys(f).sort()).toEqual(['pitch', 'seq', 'weapon', 'yaw']);
+    const f = decodeFire(encodeFire(7, 1.2, -0.3, 'pea', 6));
+    expect(f).toEqual({ seq: 7, yaw: 1.2, pitch: -0.3, weapon: 'pea', aimLagTicks: 6 });
+    // 协议里没有 zid / dmg / head 字段 —— 客户端无法伪造目标与伤害。
+    // aimLagTicks 是延迟补偿用的「我看的是几 tick 前的世界」，不是判定结果。
+    expect(Object.keys(f).sort()).toEqual(['aimLagTicks', 'pitch', 'seq', 'weapon', 'yaw']);
     expect(encodeFire(1, 0, 0, 'pea')[0]).toBe(FRAME.FIRE);
   });
 
@@ -200,5 +201,64 @@ describe('开火链路（双人打不掉血的回归）', () => {
     const d = decodeSnapshot(encodeSnapshot(sim));
     expect(d.scores).toEqual([1234, 567]);
     expect(d.kills).toEqual([7, 3]);
+  });
+});
+
+// 回归：爆炸类武器在服务器侧必须打出范围伤害。
+// 曾经这里算错落点（把射线命中距离和地面交点取小），俯角射击时爆炸落在脚边，
+// 表现为「樱桃/玉米炮怎么扔都炸不到人」。
+describe('爆炸类武器的服务器侧结算', () => {
+  const EXPLOSIVE = ['cherry', 'cob', 'melon', 'jalapeno'];
+
+  it('瞄准僵尸投掷/射击时必然造成范围伤害（20 次随机场景全中）', () => {
+    let hit = 0;
+    let attempted = 0;
+    for (let trial = 0; trial < 20; trial++) {
+      const { sim } = makeSim();
+      const p = sim.players[0];
+      const z = sim.zombies.zombies.find((x) => x.alive && !x.dying);
+      if (!z) continue;
+      const dist = Math.hypot(z.root.position.x - p.pos.x, z.root.position.z - p.pos.z);
+      if (dist > 22) continue; // 超出射程不算
+      const a = aimAt(p, z);
+      const r = sim.fireShot(0, 'cherry', a.yaw, a.pitch);
+      attempted++;
+      if (r && r.hits > 0) hit++;
+    }
+    expect(attempted).toBeGreaterThan(0);
+    expect(hit).toBe(attempted);
+  });
+
+  it('四种爆炸武器都走范围伤害分支（不是射线）', () => {
+    for (const id of EXPLOSIVE) {
+      const { sim } = makeSim();
+      const p = sim.players[0];
+      // 在玩家正前方 5 米摆一对僵尸，确保落在半径内
+      const zm = sim.zombies;
+      zm.zombies.length = 0;
+      const z1 = zm.spawnAt('normal', 1, p.pos.x, p.pos.z - 5, 1, 1);
+      const z2 = zm.spawnAt('normal', 1, p.pos.x + 1, p.pos.z - 5.5, 1, 1);
+      z1.spawnT = 1;
+      z2.spawnT = 1;
+      const hp = [z1.hp, z2.hp];
+      const r = sim.fireShot(0, id, 0, -0.1);
+      expect(r, id).toBeTruthy();
+      expect(r.aoe, id).toBe(true);
+      expect(r.hits, id + ' 应该至少炸到 1 只').toBeGreaterThan(0);
+      expect(z1.hp < hp[0] || z2.hp < hp[1], id + ' 应该掉血').toBe(true);
+    }
+  });
+
+  it('射程外的爆炸不会误伤（落点不会被拉近）', () => {
+    const { sim } = makeSim();
+    const p = sim.players[0];
+    const zm = sim.zombies;
+    zm.zombies.length = 0;
+    // 40 米外放一只，爆炸射程 22 米，不该伤到
+    const far = zm.spawnAt('normal', 1, p.pos.x, p.pos.z - 40, 1, 1);
+    far.spawnT = 1;
+    const hp = far.hp;
+    sim.fireShot(0, 'cherry', 0, 0);
+    expect(far.hp).toBe(hp);
   });
 });
