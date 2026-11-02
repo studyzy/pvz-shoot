@@ -683,3 +683,70 @@ describe('hit.js · 头部/身体命中的取舍', () => {
     expect(hit).toBeNull();
   });
 });
+
+describe('MatchSim · 边界守卫', () => {
+  it('事件队列有上限，不会无限增长', async () => {
+    const { headlessMap, duoStartSpawns } = await import('../../src/sim/headlessMap.js');
+    const map = headlessMap('backyard');
+    const sim = new MatchSim({ map, duo: true, spawns: duoStartSpawns(map) });
+    for (let i = 0; i < 400; i++) sim.emit({ t: 'x', i });
+    expect(sim.events.length).toBeLessThanOrEqual(256);
+  });
+
+  it('单人模式（只有 1 名玩家）checkWipe 直接返回', async () => {
+    const { headlessMap, duoStartSpawns } = await import('../../src/sim/headlessMap.js');
+    const map = headlessMap('backyard');
+    const sim = new MatchSim({ map, duo: false, spawns: [duoStartSpawns(map)[0]] });
+    sim.players[0].downed = true;
+    sim.checkWipe();
+    expect(sim.over).toBe(false);
+  });
+
+  it('对局已结束时 checkWipe 不重复触发', async () => {
+    const { headlessMap, duoStartSpawns } = await import('../../src/sim/headlessMap.js');
+    const map = headlessMap('backyard');
+    const sim = new MatchSim({ map, duo: true, spawns: duoStartSpawns(map) });
+    sim.over = true;
+    sim.players[0].downed = true;
+    sim.players[1].downed = true;
+    sim.drainEvents();
+    sim.checkWipe();
+    expect(sim.drainEvents().filter((e) => e.t === 'over')).toHaveLength(0);
+  });
+
+  it('救援：两人分开时进度归零', async () => {
+    const { headlessMap, duoStartSpawns } = await import('../../src/sim/headlessMap.js');
+    const map = headlessMap('backyard');
+    const sim = new MatchSim({ map, duo: true, spawns: duoStartSpawns(map) });
+    const a = sim.players[0];
+    const b = sim.players[1];
+    a.downed = true;
+    // 两人相距很远
+    a.pos.x = 0; a.pos.z = 0;
+    b.pos.x = 30; b.pos.z = 30;
+    sim.rescueAcc = 2.0;
+    sim.updateRescue(0.016);
+    expect(sim.rescueAcc).toBe(0);
+    expect(a.downed).toBe(true);
+  });
+
+  it('playerState 越界返回 null', async () => {
+    const { headlessMap, duoStartSpawns } = await import('../../src/sim/headlessMap.js');
+    const map = headlessMap('backyard');
+    const sim = new MatchSim({ map, duo: true, spawns: duoStartSpawns(map) });
+    expect(sim.playerState(5)).toBeNull();
+    expect(sim.playerState(-1)).toBeNull();
+  });
+
+  it('worldState 给出完整的世界摘要', async () => {
+    const { headlessMap, duoStartSpawns } = await import('../../src/sim/headlessMap.js');
+    const map = headlessMap('backyard');
+    const sim = new MatchSim({ map, duo: true, spawns: duoStartSpawns(map) });
+    sim.start(1);
+    sim.step([null, null]);
+    const w = sim.worldState();
+    for (const k of ['tick', 'sun', 'wave', 'state', 'scores', 'kills', 'bossHp', 'over']) {
+      expect(w, k).toHaveProperty(k);
+    }
+  });
+});

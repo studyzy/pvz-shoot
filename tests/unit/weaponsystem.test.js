@@ -1479,3 +1479,35 @@ describe('武器系统 · 手雷打空', () => {
     expect(W.charge).toBe(0);
   });
 });
+
+describe('武器槽 · 边界分支', () => {
+  it('所有槽都空时 cycleSlot 直接返回', () => {
+    arm();
+    W.slots = { peaGun: [-1], gun: [-1], demo: [-1], grenade: [-1], shield: [-1] };
+    W.activeSlot = null;
+    expect(() => W.cycleSlot(1)).not.toThrow();
+  });
+
+  it('eject 负数索引直接返回', () => {
+    arm();
+    expect(() => W.eject(-1)).not.toThrow();
+  });
+
+  it('手上没东西时 dropLoot 不崩', () => {
+    arm();
+    W.activeSlot = null;
+    expect(() => W.dropLoot()).not.toThrow();
+  });
+
+  it('tryReload 在豌豆（starter）上返回 false——豌豆永远不需要续弹', () => {
+    arm();
+    W.current = 0;
+    expect(W.tryReload()).toBe(false);
+  });
+
+  it('tryReload 在 idx<0 时返回 false', () => {
+    arm();
+    W.current = -1;
+    expect(W.tryReload()).toBe(false);
+  });
+});

@@ -1297,3 +1297,42 @@ describe('Zombie · 构建期兜底', () => {
     z.dispose();
   });
 });
+
+describe('Zombie · mountHeadTop 的边界分支', () => {
+  it('没有配件的类型直接返回，不做挂点计算', () => {
+    const z = makeZombie('normal'); // acc: null
+    expect(() => z.mountHeadTop()).not.toThrow();
+    expect(z._hatPending).toBeUndefined();
+  });
+
+  it('配件已建但找不到头部骨骼时，帽子保持可见不崩', () => {
+    const z = makeZombie('cone'); // 有锥帽
+    expect(z.hat).toBeTruthy();
+    // 清掉 _hatPending，再让 body.getObjectByName 返回 undefined 模拟骨骼缺失
+    const orig = z.body.getObjectByName;
+    z.body.getObjectByName = () => undefined;
+    z._hatPending = true;
+    expect(() => z.mountHeadTop()).not.toThrow();
+    expect(z._hatPending).toBe(false);
+    z.body.getObjectByName = orig;
+  });
+
+  it('没有帽子时也不崩', () => {
+    const z = makeZombie('bucket');
+    const orig = z.body.getObjectByName;
+    z.body.getObjectByName = () => undefined;
+    z.hat = null;
+    z._hatPending = true;
+    expect(() => z.mountHeadTop()).not.toThrow();
+    z.body.getObjectByName = orig;
+  });
+
+  it('无头僵尸调用 mountHeadTop 直接返回', () => {
+    const ctx = makeCtx();
+    ctx.headless = true;
+    ctx.particles = new Proxy({}, { get: () => () => {} });
+    ctx.sfx = new Proxy({}, { get: () => () => {} });
+    const z = new Zombie('cone', 1, 0, 0, ctx, 1, 1);
+    expect(() => z.mountHeadTop()).not.toThrow();
+  });
+});
