@@ -151,3 +151,54 @@ describe('服务器权威命中判定', () => {
     }
   });
 });
+// 回归：双人联机「打不掉血」——
+// 客户端本地命中 → 发 FIRE 帧（只带朝向）→ 服务器权威判定 → 扣血 → 计分。
+// 这条链任何一环断掉都会表现为「怎么打都不掉血」。
+describe('开火链路（双人打不掉血的回归）', () => {
+  it('FIRE 帧只携带朝向，不含「打中了谁」', async () => {
+    const { encodeFire, decodeFire, FRAME } = await import('../../src/sim/snapshot.js');
+    const f = decodeFire(encodeFire(7, 1.2, -0.3, 'pea'));
+    expect(f).toEqual({ seq: 7, yaw: 1.2, pitch: -0.3, weapon: 'pea' });
+    // 协议里没有 zid / dmg / head 字段 —— 客户端无法伪造目标与伤害
+    expect(Object.keys(f).sort()).toEqual(['pitch', 'seq', 'weapon', 'yaw']);
+    expect(encodeFire(1, 0, 0, 'pea')[0]).toBe(FRAME.FIRE);
+  });
+
+  it('fireShot 造成伤害并按武器配置计分', () => {
+    let found = null;
+    for (let attempt = 0; attempt < 6 && !found; attempt++) {
+      const { sim } = makeSim();
+      const p = sim.players[0];
+      for (const z of sim.zombies.zombies.filter((x) => x.alive && !x.dying)) {
+        const a = aimAt(p, z);
+        if (adjudicateShot(p, a.yaw, a.pitch, sim.zombies.zombies, sim.map)) {
+          found = { sim, z, aim: a };
+          break;
+        }
+      }
+      if (!found) for (let i = 0; i < 30 * 4; i++) sim.step([null, null]);
+    }
+    expect(found, '找不到可命中的目标').toBeTruthy();
+    const { sim, z, aim } = found;
+    // 让目标濒死，一发必杀
+    z.hp = 1;
+    const score0 = sim.scores[0];
+    sim.fireShot(0, 'pea', aim.yaw, aim.pitch);
+    // 连续打几发保证打死
+    for (let i = 0; i < 5 && !z.dying && !z.dead; i++) sim.fireShot(0, 'pea', aim.yaw, aim.pitch);
+    expect(sim.scores[0]).toBeGreaterThan(score0);
+    expect(sim.kills[0]).toBeGreaterThan(0);
+  });
+
+  it('快照里带比分与击杀（客户端 HUD 的唯一来源）', async () => {
+    const { encodeSnapshot, decodeSnapshot } = await import('../../src/sim/snapshot.js');
+    const { ZombieManager } = await import('../../src/sim/index.js');
+    void ZombieManager;
+    const { sim } = makeSim();
+    sim.scores = [1234, 567];
+    sim.kills = [7, 3];
+    const d = decodeSnapshot(encodeSnapshot(sim));
+    expect(d.scores).toEqual([1234, 567]);
+    expect(d.kills).toEqual([7, 3]);
+  });
+});

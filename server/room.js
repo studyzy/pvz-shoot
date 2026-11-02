@@ -6,7 +6,7 @@
 //   3. 每 tick 广播二进制快照（约 300B），事件单独走 JSON（只做表现）。
 import { TICK_RATE } from '../src/sim/MatchSim.js';
 import { encodeSnapshot, encodeEvents, setZombieTypes } from '../src/sim/snapshot.js';
-import { ZOMBIES } from '../src/config.js';
+import { ZOMBIES, WEAPONS } from '../src/config.js';
 
 // 类型表只需注册一次：服务器与客户端用同一份 config，索引天然对齐
 setZombieTypes(Object.keys(ZOMBIES));
@@ -21,6 +21,9 @@ export class Room {
     this.clients = new Map(); // seat -> { send, connected }
     this.inputs = [null, null];
     this.lastInputAt = [0, 0];
+    // 开火：每个座位一个队列 + 冷却计时，防止客户端超频连发
+    this.fireQueue = [[], []];
+    this.cooldown = [0, 0];
     this.tickTimer = null;
     this.running = false;
     this.onTickStats = opts.onTickStats || null;
@@ -42,6 +45,15 @@ export class Room {
     if (seat < 0 || seat > 1) return;
     this.inputs[seat] = input;
     this.lastInputAt[seat] = Date.now();
+  }
+
+  // 收开火请求：只记录「朝向」，判定全部在 tick 里由 MatchSim 做
+  pushFire(seat, fire) {
+    if (seat < 0 || seat > 1) return;
+    const q = this.fireQueue[seat];
+    // 一帧最多攒 4 发，防止一次塞爆
+    if (q.length >= 4) return;
+    q.push(fire);
   }
 
   start() {
@@ -78,6 +90,23 @@ export class Room {
     }
 
     this.sim.step(inputs);
+
+    // 处理开火：冷却按秒消耗，到点才允许这一发
+    const dt = 1 / TICK_RATE;
+    for (let seat = 0; seat < 2; seat++) {
+      this.cooldown[seat] = Math.max(0, this.cooldown[seat] - dt);
+      const q = this.fireQueue[seat];
+      while (q.length && this.cooldown[seat] <= 0) {
+        const f = q.shift();
+        const def = WEAPONS.find((w) => w.id === f.weapon);
+        if (!def) continue;
+        this.cooldown[seat] = Math.max(def.cooldown || 0, 1 / TICK_RATE);
+        this.sim.fireShot(seat, f.weapon, f.yaw, f.pitch);
+      }
+      // 冷却没到就继续攒着（下一 tick 再处理），但不无限积压
+      if (q.length > 8) q.length = 8;
+    }
+
     const snap = encodeSnapshot(this.sim);
     const events = this.sim.drainEvents();
     const evPkt = events.length ? encodeEvents(events) : null;

@@ -138,12 +138,13 @@ export class Game {
     ctx.onFire = () => this.hud.fadeTutorial();
 
     ctx.onKill = (z, score, headshot, source) => this.onKill(z, score, headshot, source);
-    // guest 的命中只发请求；host 的本地命中不会走 sendHit（sendHit 里 host 直接 return）。
-    ctx.onGuestHit = (z, weaponId, dir) => {
-      if (this.duoSession) this.duoSession.sendHit(weaponId, z.netId, dir);
+    // 双人：本地算出的「打中了谁」只用于即时反馈，**必须**上报给服务器裁决。
+    // 上报内容只有「武器 + 朝向」，服务器用权威位置重建视线判定伤害。
+    ctx.onGuestHit = (z, weaponId) => {
+      if (this.duo && this.duoSession) this.duoSession.sendFire(weaponId);
     };
-    ctx.onGuestAoe = (weaponId, pos) => {
-      if (this.duoSession) this.duoSession.sendAoe(weaponId, pos);
+    ctx.onGuestAoe = (weaponId) => {
+      if (this.duo && this.duoSession) this.duoSession.sendFire(weaponId);
     };
     ctx.onBellHit = (id, weaponId, dir, origin) => this.onBellHit(id, weaponId, dir, origin);
     ctx.onWaveStart = (n) => this.onWaveStart(n);
@@ -742,6 +743,18 @@ export class Game {
     this.zombies.state = snap.state;
     this.hud.setWave(snap.wave);
 
+    // 比分与击杀：服务器权威，客户端只显示
+    if (Array.isArray(snap.scores)) {
+      this.duoStats = snap.scores.slice();
+      this.stats.score = this.duoStats[seat] || 0;
+      this.hud.setScore(this.stats.score);
+    }
+    if (Array.isArray(snap.kills)) {
+      this.duoKills = snap.kills.slice();
+      this.stats.kills = this.duoKills[seat] || 0;
+      this.hud.setKills(this.stats.kills);
+    }
+
     // 僵尸：交给现有 netSnapshot（按 id 增量 spawn/更新/回收）
     this.zombies.netSnapshot(snap.zombies);
   }
@@ -757,9 +770,13 @@ export class Game {
         this.hud.showBanner('第 ' + ev.n + ' 波 守住了!', 2.0);
         this.sfx.waveClear();
         break;
+      case 'shot':
+        // 服务器确认命中：播命中反馈（伤害数字/白闪以服务器为准）
+        if (ev.seat === this.seat && ev.hit) this.hud.hitmarker(!!ev.head);
+        break;
       case 'kill':
         if (ev.seat === this.seat) {
-          this.sfx.hit && this.sfx.hit();
+          this.hud.hitmarker(!!ev.head);
         }
         break;
       case 'down':

@@ -8,7 +8,7 @@
 import { MSG, encode, decode, cleanMapId } from './protocol.js';
 import { NetClient } from './NetClient.js';
 import { SnapshotBuffer } from './interpolate.js';
-import { FRAME, encodeInput, decodeSnapshot } from '../sim/snapshot.js';
+import { FRAME, encodeInput, encodeFire, decodeSnapshot } from '../sim/snapshot.js';
 import { BTN } from '../sim/MatchSim.js';
 
 // 位置偏差超过这个距离就回滚重放；小偏差直接平滑掉（避免为了毫米级误差抖镜头）
@@ -330,6 +330,29 @@ export class ClientNet {
 
   get latencyMs() {
     return this.rtt;
+  }
+
+  /**
+   * 开火：只上报「我朝哪个方向开了这一枪」。
+   * 打没打中、伤害多少、是不是爆头，全部由服务器按权威位置判定。
+   * 这里不做任何本地「我打中了谁」的上报 —— 那是旧架构的做法。
+   */
+  sendFire(weaponId) {
+    if (this.state !== 'playing' || !this.net) return false;
+    const p = this.game.player;
+    if (!p || p.dead || p.downed) return false;
+    this.fireSeq = (this.fireSeq || 0) + 1;
+    return this.net.sendBinary(encodeFire(this.fireSeq, p.yaw, p.pitch, weaponId));
+  }
+
+  // 兼容旧调用点：单发开火走 sendFire（参数里的目标/方向一律忽略，服务器不信任）
+  sendHit(weaponId) {
+    return this.sendFire(weaponId);
+  }
+
+  // 范围伤害（爆炸类）：同样只上报武器与朝向，落点由服务器重算
+  sendAoe(weaponId) {
+    return this.sendFire(weaponId);
   }
 
   // 暂停：服务器权威下「暂停」只影响本地表现，不通过网络锁住队友。

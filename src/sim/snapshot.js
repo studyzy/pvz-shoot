@@ -14,6 +14,7 @@ export const FRAME = Object.freeze({
   SNAP: 0x20,
   EVENT: 0x30,
   INPUT: 0x40,
+  FIRE: 0x41,
   FULL: 0x21,
 });
 
@@ -59,8 +60,8 @@ const Z_BYTES = 16;
 export function encodeSnapshot(sim, opts = {}) {
   const zs = sim.zombieStates();
   const nPlayers = sim.players.length;
-  // 头 8 字节 + 玩家 24 字节/人 + 僵尸 16 字节/只
-  const size = 8 + nPlayers * 24 + zs.length * Z_BYTES;
+  // 头 16 字节 + 玩家 24 字节/人 + 僵尸 16 字节/只
+  const size = 16 + nPlayers * 24 + zs.length * Z_BYTES;
   const buf = new ArrayBuffer(size);
   const dv = new DataView(buf);
   let o = 0;
@@ -74,6 +75,15 @@ export function encodeSnapshot(sim, opts = {}) {
   o += 2;
   dv.setUint8(o++, Math.min(255, sim.zombies.wave));
   dv.setUint8(o++, sim.zombies.state === 'intermission' ? 1 : sim.zombies.state === 'spawning' ? 2 : 0);
+  // 比分与击杀数：客户端 HUD 的唯一来源（服务器权威）
+  for (let i = 0; i < 2; i++) {
+    dv.setUint16(o, clampi(sim.scores[i] || 0, 0, 65535), true);
+    o += 2;
+  }
+  for (let i = 0; i < 2; i++) {
+    dv.setUint16(o, clampi(sim.kills[i] || 0, 0, 65535), true);
+    o += 2;
+  }
 
   for (let i = 0; i < nPlayers; i++) {
     const p = sim.playerState(i);
@@ -135,6 +145,10 @@ export function decodeSnapshot(bytes) {
   const wave = dv.getUint8(o++);
   const stateByte = dv.getUint8(o++);
   const state = stateByte === 1 ? 'intermission' : stateByte === 2 ? 'spawning' : 'idle';
+  const scores = [dv.getUint16(o, true), dv.getUint16(o + 2, true)];
+  o += 4;
+  const kills = [dv.getUint16(o, true), dv.getUint16(o + 2, true)];
+  o += 4;
 
   const players = [];
   for (let i = 0; i < nPlayers; i++) {
@@ -194,7 +208,7 @@ export function decodeSnapshot(bytes) {
     });
   }
 
-  return { tick, sun, wave, state, players, zombies };
+  return { tick, sun, wave, state, scores, kills, players, zombies };
 }
 
 // ---- 输入帧：客户端 → 服务器 ----
@@ -227,6 +241,41 @@ export function decodeInput(bytes) {
     yaw: dv.getInt16(7, true) / SCALE_ANG,
     pitch: dv.getInt16(9, true) / SCALE_ANG,
     buttons: dv.getUint8(11),
+  };
+}
+
+// ---- 开火帧：客户端 → 服务器 ----
+// kind(u8) seq(u32) yaw(i16) pitch(i16) weaponLen(u8) weapon(utf8) = 13 + len
+//
+// 关键：客户端**只上报朝向**，不上报「打中了谁、打多少」。
+// 服务器用这一幕的权威僵尸位置重建视线并判定（src/sim/hit.js 的 adjudicateShot）。
+export function encodeFire(seq, yaw, pitch, weaponId) {
+  const w = String(weaponId || '').slice(0, 24);
+  const wb = new TextEncoder().encode(w);
+  const buf = new ArrayBuffer(13 + wb.length);
+  const dv = new DataView(buf);
+  dv.setUint8(0, FRAME.FIRE);
+  dv.setUint32(1, seq >>> 0, true);
+  dv.setInt16(5, clampi(yaw * SCALE_ANG, -32768, 32767), true);
+  dv.setInt16(7, clampi(pitch * SCALE_ANG, -32768, 32767), true);
+  dv.setUint8(9, wb.length);
+  const out = new Uint8Array(buf);
+  out.set(wb, 10);
+  return out.subarray(0, 10 + wb.length);
+}
+
+export function decodeFire(bytes) {
+  if (!bytes || bytes.byteLength < 10) return null;
+  const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  if (dv.getUint8(0) !== FRAME.FIRE) return null;
+  const len = dv.getUint8(9);
+  if (bytes.byteLength < 10 + len) return null;
+  const weapon = new TextDecoder().decode(bytes.subarray(10, 10 + len));
+  return {
+    seq: dv.getUint32(1, true),
+    yaw: dv.getInt16(5, true) / SCALE_ANG,
+    pitch: dv.getInt16(7, true) / SCALE_ANG,
+    weapon,
   };
 }
 

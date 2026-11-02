@@ -10,13 +10,25 @@ import {
 import { Room } from './room.js';
 import { MatchSim } from '../src/sim/MatchSim.js';
 import { headlessMap, duoStartSpawns } from '../src/sim/headlessMap.js';
-import { decodeInput } from '../src/sim/snapshot.js';
+import { decodeInput, decodeFire } from '../src/sim/snapshot.js';
 
 // 输入帧清洗：长度不对/类型不对一律丢，绝不让脏数据进模拟
 function decodeInputSafe(bytes) {
   if (!bytes || !(bytes instanceof Uint8Array) || bytes.byteLength !== 12) return null;
   try {
     return decodeInput(bytes);
+  } catch (e) {
+    return null;
+  }
+}
+
+// 开火帧清洗：只接受合法武器 id（小写字母），防止把任意字符串塞进模拟
+function decodeFireSafe(bytes) {
+  if (!bytes || !(bytes instanceof Uint8Array) || bytes.byteLength < 10 || bytes.byteLength > 40) return null;
+  try {
+    const f = decodeFire(bytes);
+    if (!f || !/^[a-z][a-z0-9-]{0,23}$/.test(f.weapon)) return null;
+    return f;
   } catch (e) {
     return null;
   }
@@ -338,10 +350,16 @@ export class Matchmaker {
     });
   }
 
-  // 客户端输入（二进制帧）：直接喂给该座位的权威模拟
+  // 客户端二进制帧：INPUT（移动）与 FIRE（开火）共用这条入口，按首字节分流
   onInputFrame(conn, bytes) {
     const seat = conn.seat;
     if (!seat || !seat.match || !seat.match.room) return;
+    if (bytes && bytes[0] === 0x41) {
+      const fire = decodeFireSafe(bytes);
+      if (!fire) return;
+      seat.match.room.pushFire(seat.index, fire);
+      return;
+    }
     const inp = decodeInputSafe(bytes);
     if (!inp) return;
     seat.match.room.pushInput(seat.index, inp);
