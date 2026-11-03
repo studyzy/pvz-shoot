@@ -101,6 +101,23 @@ describe('LoadProgress 汇总', () => {
     expect(calls).toBe(1);
   });
 
+  it('早退分支：非正数估算、重复落定、未开始就结束/报错都不改状态', () => {
+    estimateBytes(0);
+    estimateBytes(-5);
+    expect(loader.estimate).toBe(0);
+
+    loadingManager.itemStart('/models/a.glb');
+    loadingManager.itemEnd('/models/a.glb');
+    // 落定后同一个 url 再报结束/失败：不重复计数，也不会把 failed 打上
+    loadingManager.itemEnd('/models/a.glb');
+    expect(loadSummary()).toMatchObject({ done: 1, failed: 0 });
+
+    // 从未 itemStart 过的 url 直接结束/报错：静默忽略，不进表
+    loadingManager.itemEnd('/models/ghost.glb');
+    loadingManager.itemError('/models/ghost.glb');
+    expect(loadSummary()).toMatchObject({ count: 1, done: 1 });
+  });
+
   it('加载器统一接入这张进度表（构造时拿到的就是它）', () => {
     const l = new TrackedGLTFLoader();
     expect(l.manager).toBe(loadingManager);

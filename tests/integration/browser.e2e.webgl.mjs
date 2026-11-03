@@ -2196,7 +2196,22 @@ async function phaseWeapons(ctx) {
         await item.visualReady;
         g.renderer.render(g.scene, g.camera);
       });
-      check(await page.evaluate(() => window.__game.pickups.items[0].holder.children[0].children[0].name === 'cob'), '地面拾取必须复用玉米 GLB');
+      // 拾取物用的是同一份玉米模板：持有物的网格直接来自 GLB（几何与手持那把共享），
+      // 不是程序占位。不按节点名断言——合并包里原模型的组节点会被展平成 mesh。
+      check(
+        await page.evaluate(() => {
+          const g = window.__game;
+          const visual = g.pickups.items[0].holder.children[0];
+          let picked = null;
+          visual.traverse((n) => { if (!picked && n.isMesh) picked = n; });
+          const held = g.weapons.models.find((m) => m.loaded && m.visual.children[0] && m.visual.children[0].name === 'pack.cob');
+          if (!picked || !held) return false;
+          let heldMesh = null;
+          held.visual.children[0].traverse((n) => { if (!heldMesh && n.isMesh) heldMesh = n; });
+          return !!heldMesh && picked.geometry === heldMesh.geometry;
+        }),
+        '地面拾取必须复用玉米 GLB'
+      );
       await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
       await shot(page, 'weapon-pickup-' + view.width + 'x' + view.height);
       check(consoleErrors.length === 0, '武器页控制台错误：' + consoleErrors.join('\n'));

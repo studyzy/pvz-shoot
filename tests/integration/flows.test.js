@@ -282,6 +282,49 @@ describe('0. 首屏素材下载', () => {
     expect(loadSummary().finished).toBe(true);
   });
 
+  it('文件清单：模型文件转成中文名，只取最近 6 条', async () => {
+    const { loadingManager, loader } = await import('../../src/assets/LoadProgress.js');
+    loader.items.length = 0;
+    loadingManager.byUrl.clear();
+    loadingManager.open.clear();
+    const urls = [
+      '/models/pumpkin-kid.glb', '/models/toys/clockRabbit.glb', '/models/dragon-evolved.glb',
+      '/models/weapons/pack.glb', '/models/mystery-new.glb', '/audio/z1.wav',
+      '/models/zombie.glb', '/models/alchemist.glb', '/models/goblin.glb',
+    ];
+    for (const u of urls) {
+      loadingManager.itemStart(u);
+      loadingManager.trackProgress(u, { lengthComputable: true, loaded: 10, total: 20 });
+      loadingManager.itemEnd(u);
+    }
+    const view = game.loadView();
+    // 非 /models/ 的请求不进清单；最多 6 条（取最后 6 个）
+    expect(view.files.length).toBe(6);
+    expect(view.files.map((f) => f.label)).toEqual([
+      '巨龙模型', '植物模型包', 'mystery-new模型', '僵尸模型', '炼金僵尸模型', '哥布林模型',
+    ]);
+    expect(view.files[0]).toMatchObject({ total: 20, done: true });
+    // 进度订阅者会把面板刷新到"就绪"
+    expect($('loadPanel').dataset.state).not.toBe('loading');
+  });
+
+  it('进度事件推送到面板（订阅生效），且 offLoadProgress 可取消订阅', async () => {
+    const { loadingManager, loader } = await import('../../src/assets/LoadProgress.js');
+    loader.items.length = 0;
+    loadingManager.byUrl.clear();
+    loadingManager.open.clear();
+    game.hud.setLoadState(game.loadView());
+    expect($('loadCount').textContent).toBe('0 / 0');
+    loadingManager.itemStart('/models/a.glb');
+    // 同步：itemStart 已经通知过面板
+    expect($('loadCount').textContent).toBe('0 / 1');
+    const off = game.offLoadProgress;
+    off();
+    loadingManager.itemEnd('/models/a.glb');
+    expect($('loadCount').textContent).toBe('0 / 1'); // 取消后不再刷新
+    game.bindLoadProgress(); // 恢复给后续用例
+  });
+
   it('地图卡片带场景剪影与玩法标签（HUD 结构）', () => {
     const card = $('mapSelect').querySelector('.map-card[data-map="downtown"]');
     expect(card.querySelector('.map-art svg')).toBeTruthy();
