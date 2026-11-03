@@ -17,6 +17,27 @@ const ICONS = {
   jalapeno: '<svg viewBox="0 0 48 48"><path d="M27 10c-9-2-17 5-18 15-1 8 5 14 12 13 8-1 13-8 12-16-1-4-3-7-6-9z" fill="#ff5a2a" stroke="#7a1a06" stroke-width="2.6"/><path d="M27 10c0-4 2-6 6-7" stroke="#4f9c26" stroke-width="3.4" fill="none" stroke-linecap="round"/><path d="M33 3c4-1 7 0 8 2-3 1-5 1-8-2z" fill="#63b32c"/><ellipse cx="18" cy="22" rx="2.6" ry="4.4" fill="#ffb3a0" opacity="0.8"/></svg>',
 };
 
+// 首页地图卡片的场景剪影：按地图 id 画一小片"能认出来"的图形（雪柱 / 城墙 / 森林 / 云桥 / 楼群）。
+// 用 CSS 变量控制颜色，暗态和选中态各取一套，不额外下载图片。
+const MAP_ART = {
+  backyard: '<svg viewBox="0 0 120 80" preserveAspectRatio="none"><path d="M0 58c14-6 24 4 38-1s22-9 40-3 28 2 42 5v21H0z" fill="var(--art-a)"/><g fill="var(--art-b)"><rect x="20" y="40" width="7" height="22" rx="3"/><rect x="52" y="34" width="7" height="28" rx="3"/><rect x="86" y="43" width="7" height="19" rx="3"/></g><circle cx="23.5" cy="36" r="7" fill="var(--art-c)"/><circle cx="55.5" cy="30" r="7" fill="var(--art-c)"/><circle cx="89.5" cy="39" r="6" fill="var(--art-c)"/></svg>',
+  snow: '<svg viewBox="0 0 120 80" preserveAspectRatio="none"><path d="M0 60h120v20H0z" fill="var(--art-a)"/><g fill="var(--art-b)"><rect x="18" y="26" width="12" height="34"/><rect x="54" y="26" width="12" height="34"/><rect x="90" y="26" width="12" height="34"/></g><path d="M0 60l14-8 12 5 16-9 14 8 18-7 16 9 16-6 14 5v1H0z" fill="var(--art-c)"/><g fill="var(--art-c)" opacity=".55"><circle cx="38" cy="16" r="2"/><circle cx="74" cy="12" r="1.6"/><circle cx="100" cy="20" r="1.4"/></g></svg>',
+  dust: '<svg viewBox="0 0 120 80" preserveAspectRatio="none"><path d="M0 62h120v18H0z" fill="var(--art-a)"/><g fill="var(--art-b)"><rect x="8" y="34" width="26" height="28" rx="2"/><rect x="40" y="26" width="18" height="36" rx="2"/><rect x="64" y="38" width="24" height="24" rx="2"/><rect x="94" y="30" width="20" height="32" rx="2"/></g><g fill="var(--art-c)"><rect x="13" y="40" width="5" height="7"/><rect x="23" y="40" width="5" height="7"/><rect x="45" y="32" width="4" height="6"/><rect x="71" y="44" width="5" height="6"/><rect x="100" y="36" width="5" height="6"/></g></svg>',
+  forest: '<svg viewBox="0 0 120 80" preserveAspectRatio="none"><path d="M0 64h120v16H0z" fill="var(--art-a)"/><g fill="var(--art-b)"><path d="M20 64l10-30 10 30z"/><path d="M42 64l8-24 8 24z"/><path d="M66 64l12-36 12 36z"/><path d="M94 64l8-22 8 22z"/></g><g fill="var(--art-c)"><circle cx="30" cy="46" r="1.6"/><circle cx="80" cy="40" r="1.6"/><circle cx="100" cy="50" r="1.4"/><circle cx="52" cy="52" r="1.2"/></g></svg>',
+  cloud: '<svg viewBox="0 0 120 80" preserveAspectRatio="none"><g fill="var(--art-b)"><circle cx="22" cy="56" r="12"/><circle cx="38" cy="60" r="9"/><circle cx="96" cy="58" r="11"/><circle cx="80" cy="62" r="8"/></g><path d="M34 52h52v5H34z" fill="var(--art-c)"/><g fill="var(--art-c)"><rect x="56" y="20" width="9" height="32" rx="2"/><circle cx="60.5" cy="18" r="5"/></g></svg>',
+  downtown: '<svg viewBox="0 0 120 80" preserveAspectRatio="none"><g fill="var(--art-b)"><rect x="10" y="30" width="20" height="42"/><rect x="34" y="18" width="24" height="54"/><rect x="62" y="36" width="18" height="36"/><rect x="84" y="24" width="26" height="48"/></g><g fill="var(--art-c)"><rect x="15" y="36" width="3" height="3"/><rect x="22" y="36" width="3" height="3"/><rect x="40" y="24" width="3" height="3"/><rect x="49" y="24" width="3" height="3"/><rect x="40" y="34" width="3" height="3"/><rect x="49" y="34" width="3" height="3"/><rect x="67" y="44" width="3" height="3"/><rect x="90" y="32" width="3" height="3"/><rect x="100" y="32" width="3" height="3"/><rect x="90" y="42" width="3" height="3"/></g><path d="M0 72h120v8H0z" fill="var(--art-a)"/></svg>',
+};
+
+function escapeHtml(text) {
+  return String(text == null ? '' : text).replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+}
+
+function fmtBytes(n) {
+  if (!(n > 0)) return '0 KB';
+  if (n >= 1048576) return (n / 1048576).toFixed(n >= 10485760 ? 0 : 1) + ' MB';
+  return Math.max(1, Math.round(n / 1024)) + ' KB';
+}
+
 export class HUD {
   constructor() {
     this.hud = document.getElementById('hud');
@@ -45,6 +66,15 @@ export class HUD {
     this.joyKnob = document.getElementById('joyKnob');
     this.mapSelect = document.getElementById('mapSelect');
     this.startBtn = document.getElementById('startBtn');
+    this.loadPanel = document.getElementById('loadPanel');
+    this.loadTitle = document.getElementById('loadTitle');
+    this.loadCount = document.getElementById('loadCount');
+    this.loadBar = document.querySelector('#loadPanel .load-track');
+    this.loadFill = document.getElementById('loadFill');
+    this.loadBytes = document.getElementById('loadBytes');
+    this.loadNote = document.getElementById('loadNote');
+    this.loadList = document.getElementById('loadList');
+    this.loadCache = { state: '', pct: -1, count: '', bytes: '', listKey: '' };
     this.duoBtn = document.getElementById('duoBtn');
     this.duoShare = document.getElementById('duoShare');
     this.duoStatusEl = document.getElementById('duoStatus');
@@ -170,21 +200,19 @@ export class HUD {
     this.mapButtons = [];
     for (let i = 0; i < maps.length; i++) {
       const m = maps[i];
+      // 卡片结构：缩略图（渐变 + 场景剪影）→ 序号/英文标签 → 中文名 → 一句玩法 → 风险标签
       const btn = document.createElement('button');
       btn.className = 'map-card map-' + m.id;
       btn.dataset.map = m.id;
-      const tag = document.createElement('span');
-      tag.className = 'map-tag';
-      tag.textContent = m.tag;
-      const name = document.createElement('span');
-      name.className = 'map-name';
-      name.textContent = m.name;
-      const desc = document.createElement('span');
-      desc.className = 'map-desc';
-      desc.textContent = m.desc;
-      btn.appendChild(tag);
-      btn.appendChild(name);
-      btn.appendChild(desc);
+      btn.type = 'button';
+      btn.innerHTML =
+        '<span class="map-art" aria-hidden="true">' + (MAP_ART[m.id] || '') + '<i class="map-index">' + (i + 1) + '</i></span>' +
+        '<span class="map-body">' +
+        '<span class="map-tag">' + escapeHtml(m.tag) + '</span>' +
+        '<span class="map-name">' + escapeHtml(m.name) + '</span>' +
+        '<span class="map-desc">' + escapeHtml(m.desc) + '</span>' +
+        (m.mode ? '<span class="map-chip">' + escapeHtml(m.mode) + '</span>' : '') +
+        '</span>';
       btn.addEventListener('click', (e) => {
         e.preventDefault();
         e.stopPropagation();
@@ -199,12 +227,75 @@ export class HUD {
   setMapSelection(id) {
     if (!this.mapButtons) return;
     for (let i = 0; i < this.mapButtons.length; i++) {
-      this.mapButtons[i].btn.classList.toggle('active', this.mapButtons[i].id === id);
+      const on = this.mapButtons[i].id === id;
+      this.mapButtons[i].btn.classList.toggle('active', on);
+      this.mapButtons[i].btn.setAttribute('aria-pressed', on ? 'true' : 'false');
     }
   }
 
   setStartLabel(text) {
     if (this.startBtn) this.startBtn.textContent = text;
+  }
+
+  // 首页加载面板。summary 来自 src/assets/LoadProgress.js 的 loadSummary()。
+  // 每帧都调也行（内部做差量缓存），但 Game 只在有变化时调。
+  setLoadState(summary) {
+    if (!this.loadPanel) return;
+    const c = this.loadCache;
+    const pct = Math.max(0, Math.min(100, summary.percent || 0));
+    const ready = !!summary.ready;
+    const finished = !!summary.finished;
+    const state = ready ? (finished ? 'done' : 'ready') : 'loading';
+    if (c.state !== state) {
+      c.state = state;
+      this.loadPanel.dataset.state = state;
+      this.loadPanel.classList.toggle('is-done', state === 'done');
+      if (this.loadTitle) {
+        this.loadTitle.textContent =
+          state === 'loading' ? '正在下载战斗素材' : state === 'ready' ? '首屏已就绪' : '全部素材就绪';
+      }
+      if (this.loadNote) {
+        this.loadNote.textContent =
+          state === 'loading' ? '僵尸、植物与场景模型，第一次打开稍慢一点' : state === 'ready' ? '可以先开打，其余模型在后台继续加载' : '点击开始保卫后院';
+      }
+      // 首屏就绪后启用开始按钮（文案由 setStartLabel 管，这里只切 disabled）
+      if (this.startBtn) this.startBtn.disabled = !ready;
+      const screen = document.getElementById('startScreen');
+      if (screen) screen.classList.toggle('is-loading', !ready);
+    }
+    // 进度条只在百分比变化时写 DOM（每 tick 可能都在涨，避免抖动重排）
+    const shown = state === 'loading' ? Math.round(pct) : 100;
+    if (c.pct !== shown) {
+      c.pct = shown;
+      if (this.loadFill) this.loadFill.style.width = shown + '%';
+      if (this.loadBar) this.loadBar.setAttribute('aria-valuenow', String(shown));
+    }
+    const count = summary.done + ' / ' + summary.count;
+    if (c.count !== count && this.loadCount) {
+      c.count = count;
+      this.loadCount.textContent = count;
+    }
+    const bytes = fmtBytes(summary.loaded) + (summary.total ? ' / ' + fmtBytes(summary.total) : '');
+    if (c.bytes !== bytes && this.loadBytes) {
+      c.bytes = bytes;
+      this.loadBytes.textContent = bytes;
+    }
+    this.renderLoadList(summary);
+  }
+
+  // 已下载的文件清单：只显示最后几条，让玩家看见"确实在动"而不是干等一个条。
+  renderLoadList(summary) {
+    if (!this.loadList || !summary.files) return;
+    const list = summary.files;
+    const key = list.map((f) => f.label + (f.done ? '1' : '0')).join('|');
+    if (this.loadCache.listKey === key) return;
+    this.loadCache.listKey = key;
+    let html = '';
+    for (let i = 0; i < list.length; i++) {
+      const f = list[i];
+      html += '<li class="' + (f.done ? 'done' : 'active') + '"><i></i><span>' + escapeHtml(f.label) + '</span><em>' + (f.total ? fmtBytes(f.total) : '') + '</em></li>';
+    }
+    this.loadList.innerHTML = html;
   }
 
   setDuoStatus(text, tone = 'idle') {

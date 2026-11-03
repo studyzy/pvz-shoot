@@ -18,6 +18,7 @@ vi.doMock('three', async (importOriginal) => {
 });
 
 let game;
+let zombieModel;
 let spawnZombieAt;
 let step;
 
@@ -25,8 +26,9 @@ beforeAll(async () => {
   const H = await import('../helpers/game.js');
   ({ spawnZombieAt, step } = H);
   game = (await H.createGame()).game;
+  ({ zombieModel } = await import('../../src/entities/ZombieModel.js'));
+  await H.markAssetsReady();
   game.start();
-  const { zombieModel } = await import('../../src/entities/ZombieModel.js');
   const modelsReady = () => zombieModel.ready && zombieModel.skeleton.ready;
   for (let i = 0; i < 100 && !modelsReady(); i++) await new Promise((r) => setTimeout(r, 10));
 }, 60000);

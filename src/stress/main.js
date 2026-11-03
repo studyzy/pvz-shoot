@@ -641,7 +641,7 @@ async function boot() {
     zombieModel,
   };
 
-  initZombieModel();
+  initZombieModel({ all: true });
   await waitForModels();
 
   buildTypeChips();

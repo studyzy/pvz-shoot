@@ -66,7 +66,7 @@ export async function realGltfLoader() {
     return pending;
   };
   GLTFLoader.prototype.load = function (url, onLoad) {
-    if (url.includes('/models/weapons/')) return buildStubWeaponScene(url).then((scene) => onLoad({ scene }));
+    if (url.includes('/models/weapons/')) return buildStubWeaponPack().then((scene) => onLoad({ scene }));
     return parseOnce().then((g) => {
       onLoad(g);
       return 'real';
@@ -98,19 +98,34 @@ export async function stubGltfLoader() {
   GLTFLoader.prototype.__testStubbed = true;
   stubGltfLoader.three = await import('three');
   GLTFLoader.prototype.load = async function (url, onLoad) {
-    const scene = url.includes('/models/weapons/') ? await buildStubWeaponScene(url) : await buildStubZombieScene();
+    const scene = url.includes('/models/weapons/') ? await buildStubWeaponPack() : await buildStubZombieScene();
     onLoad({ scene, animations: [], cameras: [], asset: {} });
     return 'stub';
   };
 }
 
-async function buildStubWeaponScene(url) {
+// 植物模型是一个合并包（public/models/weapons/pack.glb）：外层 'pack.<id>' 节点包原模型的场景。
+// 前端按 <id> 从包里取模板，所以替身必须给出同样的结构，否则 WeaponSystem 拿不到模型。
+let stubWeaponPack = null;
+export async function buildStubWeaponPack() {
+  if (stubWeaponPack) return stubWeaponPack;
   const THREE = await stubThree();
   const root = new THREE.Group();
-  root.name = url.split('/').pop().replace('.glb', '');
-  root.add(new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.5, 0.6), new THREE.MeshStandardMaterial({ color: 0x75ba34 })));
+  root.name = 'weapon-pack';
+  for (const id of WEAPON_IDS) {
+    const holder = new THREE.Group();
+    holder.name = 'pack.' + id;
+    const model = new THREE.Group();
+    model.name = id;
+    model.add(new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.5, 0.6), new THREE.MeshStandardMaterial({ color: 0x75ba34 })));
+    holder.add(model);
+    root.add(holder);
+  }
+  stubWeaponPack = root;
   return root;
 }
+
+const WEAPON_IDS = ['pea', 'snow', 'cherry', 'cob', 'repeater', 'threepeater', 'gatling', 'cactus', 'melon', 'jalapeno', 'wallnut', 'firepea'];
 
 async function buildStubZombieScene() {
   const THREE = await stubThree();
@@ -151,8 +166,11 @@ export async function createGame(options = {}) {
   const pointerLock = installPointerLock();
   const { Game } = await import('../../src/Game.js');
   await stubGltfLoader();
-  const { initZombieModel } = await import('../../src/entities/ZombieModel.js');
+  const { initZombieModel, releaseRestModels } = await import('../../src/entities/ZombieModel.js');
+  // 测试直接要全套模型：首屏分批（先下 zombie/alchemist、其余延后）只是首页体验，
+  // 测试里立刻放行，保证所有僵尸类型随时可刷（Boss 用的骷髅也在放行的那批里）。
   initZombieModel();
+  releaseRestModels();
   const canvas = document.createElement('canvas');
   canvas.width = 1440;
   canvas.height = 860;
@@ -172,12 +190,29 @@ export async function readyGame() {
   // 多个 glb 是先后多次 load，骷髅（Boss 用）/ 橄榄球 / 炼金（普通僵尸）通常比僵尸晚就绪，
   // 只等 ready 会让对应类型撞上"模型没就绪所以不刷怪"，spawnZombieAt 拿到 null。
   // 用真实时间兜底而不是「N 个宏任务」：慢 runner / 覆盖率插桩下 tick 数差很多。
+  // 首页只先下首屏模型（zombie/alchemist），其余模型等首屏落定后放行；测试里直接放行，
+  // 免得每个用例都要先等首屏——但仍在下面等 skeleton/football 就绪。
+  const { releaseRestModels } = await import('../../src/entities/ZombieModel.js');
+  releaseRestModels();
   const ready = () => zombieModel.ready && zombieModel.skeleton.ready
     && zombieModel.football.ready && zombieModel.alchemist.ready;
   const deadline = Date.now() + 5000;
   while (!ready() && Date.now() < deadline) await new Promise((r) => setTimeout(r, 0));
   if (!ready()) throw new Error('zombieModel 没在 5 秒内就绪（glb 替身加载不完整）');
+  await markAssetsReady();
   return booted;
+}
+
+// 测试里"素材已就绪"：把加载进度表标记成全部落定。真实首页由真的 glb 下载驱动，
+// 测试没有网络，靠替身对不上字节数，所以这里显式给一个已就绪的进度状态。
+export async function markAssetsReady() {
+  const { loader, expectReady, loadSummary } = await import('../../src/assets/LoadProgress.js');
+  for (const it of loader.items) it.done = true;
+  // glb 替身不走 LoadingManager，不会有任何条目：补一条已完成条目代表"素材已就绪"，
+  // 并把首屏门槛设成已满足的数量
+  if (!loader.items.length) loader.items.push({ url: 'stub://models', loaded: 1, total: 1, done: true, failed: false });
+  expectReady(loader.items.length);
+  return loadSummary();
 }
 
 export function step(game, frames, dt = 1 / 60) {

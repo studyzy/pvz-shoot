@@ -27,6 +27,41 @@ describe('ZombieModel.findClip', () => {
 });
 
 describe('ZombieModel.initZombieModel', () => {
+  it('首页只先排队首屏模型，其余模型等首屏落定后再放行', async () => {
+    const THREE = await import('three');
+    vi.resetModules();
+    const requested = [];
+    const modelLoaderCalls = [];
+    vi.doMock('three/examples/jsm/loaders/GLTFLoader.js', () => ({
+      GLTFLoader: class {
+        load(url, onLoad) {
+          requested.push(url.slice(url.lastIndexOf('/') + 1));
+          modelLoaderCalls.push(() => onLoad && onLoad({ scene: new THREE.Group(), animations: [] }));
+        }
+      },
+      Loader: class {},
+    }));
+    const mod = await import('../../src/entities/ZombieModel.js');
+    mod.initZombieModel();
+    // 只有首屏两个模型（zombie / alchemist）先发请求，巨龙/蘑菇王这些不进首屏
+    expect(requested.sort()).toEqual(['alchemist.glb', 'zombie.glb']);
+    expect(mod.LOAD_FIRST).toEqual(['zombie', 'alchemist']);
+    // 首屏落定 → 其余模型放行（限流 6 并发，这里逐个调 done 把队列排空）
+    mod.releaseRestModels();
+    // 放行后队列里的每个模型都会开始下载：逐个完成以拉起下一个
+    const total = Object.keys(mod.MODELS).length;
+    const real = modelLoaderCalls;
+    for (let i = 0; i < total; i++) real[i] && real[i]();
+    expect(requested).toContain('mushroom-king.glb');
+    expect(requested.length).toBe(total);
+    // 重复调用只放行一次
+    const n = requested.length;
+    mod.releaseRestModels();
+    expect(requested.length).toBe(n);
+    vi.doUnmock('three/examples/jsm/loaders/GLTFLoader.js');
+    vi.resetModules();
+  });
+
   it('加载成功后写入 scene 与 clips，并把 mesh 设为投射阴影', async () => {
     const THREE = await import('three');
     const gltfScene = new THREE.Group();
@@ -81,7 +116,8 @@ describe('ZombieModel.initZombieModel', () => {
       },
     }));
     const mod = await import('../../src/entities/ZombieModel.js');
-    mod.initZombieModel();
+    // 首页只先下首屏模型；图鉴/压测要全套，用 all 模式
+    mod.initZombieModel({ all: true });
     const slot = mod.zombieModel.giant;
     expect(slot.ready).toBe(true);
     // 盒子 2×4×1 初始放在 y=4。量包围盒时它已按 1.85 归一化并被 fitToHeight 贴到地面，
@@ -108,7 +144,7 @@ describe('ZombieModel.initZombieModel', () => {
     }));
     const mod = await import('../../src/entities/ZombieModel.js');
     expect(mod.MODELS.zombieDoctor.url).toBe('models/zombie-doctor.glb');
-    mod.initZombieModel();
+    mod.initZombieModel({ all: true });
     const slot = mod.zombieModel.zombieDoctor;
     expect(slot.ready).toBe(true);
     // 走程序化骨架的模型不能带 clip（带了 Zombie 就不会走 updateProcAnim，会停住）

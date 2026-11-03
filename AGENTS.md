@@ -57,13 +57,14 @@ npm run duo       # build 后直接起双人服务器
 | `src/world/materials.js` | Toon 材质、程序化草地/雪地/冰面/沙地/天空/沙漠天空/云/光晕/污渍贴图、PMREM 户外环境贴图（`outdoorEnvironment`，支持 backyard/snow/dust） |
 | `src/entities/Player.js` | 第一人称移动、跳跃、平台落脚/踏步、碰撞、生命/回血、镜头位置与后坐力 |
 | `src/entities/Zombie.js` | 单个僵尸：绑定模型骨架、AI、行走/攻击/死亡动画、受击/减速/掉落回调 |
-| `src/entities/ZombieModel.js` | 加载四个外部模型：`zombie.glb`（Quaternius 僵尸，路障/铁桶/气球用）、`skeleton.glb`（KayKit 骷髅）、`alchemist.glb`（炼金模型，**普通僵尸**用）、`football.glb`（AIGC 橄榄球模型）；导出 `zombieModel` 就绪标志、`MODELS` 缩放表与 `findClip()` |
+| `src/entities/ZombieModel.js` | **分批加载**：只先排队 `LOAD_FIRST`（zombie/alchemist，第 1 波就用的），首屏落定后 `releaseRestModels()` 才放行其余（约 20 MB）；图鉴/压测页用 `initZombieModel({ all: true })`。加载模型：`zombie.glb`（Quaternius 僵尸，路障/铁桶/气球用）、`skeleton.glb`（KayKit 骷髅）、`alchemist.glb`（炼金模型，**普通僵尸**用）、`football.glb`（AIGC 橄榄球模型）；导出 `zombieModel` 就绪标志、`MODELS` 缩放表与 `findClip()` |
 | `src/entities/ZombieManager.js` | 波次生成、分离、范围伤害、击杀结算、Boss 跟踪、阳光掉落数量 |
 | `src/entities/WallNuts.js` | **坚果免伤盾**：玩家身上的一个状态（不是场景实体）。`absorb()` 拦伤害、盾血/破盾动画、罩壳跟随 |
 | `src/entities/SunOrbs.js` | 阳光球池、弹跳、磁吸、拾取 |
 | `src/entities/WeaponPickups.js` | 地面植物拾取物池：开局在随机点位刷 1 个、发光/名称牌、靠近自动拾取；一关内每个点位只出一次，不无限刷新 |
 | `src/weapons/WeaponSystem.js` | 手持植物视图模型、瞄准辅助、开火、切枪、**角色槽（peaGun/gun/demo/grenade/shield）**、手雷蓄力、后坐/摇摆、命中判定入口 |
-| `src/weapons/WeaponModels.js` | 按植物 id 缓存 `public/models/weapons/*.glb`；手持与地面拾取共享静态模板，加载失败保留程序占位；不可 dispose 共享几何/材质 |
+| `src/weapons/WeaponModels.js` | 植物模型改成**一个合并包** `public/models/weapons/pack.glb`（12 个 glb 合成一次请求，见 `tools/pack-weapon-models.mjs`）；`extractPack()` 把 `pack.<id>` 节点拆回独立模板，手持与地面拾取共享静态模板，加载失败保留程序占位；不可 dispose 共享几何/材质 |
+| `src/assets/LoadProgress.js` | **首页下载进度表**：包装 `LoadingManager` 记录每条 glb 的条数/字节（`loadSummary()`），`TrackedGLTFLoader` 统一接入；`expectReady()` 声明首屏必需文件数 |
 | `src/weapons/ProjectileSystem.js` | 豌豆池、樱桃抛物线、爆炸、爆头判定 |
 | `src/fx/Particles.js` | InstancedMesh 粒子池、爆炸球壳/冲击环、临时点光源 |
 | `src/audio/Sfx.js` | WebAudio 音效：开火/命中/僵尸吼叫走 CC0 采样（`SAMPLES` 表驱动），UI 提示音仍用 `tone()` / `noise()` 合成 |
@@ -521,7 +522,8 @@ __game.renderer.info.render     // draw call / 三角面
 - `npm run build` 通过；控制台无 error / pageerror。
 - 桌面（1440×860）：选地图 → 开始 → 指针锁定 → WASD 移动 → 鼠标转视角 → 左键射击 → 1-5 切五个角色槽 → Tab 循环 → Backspace 丢枪 → 空格跳 → Esc 暂停/继续。
 - 武器槽：按 1 永远回到豌豆；捡一把枪进 2 号槽、再捡一把顶掉它且旧枪掉在脚边；3/4/5 分别是玉米炮/樱桃/坚果；按住开火键蓄力投樱桃；丢下的枪在脚边可再捡回；重开一局清空（豌豆槽保留）。
-- iPhone 横屏（844×390）、iPad（1024×768）：选图卡片不溢出；虚拟摇杆、右侧拖动、开火、跳跃、5 个武器槽都可用；HUD 不被安全区裁切。
+- 首次打开首页：加载面板显示「正在下载战斗素材」、文件计数、已下载/总量与逐条文件清单；首屏模型（zombie/alchemist + 植物包）落定后开始按钮解禁并提示「其余模型后台继续加载」；全部下载完变「全部素材就绪」。素材没下完时点开始不会进游戏，只给一句提示。
+- iPhone 横屏（844×390）、iPad（1024×768）：选图卡片不溢出（3 列缩略图卡片，横屏矮屏缩成 2 列并隐藏描述）；虚拟摇杆、右侧拖动、开火、跳跃、5 个武器槽都可用；HUD 不被安全区裁切。
 - 竖屏（390×844）：显示「请横屏游玩」拦截层，不进入游戏；横过来后拦截层消失、可正常开始。
 - 地图：菜单能切换后院/雪地，背景、雾、相机随之切换；雪地能看到田字四柱、两侧矮墙、两端基地、四角砖台、围墙与雪山；**摩天街区**：菜单切换、楼峡刷怪纵深（主路 5 点横向铺开）、天桥跳链（裙台→引板→主跨→窄跳板→板台）、停车楼三级跳链（0.95/1.9/2.85）、拾取梯度（安全 2 / 中风险 3 / 高风险 3）逐一可玩。
 - 高低差：走上四角砖台会自动踏步；两侧 0.85 米矮墙（顶面 0.92 米）可以跳上去站稳；沙城 0.9/0.95 米木箱能跳上、1.2 米箱子要靠 0.9 箱子两级走；田字四柱 3.6 米、基地墙 2.2 米不能跳上；走出边缘会下落；僵尸从北端基地沿通道接近，不会卡死。

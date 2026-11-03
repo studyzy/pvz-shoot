@@ -14,7 +14,8 @@ let manager, ctx, player;
 beforeAll(async () => {
   const { stubGltfLoader } = await import('../helpers/game.js');
   await stubGltfLoader();
-  initZombieModel();
+  // 首页只先下首屏模型；这里要全套奇幻单位
+  initZombieModel({ all: true });
   await vi.waitFor(() => {
     for (const id of ['goblin', 'slime', 'pink-slime', 'wolf', 'rat', 'bat', 'alchemist']) expect(zombieModel[id].ready, id).toBe(true);
   });

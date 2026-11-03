@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { TrackedGLTFLoader, loadingManager } from '../assets/LoadProgress.js';
 import { blobShadowTexture } from '../world/materials.js';
 import { loadWeaponModel } from '../weapons/WeaponModels.js';
 import { clamp } from '../utils.js';
@@ -28,9 +28,10 @@ let waiters = [];
 export function initRemoteModel() {
   if (remoteModel.started) return;
   remoteModel.started = true;
-  const loader = new GLTFLoader();
+  const url = BASE + 'models/pumpkin-kid.glb';
+  const loader = new TrackedGLTFLoader(loadingManager);
   loader.load(
-    BASE + 'models/pumpkin-kid.glb',
+    url,
     (gltf) => {
       remoteModel.scene = prepare(gltf.scene);
       remoteModel.ready = true;
@@ -38,7 +39,7 @@ export function initRemoteModel() {
       waiters = [];
       for (let i = 0; i < list.length; i++) list[i]();
     },
-    undefined,
+    (ev) => loadingManager.trackProgress(url, ev),
     (err) => {
       remoteModel.failed = true;
       waiters = [];

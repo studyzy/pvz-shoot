@@ -77,6 +77,9 @@ beforeAll(async () => {
 
 async function boot() {
   const { game } = await createGame();
+  // 首页首次开局要等素材就绪；这里没有真实网络，直接标记
+  const helpers = await import('../helpers/game.js');
+  await helpers.markAssetsReady();
   return game;
 }
 

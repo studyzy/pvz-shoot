@@ -1,6 +1,6 @@
 import * as THREE from 'three';
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { PROC_RIG_MODELS } from './Zombie.js';
+import { loader, TrackedGLTFLoader, loadingManager, expectReady, estimateBytes } from '../assets/LoadProgress.js';
 
 const BASE = (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.BASE_URL) ? import.meta.env.BASE_URL : '/';
 
@@ -141,6 +141,11 @@ const MAX_CONCURRENT_SLOTS = 6;
 const slotQueue = [];
 let slotRunning = 0;
 
+// 首屏模型加载完之前，其余模型只排队不下载（见 LOAD_FIRST / releaseRestModels）：
+// 首页不该为了第 20 波才出现的巨龙先下 2.8 MB。
+let restSlots = [];
+let restReleased = false;
+
 function runNextSlot() {
   while (slotRunning < MAX_CONCURRENT_SLOTS && slotQueue.length) {
     const job = slotQueue.shift();
@@ -156,6 +161,16 @@ function runNextSlot() {
 function loadSlot(loader, id, mod, onDone) {
   const slot = zombieModel[id];
   slotQueue.push((done) => loadSlotNow(loader, id, mod, onDone, done));
+  runNextSlot();
+}
+
+// 首屏模型全部落定后，把剩下的模型放行。由 Game 在进度面板显示"首屏就绪"时调用；
+// 图鉴/压测页要全部模型，直接 initZombieModel({ all: true })。
+export function releaseRestModels() {
+  if (restReleased) return;
+  restReleased = true;
+  for (const job of restSlots) slotQueue.push(job);
+  restSlots = [];
   runNextSlot();
 }
 
@@ -178,7 +193,7 @@ function loadSlotNow(loader, id, mod, onDone, done) {
       // 提前调用会让队列空转、图鉴以为「全部加载完」而把后面的类型永久禁用。
       done();
     },
-    undefined,
+    (ev) => loadingManager.trackProgress(BASE + mod.url, ev),
     (err) => {
       slot.failed = true;
       // 根模型（zombie）的失败同时反映到顶层标志上：老逻辑一直这么判
@@ -189,23 +204,43 @@ function loadSlotNow(loader, id, mod, onDone, done) {
   );
 }
 
-export function initZombieModel() {
+// opts.all：图鉴/压测页要全部模型，跳过"首屏先、其余后"的分批（它们进场就是等全套）。
+export function initZombieModel(opts = {}) {
   if (zombieModel.started) return;
   zombieModel.started = true;
-  const loader = new GLTFLoader();
-  // 老四套保持原样（手写 scale，零回归）
-  loadSlot(loader, 'zombie', MODELS.zombie, (slot) => {
+  const all = opts.all === true;
+  const gltf = new TrackedGLTFLoader(loadingManager);
+  // 老模型保持原样（手写 scale，零回归）：zombie 就绪后同步顶层标志
+  loadSlot(gltf, 'zombie', MODELS.zombie, (slot) => {
     zombieModel.scene = slot.scene;
     zombieModel.clips = slot.clips;
     zombieModel.ready = true;
   });
   // 老四套 + 僵尸博士（后花园第 10 波用）：手写 scale，加载后不量包围盒
-  for (const id of ['skeleton', 'alchemist', 'football', 'zombieDoctor']) {
-    loadSlot(loader, id, MODELS[id]);
-  }
-  // 奇幻单位：加载失败只让对应类型刷不出来，不影响主流程
+  // 奇幻单位（targetHeight 那批）加载失败只让对应类型刷不出来，不影响主流程
+  const others = ['skeleton', 'alchemist', 'football', 'zombieDoctor'];
   for (const [id, mod] of Object.entries(MODELS)) {
-    if (!mod.targetHeight) continue;
-    loadSlot(loader, id, mod);
+    if (mod.targetHeight) others.push(id);
   }
+  estimateBytes(all ? 20000000 : 400000);
+  for (const id of others) {
+    if (all || LOAD_FIRST.includes(id)) loadSlot(gltf, id, MODELS[id]);
+    else restSlots.push((done) => loadSlotNow(gltf, id, MODELS[id], undefined, done));
+  }
+  if (all) return;
+  // 首屏必需 = 首屏模型 + 1 个植物包（WeaponModels 在 import 时就会发请求）。
+  // 首页只要这几个落定就能开玩，其余模型（第 2 波以后才用）在这之后才放行。
+  const need = LOAD_FIRST.length + 1;
+  expectReady(need);
+  const release = () => {
+    if (restReleased) return;
+    if (loader.items.length < need) return;
+    if (loader.items.slice(0, need).some((it) => !it.done)) return;
+    releaseRestModels();
+  };
+  loader.listeners.add(release);
 }
+
+// 首屏就要用的模型：第 1 波只有普通僵尸（alchemist）与路障/铁桶/气球（zombie）。
+// 其余模型合计约 20 MB，首页没必要等；它们由 releaseRestModels 在首屏后放行。
+export const LOAD_FIRST = ['zombie', 'alchemist'];

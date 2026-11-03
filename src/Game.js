@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { MAPS, DEFAULT_MAP, createMaps } from './world/maps.js';
+import { loadSummary, onLoadProgress, loader } from './assets/LoadProgress.js';
 import { bossForWave, ZOMBIES } from './config.js';
 import { Player } from './entities/Player.js';
 import { ZombieManager } from './entities/ZombieManager.js';
@@ -20,6 +21,22 @@ import { TUNING, WEAPONS, DUO, SUN_SKY, BOUNTY, AIRDROP, CLOUD } from './config.
 import { outdoorEnvironment } from './world/materials.js';
 import { clamp, lerp, segmentSphereT } from './utils.js';
 import { sweepWalls } from './weapons/HitWalls.js';
+
+// 进度面板里给每类模型一个中文名（文件名对玩家没有意义）
+const LOAD_NAMES = {
+  zombie: '僵尸', skeleton: '骷髅', alchemist: '炼金僵尸', football: '橄榄球僵尸', zombieDoctor: '僵尸博士',
+  goblin: '哥布林', 'demon-3': '恶魔', slime: '史莱姆', 'pink-slime': '粉史莱姆', 'green-blob': '绿团子',
+  bones: '骸骨', ghost: '幽灵', 'ghost-skull': '怪颅', wolf: '狼', spider: '蜘蛛', rat: '老鼠', bat: '蝙蝠',
+  toySoldier: '玩具兵', springDuck: '发条鸭', teaSprite: '茶精灵', paperGlider: '纸飞机', jackBox: '弹簧玩偶',
+  clockRabbit: '报时兔', giant: '巨人', 'mushroom-king': '蘑菇王', 'dragon-evolved': '巨龙',
+  'pumpkin-kid': '队友',
+};
+
+function loadLabel(url) {
+  const name = url.slice(url.lastIndexOf('/') + 1).replace(/\.glb$/, '');
+  if (name === 'pack') return '植物模型包';
+  return (LOAD_NAMES[name] || name) + '模型';
+}
 
 export class Game {
   constructor(canvas) {
@@ -210,6 +227,7 @@ export class Game {
     };
 
     this.hud.buildMapSelect(MAPS, this.mapId);
+    this.bindLoadProgress();
     this.setMap(this.mapId);
     this.bindButtons();
     this.bindResize();
@@ -220,6 +238,40 @@ export class Game {
     this.menuCamera(0);
     this.loop = this.loop.bind(this);
     this.running = true;
+  }
+
+  // 首页加载面板：首屏几 MB 模型下载期间要让玩家看见进度，而不是一张不动的海报。
+  //   - 由 LoadProgress 汇总每条 glb 请求的字节/条数（ZombieModel / WeaponModels / RemotePlayer 共用一个 manager）
+  //   - 首屏模型 + 植物包落定才放开开始按钮；其余模型后台继续下，不耽误开打
+  //   - 菜单 / 结算 / 暂停时都刷新（回到菜单时可能还在后台加载）
+  bindLoadProgress() {
+    this.hud.setLoadState(this.loadView());
+    this.offLoadProgress = onLoadProgress(() => this.hud.setLoadState(this.loadView()));
+  }
+
+  loadView() {
+    const s = loadSummary();
+    return {
+      percent: s.percent,
+      done: s.done,
+      count: s.count,
+      loaded: s.loaded,
+      total: s.total,
+      failed: s.failed,
+      finished: s.finished,
+      ready: s.ready,
+      files: this.loadFiles(),
+    };
+  }
+
+  // 进度面板上的文件清单：文件名 → 玩家看得懂的名字，只取最近的几条
+  loadFiles() {
+    const list = [];
+    for (const it of loader.items) {
+      if (it.url.indexOf('/models/') < 0) continue;
+      list.push({ label: loadLabel(it.url), total: it.total, done: it.done });
+    }
+    return list.slice(-6);
   }
 
   bindButtons() {
@@ -395,6 +447,13 @@ export class Game {
   }
 
   start() {
+    // 首屏素材没下完就点开始（againBtn 等入口也可能触发）：先给一句反馈，别开局空手。
+    // 只拦"从菜单第一次开局"；已经打过再开（重开/再来一局）不走这里，模型早就热了。
+    if (this.state === 'menu' && !loadSummary().ready) {
+      const s = loadSummary();
+      this.hud.setDuoStatus('素材还在下载（' + Math.round(s.percent) + '%），马上就好', 'wait');
+      return;
+    }
     if (this.duoSession) this.cancelDuo();
     this.sfx.unlock();
     this.hud.hideScreens();

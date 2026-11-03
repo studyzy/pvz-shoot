@@ -115,29 +115,61 @@
     <div class="screen" id="startScreen">
       <a class="codex-link" href="./gallery.html">僵尸图鉴 <span aria-hidden="true">→</span></a>
       <a class="codex-link perf-link" href="./stress.html">压测台 <span aria-hidden="true">→</span></a>
-      <div class="screen-inner">
-        <div class="kicker">PLANTS VS ZOMBIES · 第一人称</div>
-        <h1>戴夫的后院</h1>
-        <p class="tagline">拿起植物，把僵尸轰回土里</p>
-        <div class="map-select" id="mapSelect" aria-label="选择地图"></div>
-        <button class="big-btn" id="startBtn">开始保卫后院</button>
-        <button class="ghost-btn duo-btn" id="duoBtn">双人联机</button>
-        <button class="ghost-btn duo-btn duo-share hidden" id="duoShare">复制邀请链接</button>
-        <div class="duo-status hidden" id="duoStatus" aria-live="polite"></div>
-        <div class="hint-row touch-only">
-          <div class="hint"><b>左摇杆</b><span>移动</span></div>
-          <div class="hint"><b>右侧拖动</b><span>瞄准</span></div>
-          <div class="hint"><b>开火</b><span>射击</span></div>
-          <div class="hint"><b>跳</b><span>跳跃</span></div>
+      <div class="screen-inner menu">
+        <div class="menu-head">
+          <div class="kicker">PLANTS VS ZOMBIES · 第一人称</div>
+          <h1>戴夫的后院</h1>
+          <p class="tagline">拿起植物，把僵尸轰回土里</p>
         </div>
-        <div class="hint-row desktop-only">
-          <div class="hint"><b>W A S D</b><span>移动</span></div>
-          <div class="hint"><b>鼠标</b><span>瞄准</span></div>
-          <div class="hint"><b>左键</b><span>射击</span></div>
-          <div class="hint"><b>1 - 5</b><span>换植物</span></div>
+
+        <div class="menu-body">
+          <!-- 首次打开要下十几 MB 模型：进度面板让玩家知道"在下载什么"，而不是干等一张静态海报 -->
+          <section class="load-panel" id="loadPanel" role="status" aria-live="polite" data-state="loading">
+            <div class="load-head">
+              <span class="load-title" id="loadTitle">正在下载战斗素材</span>
+              <span class="load-count" id="loadCount">0 / 0</span>
+            </div>
+            <div class="load-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="素材下载进度">
+              <div class="load-fill" id="loadFill"></div>
+            </div>
+            <div class="load-foot">
+              <span class="load-bytes" id="loadBytes">0 KB</span>
+              <span class="load-note" id="loadNote">僵尸、植物与场景模型，第一次打开稍慢一点</span>
+            </div>
+            <ul class="load-list" id="loadList" aria-hidden="true"></ul>
+          </section>
+
+          <div class="map-head">
+            <span class="map-head-label">选择战场</span>
+            <span class="map-head-hint">6 张无尽地图 · 随时切换</span>
+          </div>
+          <div class="map-select" id="mapSelect" aria-label="选择地图"></div>
         </div>
-        <div class="device-note touch-only">iPhone / iPad 网页直接开玩 · 建议横屏 · 击杀僵尸收集阳光</div>
-        <div class="device-note desktop-only">电脑端点击开始后锁定鼠标 · 按 Esc 暂停 · 击杀僵尸收集阳光</div>
+
+        <div class="menu-foot">
+          <button class="big-btn" id="startBtn" disabled>载入中…</button>
+          <div class="menu-wait">素材正在下载，完成后即可开战</div>
+          <button class="ghost-btn duo-btn" id="duoBtn">双人联机</button>
+          <button class="ghost-btn duo-btn duo-share hidden" id="duoShare">复制邀请链接</button>
+          <div class="duo-status hidden" id="duoStatus" aria-live="polite"></div>
+        </div>
+
+        <div class="menu-hints">
+          <div class="hint-row touch-only">
+            <div class="hint"><b>左摇杆</b><span>移动</span></div>
+            <div class="hint"><b>右侧拖动</b><span>瞄准</span></div>
+            <div class="hint"><b>开火</b><span>射击</span></div>
+            <div class="hint"><b>跳</b><span>跳跃</span></div>
+          </div>
+          <div class="hint-row desktop-only">
+            <div class="hint"><b>W A S D</b><span>移动</span></div>
+            <div class="hint"><b>鼠标</b><span>瞄准</span></div>
+            <div class="hint"><b>左键</b><span>射击</span></div>
+            <div class="hint"><b>1 - 5</b><span>换植物</span></div>
+          </div>
+          <div class="device-note touch-only">iPhone / iPad 网页直接开玩 · 建议横屏 · 击杀僵尸收集阳光</div>
+          <div class="device-note desktop-only">电脑端点击开始后锁定鼠标 · 按 Esc 暂停 · 击杀僵尸收集阳光</div>
+        </div>
       </div>
     </div>
 

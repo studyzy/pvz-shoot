@@ -7,11 +7,22 @@ let loadWeaponModel;
 let WeaponSystem;
 let WeaponPickups;
 
+// 植物模型现在是一个合并包（models/weapons/pack.glb）：包里每个原模型是名为 pack.<id> 的节点。
 function template(id) {
-  const group = new THREE.Group();
-  group.name = id;
-  group.add(new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.5, 0.6), new THREE.MeshStandardMaterial({ color: 0x75ba34 })));
-  return group;
+  const holder = new THREE.Group();
+  holder.name = 'pack.' + id;
+  const inner = new THREE.Group();
+  inner.name = id;
+  inner.add(new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.5, 0.6), new THREE.MeshStandardMaterial({ color: 0x75ba34 })));
+  holder.add(inner);
+  return holder;
+}
+
+function pack(items) {
+  const root = new THREE.Group();
+  root.name = 'weapon-pack';
+  for (const t of items) root.add(t);
+  return root;
 }
 
 function ctx() {
@@ -26,43 +37,68 @@ function ctx() {
 beforeEach(async () => {
   vi.resetModules();
   requests = [];
+  // 植物包走 TrackedGLTFLoader（LoadProgress 里加载器的子类），替身要同时提供两者
   vi.doMock('three/examples/jsm/loaders/GLTFLoader.js', () => ({
     GLTFLoader: class {
       load(url, done, progress, fail) { requests.push({ url, done, fail }); }
     },
+    Loader: class {},
   }));
   ({ loadWeaponModel } = await import('../../src/weapons/WeaponModels.js'));
   ({ WeaponSystem } = await import('../../src/weapons/WeaponSystem.js'));
   ({ WeaponPickups } = await import('../../src/entities/WeaponPickups.js'));
 });
 
-describe('植物 GLB 缓存', () => {
-  it('同 id 只加载一次，不同植物变体使用独立 URL', async () => {
+describe('植物 GLB 包', () => {
+  it('所有植物共用一次请求：不同 id 拿到包里各自独立的模板', async () => {
     const a = loadWeaponModel('pea');
-    expect(loadWeaponModel('pea')).toBe(a);
     const b = loadWeaponModel('snow');
-    expect(requests.map((r) => r.url)).toEqual(['/models/weapons/pea.glb', '/models/weapons/snow.glb']);
-    const pea = template('pea');
-    const snow = template('snow');
-    requests[0].done({ scene: pea });
-    requests[1].done({ scene: snow });
-    expect(await a).toBe(pea);
-    expect(await b).toBe(snow);
+    // 12 个植物一次下完，不论要哪个 id 都只发一个请求
+    expect(requests.map((r) => r.url)).toEqual(['/models/weapons/pack.glb']);
+    const peaTpl = template('pea');
+    const peaLive = peaTpl.children[0].getObjectByProperty('isMesh', true);
+    const peakGeo = peaLive.geometry;
+    requests[0].done({ scene: pack([peaTpl, template('snow')]) });
+    const pea = await a;
+    const snow = await b;
+    expect(pea.name).toBe('pack.pea');
+    expect(pea.children[0].name).toBe('');
+    expect(snow.name).toBe('pack.snow');
+    expect(pea).not.toBe(snow);
+    // 拆包是浅克隆：几何/材质仍指向共享模板（内层 <id> 组里挂着那个 Mesh）
+    const packedMesh = pea.children[0].getObjectByProperty('isMesh', true);
+    expect(packedMesh.isMesh).toBe(true);
+    expect(packedMesh.geometry).toBe(peakGeo);
+    expect(await loadWeaponModel('pea')).toBe(pea);
+    expect(requests).toHaveLength(1);
   });
 
-  it('加载失败保留占位，不重复请求或产生未处理拒绝', async () => {
+  it('包里缺某个植物时返回 null 并警告（不抛错）', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const missing = loadWeaponModel('melon');
+    await Promise.resolve();
+    requests[0].done({ scene: pack([template('pea')]) });
+    expect(await missing).toBeNull();
+    expect(warn).toHaveBeenCalledTimes(1);
+  });
+
+  it('下载失败保留占位，不重复请求或产生未处理拒绝', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const a = loadWeaponModel('pea');
+    await Promise.resolve();
     requests[0].fail(new Error('missing'));
     expect(await a).toBeNull();
     expect(await loadWeaponModel('pea')).toBeNull();
     expect(requests).toHaveLength(1);
-    expect(warn).toHaveBeenCalledTimes(1);
+    // 一个包只警告一次；后面的 id 直接拿同一个空结果，不再重复刷屏
+    // （其余两次警告来自构造 WeaponSystem/WeaponPickups 的其它植物查找，同为"包里没有"）
+    expect(warn.mock.calls.filter((c) => String(c[0]) === 'weapon pack failed')).toHaveLength(1);
   });
 
-  it('空模型视为加载失败', async () => {
+  it('空包视为加载失败', async () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     const a = loadWeaponModel('pea');
+    await Promise.resolve();
     requests[0].done({ scene: new THREE.Group() });
     expect(await a).toBeNull();
   });
@@ -80,9 +116,11 @@ describe('手持植物视觉替换', () => {
     const muzzlePosition = muzzle.getWorldPosition(new THREE.Vector3());
     const visible = model.group.visible;
     expect(model.visual.children.length).toBeGreaterThan(0);
-    const resource = template(id);
-    requests.find((r) => r.url.endsWith('/' + id + '.glb')).done({ scene: resource });
+    const all = WEAPONS.map((w) => template(w.id));
+    requests[0].done({ scene: pack(all) });
     await model.ready;
+    // 包里的模板外层是 pack.<id>，里层才是原来那个 <id> 节点；视觉层在它外面又包了一层组
+    const resource = all[index].children[0];
     expect(model.loaded).toBe(true);
     expect(model.visual.children).toHaveLength(1);
     expect(model.visual.children[0]).not.toBe(resource);
@@ -106,12 +144,12 @@ describe('手持植物视觉替换', () => {
       night:vi.spyOn(n.userData.nightMaterial,'dispose'),
     }));
     const resource = template('pea');
-    const source = resource.children[0];
+    const source = resource.children[0].children[0];
     source.geometry.setAttribute('color', new THREE.Float32BufferAttribute(
       Array.from({length:source.geometry.attributes.position.count},()=>[.2,.5,.1]).flat(),3));
     source.material.vertexColors=true;
     const before=source.geometry.attributes.color.array.slice();
-    requests[0].done({scene:resource});await model.ready;
+    requests[0].done({scene:pack([resource])});await model.ready;
     const mesh=model.visual.children[0].children[0];
     expect(mesh.material.isMeshBasicMaterial).toBe(true);
     expect(mesh.geometry).not.toBe(source.geometry);
@@ -131,11 +169,11 @@ describe('手持植物视觉替换', () => {
 
   it('加载后切图不把夜间明暗烘进地面拾取的共享几何', async () => {
     const system = new WeaponSystem(ctx());const resource=template('pea');
-    requests[0].done({scene:resource});await system.models[0].ready;
+    requests[0].done({scene:pack([resource])});await system.models[0].ready;
     const mesh=system.models[0].visual.children[0].children[0];
     system.setMapAppearance('forest');expect(mesh.material.isMeshBasicMaterial).toBe(true);
-    expect(resource.children[0].geometry.getAttribute('color')).toBeUndefined();
-    expect(resource.children[0].material.isMeshStandardMaterial).toBe(true);
+    expect(resource.children[0].children[0].geometry.getAttribute('color')).toBeUndefined();
+    expect(resource.children[0].children[0].material.isMeshStandardMaterial).toBe(true);
     system.setMapAppearance('dust');expect(mesh.material.isMeshStandardMaterial).toBe(true);
   });
 
@@ -145,7 +183,7 @@ describe('手持植物视觉替换', () => {
     const material=vi.spyOn(mesh.userData.nightMaterial,'dispose');
     const geometry=vi.spyOn(mesh.userData.nightGeometry,'dispose');
     system.setMapAppearance('snow');
-    requests[0].done({scene:template('pea')});await system.models[0].ready;
+    requests[0].done({scene:pack([template('pea')])});await system.models[0].ready;
     expect(material).toHaveBeenCalled();expect(geometry).toHaveBeenCalled();
     expect(system.models[0].visual.children[0].children[0].material.isMeshStandardMaterial).toBe(true);
   });
@@ -171,14 +209,14 @@ describe('地面植物视觉替换', () => {
     pickups.paint(item, 2);
     pickups.paint(item, 1);
     const current = item.holder.children[0];
-    requests.find((r) => r.url.endsWith('/snow.glb')).done({ scene: template('snow') });
+    // 包是一次性给的：snow 与 cherry 同批到达，只改当前 holder
+    requests[0].done({ scene: pack([template('snow'), template('cherry')]) });
     await item.visualReady;
-    requests.find((r) => r.url.endsWith('/cherry.glb')).done({ scene: template('cherry') });
     await Promise.resolve();
     expect(old.parent).toBeNull();
     expect(item.holder.children).toEqual([current]);
     expect(current.children).toHaveLength(1);
-    expect(current.children[0].name).toBe('snow');
+    expect(current.children[0].name).toBe('pack.snow');
   });
 
   it('相同植物各拾取实例变换独立且不改模板', async () => {
@@ -188,7 +226,7 @@ describe('地面植物视觉替换', () => {
     pickups.paint(a, 3);
     pickups.paint(b, 3);
     const resource = template('cob');
-    requests[0].done({ scene: resource });
+    requests[0].done({ scene: pack([resource]) });
     await Promise.all([a.visualReady, b.visualReady]);
     const first = a.holder.children[0].children[0];
     const second = b.holder.children[0].children[0];

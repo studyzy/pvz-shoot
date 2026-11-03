@@ -187,6 +187,95 @@ describe('HUD', () => {
     });
   });
 
+  describe('地图卡片结构', () => {
+    const maps = [
+      { id: 'backyard', name: '后院', tag: '经典', desc: '草地', mode: '开阔平地' },
+      { id: 'snow', name: '雪地', tag: 'CS', desc: '冰面', mode: '跳跃立体' },
+    ];
+
+    it('每张卡片带场景剪影、序号、玩法标签；选中项 aria-pressed', () => {
+      hud.buildMapSelect(maps, 'backyard');
+      const cards = [...hud.mapSelect.querySelectorAll('.map-card')];
+      expect(cards[0].querySelector('.map-art svg')).toBeTruthy();
+      expect(cards[0].querySelector('.map-index').textContent).toBe('1');
+      expect(cards[1].querySelector('.map-index').textContent).toBe('2');
+      expect(cards[0].querySelector('.map-chip').textContent).toBe('开阔平地');
+      expect(cards[0].getAttribute('aria-pressed')).toBe('true');
+      expect(cards[1].getAttribute('aria-pressed')).toBe('false');
+      hud.setMapSelection('snow');
+      expect(cards[0].getAttribute('aria-pressed')).toBe('false');
+      expect(cards[1].getAttribute('aria-pressed')).toBe('true');
+    });
+
+    it('未知地图 id 时没有卡片拿到剪影，也不会抛错', () => {
+      expect(() => hud.buildMapSelect([{ id: 'unknown', name: 'x', tag: 't', desc: 'd' }], 'unknown')).not.toThrow();
+      expect(hud.mapSelect.querySelector('.map-art svg')).toBeNull();
+      expect(hud.mapSelect.querySelector('.map-chip')).toBeNull();
+    });
+
+    it('地图名里的 HTML 被转义（不当成标签注入）', () => {
+      hud.buildMapSelect([{ id: 'x', name: '<b>坏</b>', tag: 'a&b', desc: '"q"' }], 'x');
+      const card = hud.mapSelect.querySelector('.map-card');
+      expect(card.querySelector('.map-name').textContent).toBe('<b>坏</b>');
+      expect(card.querySelector('.map-tag').textContent).toBe('a&b');
+      expect(card.querySelector('b')).toBeNull();
+    });
+  });
+
+  describe('加载面板 setLoadState', () => {
+    const base = { count: 4, done: 1, loaded: 512 * 1024, total: 4 * 1024 * 1024, failed: 0, finished: false, ready: false, percent: 12.5, files: [] };
+
+    it('下载中：进度条、计数、字节数、开始按钮禁用', () => {
+      hud.setLoadState(base);
+      expect($('loadPanel').dataset.state).toBe('loading');
+      expect($('loadFill').style.width).toBe('13%');
+      expect($('loadCount').textContent).toBe('1 / 4');
+      expect($('loadBytes').textContent).toBe('512 KB / 4.0 MB');
+      expect($('startBtn').disabled).toBe(true);
+      expect($('startScreen').classList.contains('is-loading')).toBe(true);
+    });
+
+    it('首屏就绪：按钮可用，但提示可以后台继续下', () => {
+      hud.setLoadState({ ...base, done: 3, ready: true, percent: 70 });
+      expect($('loadPanel').dataset.state).toBe('ready');
+      expect($('startBtn').disabled).toBe(false);
+      expect($('loadNote').textContent).toContain('后台');
+      // 就绪后进度条直接拉满，不再显示 70% 的"还没好"
+      expect($('loadFill').style.width).toBe('100%');
+    });
+
+    it('全部就绪：状态 done，按钮可用', () => {
+      hud.setLoadState({ ...base, done: 4, ready: true, finished: true, percent: 100 });
+      expect($('loadPanel').dataset.state).toBe('done');
+      expect(hud.loadPanel.classList.contains('is-done')).toBe(true);
+      expect($('startBtn').disabled).toBe(false);
+      expect($('loadTitle').textContent).toBe('全部素材就绪');
+    });
+
+    it('没有字节信息时不崩（percent 0 / total 0）', () => {
+      expect(() => hud.setLoadState({ ...base, loaded: 0, total: 0, percent: 0 })).not.toThrow();
+      expect($('loadFill').style.width).toBe('0%');
+    });
+
+    it('文件清单按标签渲染，变化才重建（相同输入不重复写 DOM）', () => {
+      const files = [{ label: '僵尸模型', done: true, total: 1024 }, { label: '植物模型包', done: false, total: 0 }];
+      hud.setLoadState({ ...base, files });
+      const items = [...$('loadList').querySelectorAll('li')];
+      expect(items).toHaveLength(2);
+      expect(items[0].className).toBe('done');
+      expect(items[1].className).toBe('active');
+      expect(items[0].querySelector('em').textContent).toBe('1 KB');
+      const first = $('loadList').querySelector('li');
+      hud.setLoadState({ ...base, files });
+      expect($('loadList').querySelector('li')).toBe(first);
+    });
+
+    it('页面里没有加载面板时直接返回', () => {
+      hud.loadPanel = null;
+      expect(() => hud.setLoadState(base)).not.toThrow();
+    });
+  });
+
   describe('界面显隐', () => {
     it('showHud 切换 hud 的 hidden 类', () => {
       expect(hud.hud.classList.contains('hidden')).toBe(true);

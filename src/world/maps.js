@@ -8,6 +8,7 @@ import { Downtown } from './Downtown.js';
 export const MAPS = [
   {
     id: 'backyard',
+    mode: '开阔平地',
     name: '戴夫的后院',
     short: '后院',
     tag: '经典草地',
@@ -17,6 +18,7 @@ export const MAPS = [
   },
   {
     id: 'snow',
+    mode: '跳跃立体',
     name: '雪地',
     short: '雪地',
     tag: 'FY_ICEWORLD',
@@ -26,6 +28,7 @@ export const MAPS = [
   },
   {
     id: 'dust',
+    mode: '三线交织',
     name: '沙城',
     short: '沙城',
     tag: 'DUST YARD',
@@ -35,6 +38,7 @@ export const MAPS = [
   },
   {
     id: 'forest',
+    mode: '夜间视野',
     name: '夜之森林',
     short: '森林',
     tag: 'NIGHT FOREST',
@@ -45,6 +49,7 @@ export const MAPS = [
   },
   {
     id: 'cloud',
+    mode: '机关机制',
     name: '云上发条游乐园',
     short: '云园',
     tag: 'CLOUD CARNIVAL',
@@ -54,6 +59,7 @@ export const MAPS = [
   },
   {
     id: 'downtown',
+    mode: '高低层叠',
     name: '摩天街区',
     short: '街区',
     tag: 'DOWNTOWN',

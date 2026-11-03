@@ -29,6 +29,7 @@ async function installThreeMock() {
 await installThreeMock();
 
 let createGame;
+let markAssetsReady;
 let step;
 let spawnZombieAt;
 let aimAt;
@@ -42,7 +43,7 @@ let stubGltfLoader;
 
 // createGame 会在内部动态 import src/Game.js，必须等 vi.mock 生效后加载。
 beforeAll(async () => {
-  ({ createGame, step, spawnZombieAt, aimAt, readyToFire } = await import('../helpers/game.js'));
+  ({ createGame, step, spawnZombieAt, aimAt, readyToFire, markAssetsReady } = await import('../helpers/game.js'));
   ({ WEAPONS, ZOMBIES, TUNING } = await import('../../src/config.js'));
   THREE = await import('three');
   ({ initZombieModel } = await import('../../src/entities/ZombieModel.js'));
@@ -63,6 +64,8 @@ beforeEach(async () => {
   await stubGltfLoader();
   initZombieModel();
   ({ game, pointerLock } = await createGame());
+  // 首页首次开局要等素材就绪；测试没有网络，直接标记就绪
+  await markAssetsReady();
 });
 
 afterEach(() => {
@@ -128,7 +131,10 @@ async function freshGame() {
     };
   });
   const h = await import('../helpers/game.js');
-  return h.createGame();
+  const booted = await h.createGame();
+  // 新模块图 = 新的进度表：首屏门槛也要重新标记为就绪
+  await h.markAssetsReady();
+  return booted;
 }
 
 // fake timers 用例专用：@napi-rs/canvas 的 getContext('2d') 内部会把自己的计时器挂到
@@ -214,7 +220,10 @@ async function freshSkyGame() {
     }) };
   });
   const h = await import('../helpers/game.js');
-  return h.createGame();
+  const booted = await h.createGame();
+  // 新模块图 = 新的进度表：首屏门槛也要重新标记为就绪
+  await h.markAssetsReady();
+  return booted;
 }
 
 // 跳过 70 阳光的开局等待：直接给够阳光，专注流程本身。
@@ -233,6 +242,52 @@ async function fireAt(gameRef, x, y, z, frames, perShot = 6) {
   }
   gameRef.controls.setFiring(false);
 }
+
+describe('0. 首屏素材下载', () => {
+  it('素材没下完时开始按钮禁用，点开始也进不了游戏并给出提示', async () => {
+    const { loadSummary, loader } = await import('../../src/assets/LoadProgress.js');
+    // 标记成"还在下载"：只完成首屏一部分
+    for (const it of loader.items) it.done = false;
+    game.hud.setLoadState(game.loadView());
+    expect(loadSummary().ready).toBe(false);
+    expect($('startBtn').disabled).toBe(true);
+
+    game.start();
+    expect(game.state).toBe('menu');
+    expect($('duoStatus').textContent).toContain('素材还在下载');
+
+    // 素材就绪后同一入口放行
+    await markAssetsReady();
+    expect(loadSummary().ready).toBe(true);
+    game.start();
+    expect(game.state).toBe('playing');
+  });
+
+  it('进度写进加载面板：计数、字节数与状态', async () => {
+    const { loadSummary, loadingManager, loader } = await import('../../src/assets/LoadProgress.js');
+    loader.items.length = 0;
+    loadingManager.byUrl.clear();
+    loadingManager.open.clear();
+    loadingManager.itemStart('/models/a.glb');
+    loadingManager.trackProgress('/models/a.glb', { lengthComputable: true, loaded: 512, total: 1024 });
+    game.hud.setLoadState(game.loadView());
+    expect($('loadCount').textContent).toBe('0 / 1');
+    // 小于 1 MB 一律按 KB 显示（向上取整），手机上数字才好读
+    expect($('loadBytes').textContent).toBe('1 KB / 1 KB');
+    loadingManager.itemEnd('/models/a.glb');
+    await markAssetsReady();
+    game.hud.setLoadState(game.loadView());
+    expect($('loadPanel').dataset.state).toBe('done');
+    expect($('startBtn').disabled).toBe(false);
+    expect(loadSummary().finished).toBe(true);
+  });
+
+  it('地图卡片带场景剪影与玩法标签（HUD 结构）', () => {
+    const card = $('mapSelect').querySelector('.map-card[data-map="downtown"]');
+    expect(card.querySelector('.map-art svg')).toBeTruthy();
+    expect(card.querySelector('.map-chip').textContent).toBe('高低层叠');
+  });
+});
 
 describe('1. 菜单与地图选择', () => {
   it('开局渲染六张地图卡片，默认选中后院，startBtn 文案来自 startLabel', () => {

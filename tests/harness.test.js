@@ -51,8 +51,9 @@ describe('integration harness', () => {
   });
 
   it('runs a full update frame without throwing', async () => {
-    const { createGame, step } = await import('./helpers/game.js');
+    const { createGame, step, markAssetsReady } = await import('./helpers/game.js');
     const { game } = await createGame();
+    await markAssetsReady();
     game.start();
     step(game, 60);
     expect(game.state).toBe('playing');
