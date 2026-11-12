@@ -1445,25 +1445,55 @@ body.desktop #orientationBtn { display: none; }
   h1 { font-size: clamp(38px, 12vmin, 64px); }
   .screen-inner { gap: 10px; }
   .tagline { margin-bottom: 0; }
-  /* 手机横屏只有 ~390px 高：标题压扁、卡片缩成两列，操作区仍然常驻 */
+  /* 手机横屏只有 ~390-420px 高：先让玩家看见「地图缩略图」。
+     操作区从三行压成一行、下载进度收成细线（就绪后彻底隐藏），
+     中段才有空间一次铺开 3×2 张卡，不用滚动也能挑图。 */
   .menu-head { padding-bottom: 6px; gap: 3px; }
   .menu-head .kicker { display: none; }
-  .menu-foot { padding-top: 8px; gap: 6px; }
+  .menu-foot {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    gap: 8px 10px;
+    padding-top: 8px;
+  }
+  .menu-foot .big-btn { padding: 9px 26px; font-size: 16px; letter-spacing: 2px; }
+  /* 开始按钮已经和「双人联机 / 画质」并排，没地方再放一行说明
+     （#startBtn:disabled + .menu-wait 的优先级更高，必须用同一条选择器压掉） */
+  #startBtn:disabled + .menu-wait { display: none; }
+  .duo-btn { margin-top: 0; width: auto; padding: 9px 16px; font-size: 12px; letter-spacing: 1px; }
+  .duo-status { flex-basis: 100%; margin-top: 0; }
+  .duo-share { margin-top: 0; }
+  .quality-row { margin-top: 0; gap: 6px; font-size: 10.5px; }
+  .quality-opt { padding: 3px 8px; font-size: 10.5px; }
   .menu-hints .hint-row { display: none; }
-  .map-select { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }
-  .map-card { grid-template-columns: 58px minmax(0, 1fr); border-radius: 13px; }
+  .map-select { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+  .map-card { grid-template-columns: 66px minmax(0, 1fr); border-radius: 13px; }
   .map-body { padding: 6px 9px 7px; gap: 1px; }
   .map-tag { font-size: 8.5px; }
   .map-name { font-size: 13px; }
   .map-desc { display: none; }
   .map-chip { margin-top: 1px; font-size: 9px; }
   .map-index { font-size: 15px; }
-  .load-panel { padding: 8px 13px 7px; }
+  /* 进度只留「标题 + 计数 + 一条细线」，字节与文件清单在这一屏是噪音 */
+  .load-panel { padding: 6px 12px; }
+  .load-panel[data-state="done"] { display: none; }
   .load-title { font-size: 12px; }
-  .load-track { margin: 6px 0 5px; height: 7px; }
-  .load-list { margin-top: 5px; }
-  .load-list li:nth-child(n+5) { display: none; }
+  .load-track { margin: 5px 0 0; height: 5px; }
+  .load-foot { display: none; }
+  .load-list { display: none; }
   .big-btn { font-size: 17px; padding: 11px 36px; }
+}
+
+/* iPhone SE / 8 这档横屏只有 375px 高：再砍掉英文标签与一点内边距，
+   否则第二行卡片会被中段裁掉半截（不是没做，是差 18px）。 */
+@media (max-height: 400px) {
+  h1 { font-size: clamp(32px, 11vmin, 46px); }
+  .menu-head { padding-bottom: 4px; }
+  .load-panel { padding: 5px 12px; }
+  .map-tag { display: none; }
+  .map-body { padding: 5px 9px 5px; }
 }
 
 /* iPad / 中等宽度：三列卡片保留，缩略图收窄一点 */
