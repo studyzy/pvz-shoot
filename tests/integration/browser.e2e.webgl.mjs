@@ -883,8 +883,10 @@ async function phaseMobile(ctx) {
     check(joyMoved > JOY_TARGET, '推摇杆 15s 内玩家应移动 > ' + JOY_TARGET + 'm，实际 ' + joyMoved.toFixed(3) + 'm（move.y=' + (joyState && joyState.moveY) + '）');
 
     // 竖屏：拦截层出现，且游戏不能处于 playing（checkOrientation 会暂停）
+    // 慢 runner 上 SwiftShader 一帧要好几秒，resize 事件得等当前帧跑完才派发；
+    // 5s 会把「机器慢」误判成「没暂停」（2026-11-12 实测 weapons 跑到 658s 的机器上就超了）。
     await page.setViewportSize({ width: 390, height: 844 });
-    await waitUntil(page, () => window.__game.state !== 'playing', 5000, '竖屏后游戏暂停');
+    await waitUntil(page, () => window.__game.state !== 'playing', 15000, '竖屏后游戏暂停');
     const portrait = await page.evaluate(() => {
       const el = document.getElementById('orientationGate');
       const r = el.getBoundingClientRect();
@@ -919,7 +921,7 @@ async function phaseMobile(ctx) {
     await page.setViewportSize({ width: 844, height: 390 });
     await waitUntil(page, () => getComputedStyle(document.getElementById('orientationGate')).display === 'none', 5000, '横屏后拦截层隐藏');
     await page.tap('#startBtn');
-    await page.waitForFunction(() => window.__game.state === 'playing', null, { timeout: 5000 });
+    await page.waitForFunction(() => window.__game.state === 'playing', null, { timeout: 15000 });
     check(consoleErrors.length === 0, '手机场景出现 console error：\n   - ' + consoleErrors.join('\n   - '));
     return {
       metrics: {
