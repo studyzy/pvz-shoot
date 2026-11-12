@@ -407,7 +407,8 @@ export class Game {
     this.renderer.setSize(w, h, false);
     this.camera.aspect = w / h;
     const a = w / h;
-    this.camera.fov = a < 0.7 ? 90 : a < 1 ? 84 : 73;
+    this.baseFov = a < 0.7 ? 90 : a < 1 ? 84 : 73;
+    this.camera.fov = this.baseFov;
     this.camera.updateProjectionMatrix();
     if (this.weapons) this.weapons.setAspect(a);
     // RT 尺寸必须跟 drawing buffer 一致（含 pixelRatio），否则后期会糊成一层。
@@ -1756,8 +1757,13 @@ export class Game {
 
   update(dt) {
     this.controls.update();
+    // M6：姿态要先算（它决定 speedMul 与视高），再让 player.update 用新的倍率积分速度。
+    this.player.setCrouch(this.controls.crouching);
+    this.player.updateStance(dt, this.controls);
     this.player.update(dt, this.controls, this.map, this.zombies.zombies);
     this.player.applyCamera(this.camera);
+    // 机瞄/下蹲会改 fov：基值由 resize 按宽高比定，这里只叠姿态修正。
+    this.applyStanceFov();
     this.applyShake(dt);
     if (!this.player.downed) this.weapons.update(dt, this.controls);
     this.wallNuts.update(dt);
@@ -1905,6 +1911,18 @@ export class Game {
     // 高度雾交给后期合成（需要深度贴图）。?post=0 时后期关掉，雾也随之失效 ——
     // 这是有意的：回滚路径必须和改动前完全一致。
     if (this.post) this.post.setFog(this.fogPreset);
+  }
+
+  // ---- M6：把姿态的 fov 修正叠到相机上 ----
+  // resize() 按宽高比定基值（73/84/90），这里只做「机瞄收窄 + 下蹲略收」的修正。
+  // 分开算的原因：窗口尺寸与姿态是两件独立的事，混在一起会让 resize 把机瞄状态抹掉。
+  applyStanceFov() {
+    const base = this.baseFov || 73;
+    const want = base - 21 * (this.player.adsT || 0) - 6 * (this.player.crouchT || 0);
+    if (Math.abs(this.camera.fov - want) > 0.01) {
+      this.camera.fov = want;
+      this.camera.updateProjectionMatrix();
+    }
   }
 
   // 阴影视锥跟随：把光源窗口钉在玩家脚下。

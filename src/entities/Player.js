@@ -23,6 +23,14 @@ export class Player {
     this.recoil = 0;
     this.vy = 0;
     this.grounded = true;
+    // ---- M6：冲刺 / 下蹲 ----
+    this.sprinting = false;
+    this.crouching = false;
+    this.stanceMul = 1;
+    this.crouchT = 0;          // 0 = 站立，1 = 完全蹲下；平滑过渡用
+    this.eyeHeight = TUNING.playerHeight;
+    this.adsT = 0;             // 机瞄过渡 0~1
+    this.cameraFov = 73;
     this.bob = 0;
     this.moveAmt = 0;
     this.lastLook = { x: 0, y: 0 };
@@ -91,9 +99,40 @@ export class Player {
     this.hp = Math.min(this.maxHp, this.hp + amount);
   }
 
-  // 当前移速倍率：坚果罩内的重甲惩罚（C2）
+  // 当前移速倍率：坚果罩内的重甲惩罚（C2）× 冲刺/下蹲（M6）
   get speedMul() {
-    return this.shield && this.shield.active ? this.shieldMoveMul || 1 : 1;
+    const shieldMul = this.shield && this.shield.active ? this.shieldMoveMul || 1 : 1;
+    return shieldMul * (this.stanceMul || 1);
+  }
+
+  // ---- M6：冲刺 / 下蹲 ----
+  //
+  // 为什么这两个值得做：现在的移动只有一个速度，玩家没有任何「表达」空间。
+  // 冲刺让走位有风险收益（快但收枪、不能射击），下蹲让掩体有意义（矮一半、更难被打）。
+  // 这是玩法层面的补完，不只是手感。
+
+  // 每帧由 Game 调（拿到 controls 的意图与当前速度）
+  updateStance(dt, controls) {
+    const wantSprint = !!(controls && controls.sprinting) && this.grounded;
+    // 冲刺要求有前进输入：原地按 Shift 不该「预备冲刺」
+    const moving = !!(controls && (controls.move.y > 0.1 || controls.move.x !== 0));
+    this.sprinting = wantSprint && moving && !this.crouching;
+    this.crouchT = clamp(this.crouchT + (this.crouching ? dt : -dt) * 6, 0, 1);
+
+    // 姿态倍率：冲刺 1.55，下蹲 0.45。用 crouchT 平滑过渡，避免速度突变。
+    const sprintMul = this.sprinting ? 1.55 : 1;
+    const crouchMul = 1 - 0.55 * this.crouchT;
+    this.stanceMul = sprintMul * crouchMul;
+
+    // 视高：下蹲时从 1.66 降到 1.05（差距要够大，才有「我在掩体后」的感觉）
+    this.eyeHeight = TUNING.playerHeight * (1 - 0.37 * this.crouchT);
+  }
+
+  // 切换下蹲（Ctrl 是按住的语义，由 Controls 直接设 crouching）
+  setCrouch(on) {
+    if (this.dead || this.downed) return;
+    this.crouching = !!on && this.grounded;
+    if (this.crouching) this.sprinting = false;
   }
 
   revive(frac = 0.5) {
@@ -104,7 +143,7 @@ export class Player {
     this.invuln = 3;
     this.sinceDamage = 0;
     this.roll = 0;
-    this.eye.set(this.pos.x, this.pos.y + TUNING.playerHeight, this.pos.z);
+    this.eye.set(this.pos.x, this.pos.y + this.eyeHeight, this.pos.z);
   }
 
   update(dt, controls, terrain, zombies) {
@@ -280,7 +319,16 @@ export class Player {
     this.roll = damp(this.roll, clamp(-localStrafe * 0.009, -0.05, 0.05), 7, dt);
 
     const bobY = this.grounded ? Math.abs(Math.sin(this.bob)) * 0.045 * this.moveAmt : 0;
-    this.eye.set(this.pos.x, this.pos.y + TUNING.playerHeight + bobY, this.pos.z);
+    this.eye.set(this.pos.x, this.pos.y + this.eyeHeight + bobY, this.pos.z);
+
+    // ---- M6：机瞄（ADS）----
+    // 把 fov 从 73 收到 52 —— 这是「变焦」而不是「换个准星」：
+    // 目标在屏幕上变大，远处僵尸头也点得动了。同时几乎关掉头部晃动（adsT 越高越稳）。
+    const wantAds = !!(controls && controls.ads) && !this.sprinting && !this.dead;
+    this.adsT = clamp(this.adsT + (wantAds ? dt : -dt) * 7, 0, 1);
+    // 蹲下也会收一点视野（贴地看远处，视角本来就该更窄）
+    const adsFov = 73 - 21 * this.adsT - 6 * this.crouchT;
+    this.cameraFov = adsFov;
 
     this.lastInput = {
       move: { x: ix, y: iz },

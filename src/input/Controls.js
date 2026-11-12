@@ -19,6 +19,11 @@ export class Controls {
     const mq = window.matchMedia ? window.matchMedia('(pointer: coarse)').matches : false;
     const noHover = window.matchMedia ? window.matchMedia('(hover: none)').matches : false;
     this.isTouch = (mq || noHover) && navigator.maxTouchPoints > 0;
+    // ---- M6：冲刺 / 下蹲 / 机瞄（ADS）----
+    this.sprinting = false;
+    this.crouching = false;
+    this.ads = false;
+    this.adsT = 0;
     this.onModeChange = null;
     this.keys = new Set();
     this.joyId = null;
@@ -239,9 +244,12 @@ export class Controls {
       if (!this.enabled) return;
       if (document.pointerLockElement !== this.canvas) return;
       if (e.button === 0) this.setFiring(true);
+      // M6：右键机瞄（按住）。contextmenu 已经在上面 preventDefault 过。
+      if (e.button === 2) this.ads = true;
     });
     document.addEventListener('mouseup', (e) => {
       if (e.button === 0) this.firing = false;
+      if (e.button === 2) this.ads = false;
     });
 
     window.addEventListener('keydown', (e) => {
@@ -263,13 +271,22 @@ export class Controls {
       // G 不再丢弃：G 是手雷的蓄力键（按住蓄力、松手投出），丢弃挪到 Backspace
       if (e.code === 'Backspace') this.dropSlotRequest = true;
       this.keys.add(e.code);
+      // M6：Shift = 冲刺（按住），Ctrl = 下蹲（按住）
+      if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') this.sprinting = true;
+      if (e.code === 'ControlLeft' || e.code === 'ControlRight') this.crouching = true;
     });
     window.addEventListener('keyup', (e) => {
       this.keys.delete(e.code);
+      if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') this.sprinting = false;
+      if (e.code === 'ControlLeft' || e.code === 'ControlRight') this.crouching = false;
     });
     window.addEventListener('blur', () => {
       this.keys.clear();
       this.firing = false;
+      // 失焦时必须清掉按住类状态：否则 alt-tab 回来会一直冲刺/下蹲
+      this.sprinting = false;
+      this.crouching = false;
+      this.ads = false;
     });
   }
 
