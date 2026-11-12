@@ -102,3 +102,44 @@ describe('天空穹顶', () => {
     expect(tex.image).toBeTruthy();
   });
 });
+// 夜间地图（夜之森林）的专项：天空穹顶上线后，夜里的云用的是白天的受光色，
+// 远看是一片发亮的灰白云 —— 比旧版渐变条（最亮 #4a5570）亮了整整一档。
+describe('天空穹顶 · 夜景亮度', () => {
+  it('夜里的云只留一层月光，不能是白天的受光色', () => {
+    const sky = createSkyDome({ preset: 'backyard' });
+    expect(sky.uniform.uCloudBright.value).toBe(1);
+    sky.setPreset('forest');
+    expect(sky.uniform.uCloudBright.value).toBeLessThan(0.3);
+  });
+
+  it('夜里不套白天的暖色地平线提亮与暖光晕（否则会亮成傍晚）', () => {
+    const sky = createSkyDome({ preset: 'backyard' });
+    // 其它五张图保持改动前的字面量：地平线 ×(1.9,1.55,1.2)、光晕 (3.4,2.04,0.816)
+    expect(sky.uniform.uHorizonTint.value.r).toBeCloseTo(1.9, 5);
+    expect(sky.uniform.uGlowTint.value.r).toBeCloseTo(3.4, 5);
+
+    sky.setPreset('forest');
+    const horizon = sky.uniform.uHorizonTint.value;
+    const glow = sky.uniform.uGlowTint.value;
+    expect(horizon.r).toBeLessThan(1.2);
+    // 月光晕是冷的（蓝 > 红）而且是暗的
+    expect(glow.b).toBeGreaterThan(glow.r);
+    expect(glow.b).toBeLessThan(1);
+  });
+
+  it('切回白天时夜景参数会复位（uniform 是同一份，不能粘住）', () => {
+    const sky = createSkyDome({ preset: 'forest' });
+    sky.setPreset('backyard');
+    expect(sky.uniform.uCloudBright.value).toBe(1);
+    expect(sky.uniform.uHorizonTint.value.r).toBeCloseTo(1.9, 5);
+    expect(sky.uniform.uGlowTint.value.b).toBeCloseTo(0.816, 5);
+  });
+
+  it('shader 用 uniform 控制云的受光亮度（不是写死常量）', () => {
+    const sky = createSkyDome({ preset: 'backyard' });
+    const src = sky.mesh.material.fragmentShader;
+    expect(src).toContain('uCloudBright');
+    expect(src).toContain('uHorizonTint');
+    expect(src).toContain('uGlowTint');
+  });
+});

@@ -27,6 +27,8 @@ varying vec3 vDir;
 uniform vec3  uZenith;      // 天顶色
 uniform vec3  uHorizon;     // 地平线暖色（朝阳面）
 uniform vec3  uHorizonAway; // 地平线冷色（背阳面）
+uniform vec3  uHorizonTint; // 朝太阳一侧地平线的提亮系数（白天暖、夜里冷）
+uniform vec3  uGlowTint;    // 太阳/月亮方位上那圈近距光晕的叠加色
 uniform vec3  uSunColor;    // 太阳盘颜色
 uniform vec3  uSunDir;      // 太阳方向（已归一化）
 uniform float uSunSize;     // 太阳盘锐度：越大越小越硬
@@ -34,6 +36,7 @@ uniform float uSunGlow;     // 太阳光晕强度
 uniform float uCloudCover;  // 云量 0~1
 uniform float uCloudScale;  // 云层尺度
 uniform float uCloudSpeed;  // 云层流速
+uniform float uCloudBright; // 云的受光亮度（夜里云只该剩一点月光）
 uniform float uTime;
 uniform float uStars;       // 星空强度（夜景用；白天传 0）
 uniform float uFlash;       // 闪电瞬时亮度
@@ -86,8 +89,8 @@ void main() {
     uHorizonAway * 1.25 + vec3(0.05, 0.03, 0.02),
     smoothstep(0.2, 0.75, ts)
   );
-  hc = mix(hc, uHorizon * vec3(1.9, 1.55, 1.2), pow(ts, 6.0));
-  hc = mix(hc, vec3(1.0, 0.60, 0.24) * 3.4, pow(ts, 34.0));
+  hc = mix(hc, uHorizon * uHorizonTint, pow(ts, 6.0));
+  hc = mix(hc, uGlowTint, pow(ts, 34.0));
 
   // ---- 天顶 → 地平线的垂直渐变 ----
   // pow(h, .55) 让色带压在地平线附近，天空上半部分更均匀 —— 直上直下的 lerp 会显得假。
@@ -123,7 +126,7 @@ void main() {
     cloud *= smoothstep(0.0, 0.22, h);
     // 云的受光面：朝太阳一侧更亮（假散射，但方向对了就够）
     vec3 lit = mix(vec3(0.72, 0.75, 0.82), vec3(1.0, 0.95, 0.88), pow(ts, 2.0));
-    lit *= 0.55 + 0.45 * sunUp;
+    lit *= (0.55 + 0.45 * sunUp) * uCloudBright;
     // 云边缘透一点天光：把底色混进去
     col = mix(col, lit, cloud * 0.92);
   }
@@ -223,11 +226,16 @@ export const SKY_PRESETS = {
     horizonAway: [0x16244a, 0x0b1430],
     sun: [0xcfe0ff, 0x8fa8cc],
     sunSize: 2200,
-    sunGlow: 0.5,
-    cloudCover: 0.35,
+    sunGlow: 0.45,
+    cloudCover: 0.26,
     cloudScale: 2.2,
     cloudSpeed: 0.004,
     stars: 1.0,
+    // 夜景：云只剩一层月光，不能是白天的灰白云；地平线也不该有暖色「点燃」，
+    // 那圈近距光晕改成一抹冷蓝（月光散射），否则夜空会亮得像傍晚。
+    cloudBright: 0.14,
+    horizonTint: [1.02, 1.06, 1.22],
+    glow: [0.18, 0.24, 0.4],
   },
   downtown: {
     zenith: [0x3d3363, 0x4a3f70],
@@ -242,6 +250,11 @@ export const SKY_PRESETS = {
     stars: 0.12,
   },
 };
+
+// 白天（改动前）的地平线提亮与近距光晕常量：其它地图不写这两个字段时用它，
+// 保证这次只改夜景，白天的天空一个像素都不动。
+const DAY_HORIZON_TINT = [1.9, 1.55, 1.2];
+const DAY_GLOW = [3.4, 2.04, 0.816];
 
 // 从 [主色, 辅色] 配对里插值出一个色（辅色让同一张图的天空不至于只有一种蓝）
 function pair(arr, t, out) {
@@ -270,6 +283,9 @@ export function createSkyDome(opts = {}) {
     uZenith: { value: new THREE.Color(0x3f93dd) },
     uHorizon: { value: new THREE.Color(0xcfeaff) },
     uHorizonAway: { value: new THREE.Color(0x586f88) },
+    // 白天默认值 = 改动前的字面量，保证其它五张图的观感逐像素不变
+    uHorizonTint: { value: new THREE.Color(1.9, 1.55, 1.2) },
+    uGlowTint: { value: new THREE.Color(3.4, 2.04, 0.816) },
     uSunColor: { value: new THREE.Color(0xfff6e0) },
     uSunDir: { value: new THREE.Vector3(0.4, 0.5, 0.4).normalize() },
     uSunSize: { value: 900 },
@@ -277,6 +293,7 @@ export function createSkyDome(opts = {}) {
     uCloudCover: { value: 0.5 },
     uCloudScale: { value: 2.4 },
     uCloudSpeed: { value: 0.005 },
+    uCloudBright: { value: 1 },
     uTime: { value: 0 },
     uStars: { value: 0 },
     uFlash: { value: 0 },
@@ -324,6 +341,12 @@ export function createSkyDome(opts = {}) {
       uniform.uCloudScale.value = p.cloudScale;
       uniform.uCloudSpeed.value = p.cloudSpeed;
       uniform.uStars.value = p.stars;
+      // 这两组是「夜景/白天」的开关，不写就用原来的白天常量
+      const ht = p.horizonTint || DAY_HORIZON_TINT;
+      uniform.uHorizonTint.value.setRGB(ht[0], ht[1], ht[2]);
+      const gt = p.glow || DAY_GLOW;
+      uniform.uGlowTint.value.setRGB(gt[0], gt[1], gt[2]);
+      uniform.uCloudBright.value = p.cloudBright === undefined ? 1 : p.cloudBright;
       return api;
     },
 
