@@ -15,6 +15,7 @@ import { WallNuts, RemoteShield } from './entities/WallNuts.js';
 import { RemotePlayer } from './entities/RemotePlayer.js';
 import { CloudCombat } from './entities/CloudCombat.js';
 import { Sfx } from './audio/Sfx.js';
+import { createPostFX, postLevelFromQuery, degradeStep, upgradeStep, LEVEL_OFF } from './fx/postfx.js';
 import { HUD } from './ui/HUD.js';
 import { Controls } from './input/Controls.js';
 import { TUNING, WEAPONS, DUO, SUN_SKY, BOUNTY, AIRDROP, CLOUD } from './config.js';
@@ -109,6 +110,17 @@ export class Game {
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer = renderer;
+
+    // 后期管线（M2）。?post=0 时 level 为 0，render() 直接返回 false → 退回直出，
+    // 与改动前逐字节等价。这是回滚开关，也是 E2E 的对照基线。
+    // 触屏探测在这里直接做：controls 要到 205 行才建，比渲染器晚。
+    const coarse = window.matchMedia ? window.matchMedia('(pointer: coarse)').matches : false;
+    const noHover = window.matchMedia ? window.matchMedia('(hover: none)').matches : false;
+    const isTouch = (coarse || noHover) && (navigator.maxTouchPoints || 0) > 0;
+    this.post = createPostFX(renderer, {
+      level: postLevelFromQuery(window.location.search, isTouch),
+      maxLevel: isTouch ? 1 : 2,
+    });
 
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(73, 1, 0.05, 240);
@@ -382,6 +394,11 @@ export class Game {
     this.camera.fov = a < 0.7 ? 90 : a < 1 ? 84 : 73;
     this.camera.updateProjectionMatrix();
     if (this.weapons) this.weapons.setAspect(a);
+    // RT 尺寸必须跟 drawing buffer 一致（含 pixelRatio），否则后期会糊成一层。
+    if (this.post) {
+      const dpr = this.renderer.getPixelRatio ? this.renderer.getPixelRatio() : 1;
+      this.post.setSize(Math.max(2, Math.floor(w * dpr)), Math.max(2, Math.floor(h * dpr)));
+    }
   }
 
   setMap(id) {
@@ -1833,7 +1850,10 @@ export class Game {
     this.syncShadowFollow();
 
     this.trackPerformance(raw);
-    this.renderer.render(this.scene, this.camera);
+    // 后期管线；任何一级失败（能力探测不过 / GL 出错 / 档位为 0）都退回直出。
+    if (!this.post.render(this.scene, this.camera)) {
+      this.renderer.render(this.scene, this.camera);
+    }
   }
 
   // 阴影视锥跟随：把光源窗口钉在玩家脚下。
@@ -1855,14 +1875,35 @@ export class Game {
     const fps = this.perfFrames / this.perfTime;
     this.perfTime = 0;
     this.perfFrames = 0;
-    if (fps < 43 && this.pixelRatio > 1.02) {
-      this.pixelRatio = Math.max(1, this.pixelRatio - 0.25);
-      this.renderer.setPixelRatio(this.pixelRatio);
-      this.resize();
-    } else if (fps > 57 && this.pixelRatio < this.maxPixelRatio - 0.01) {
-      this.pixelRatio = Math.min(this.maxPixelRatio, this.pixelRatio + 0.1);
-      this.renderer.setPixelRatio(this.pixelRatio);
-      this.resize();
+    if (!this.post) return;
+    // 降级顺序（M2）：先降后期档位，档位见底才降 pixelRatio。
+    // 用户对分辨率下降比画质下降敏感，所以先牺牲后期。
+    const st = {
+      level: this.post.level,
+      pixelRatio: this.pixelRatio,
+      maxPixelRatio: this.maxPixelRatio,
+      maxLevel: this.post.maxLevel,
+    };
+    if (fps < 43) {
+      const next = degradeStep(st);
+      if (!next.changed) return;
+      this.post.setLevel(next.level);
+      if (next.pixelRatio !== this.pixelRatio) {
+        this.pixelRatio = next.pixelRatio;
+        this.renderer.setPixelRatio(this.pixelRatio);
+        this.resize();
+      }
+    } else if (fps > 57) {
+      const next = upgradeStep(st);
+      if (!next.changed) return;
+      // 严格对称：最后降的必须最先升，否则会在两个状态间来回跳
+      if (next.pixelRatio !== this.pixelRatio) {
+        this.pixelRatio = next.pixelRatio;
+        this.renderer.setPixelRatio(this.pixelRatio);
+        this.resize();
+      } else {
+        this.post.setLevel(next.level);
+      }
     }
   }
 }
