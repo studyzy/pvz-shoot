@@ -291,8 +291,8 @@ pvz-shoot 在**内容量和工程规范**上其实领先 Saltline（6 张图 / 1
 
 ## 8. P7 — 工程侧（顺手做，卡住进度会很难受）
 
-- **`farmer.glb` 1.4 MB 是死资产**（`RemotePlayer` 已不引用）→ 删。
-- **`public/audio/*.ogg` 204 KB 从未被引用** → 要么接上（§7.1 建议接上），要么删。
+- ~~**`farmer.glb` 1.4 MB 是死资产**（`RemotePlayer` 已不引用）→ 删。~~ 已完成。
+- ~~**`public/audio/*.ogg` 204 KB 从未被引用**~~ → 已按 §7.1 接上（运行时加载，主包降到 269 KB）。
 - **E2E 缺渲染断言**：14 个场景里 `perf` 只采样 10 s，**没有像素级回归**。补一条：固定 `?map=backyard&cam=x,y,z` 截全屏，与基线图做 `SSIM > 0.98` 断言。后期管线改动全靠这条兜底。
 - **`docs/GAMEPLAY.md` 必须同步**：所有数值改动（冲刺速度、ADS FOV、波次公式）都要写进去（`AGENTS.md §5.1` 硬约定）。
 - **新增材质/贴图进 `docs/` 留痕**：`materials.js` 已经是 826 行，再加功能建议先拆 `materials/textures.js` + `materials/materials.js`。

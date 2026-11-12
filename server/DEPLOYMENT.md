@@ -95,10 +95,10 @@ handle_path /pvz/* {
 | `models/dragon-evolved.glb` | **2.7 MB** |
 | `assets/main-*.js` | 1.4 MB |
 | `models/skeleton.glb` | 1.4 MB |
-| `models/football.glb` / `alchemist.glb` / `farmer.glb` | 各 1.3 MB |
+| `models/football.glb` / `alchemist.glb` | 各 1.3 MB |
 
 > **给网络重构的结论**：见计划 §5.1。`assets/` 已有 hash 可放心长缓存；`models/` 文件名不含 hash，改成 `immutable` 前**必须先做带版本号的路径**（如 `models/v2/xxx.glb`），否则改了模型用户永远拿旧的。
-> 另外 `farmer.glb`（1.3 MB）是**已不再引用**的旧队友模型（AGENTS.md §5.3.5 明确写了 RemotePlayer 已不引用），可从 `public/` 移除，白省 1.3 MB。
+> `farmer.glb`（1.3 MB，旧队友模型）已移除，首屏与全量体积各少 1.3 MB。
 
 ## 6. SSH 注意事项
 
@@ -138,6 +138,6 @@ ssh -F /dev/null ubuntu@124.221.164.209
 | --- | --- | --- |
 | D1 | 设置 `BUILD_ID` | 现在是 `dev`，意味着客户端与服务端构建号不校验。发版时设成 git sha 可防版本错配 |
 | D2 | 静态资源缓存升级 | 见 §5，需先做带版本的模型路径 |
-| D3 | 移除 `farmer.glb` | 1.3 MB 死文件 |
+| D3 | 移除 `farmer.glb` | 已完成（1.3 MB 死文件） |
 | D4 | 部署脚本加 `src/sim/` | 见 §7 |
 | D5 | 确认内存余量 | 核实当时 available 仅 4.2 GiB，重构后按 §1.2 每场 ~1 MB 不成问题，但压测时要盯 |

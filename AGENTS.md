@@ -73,7 +73,7 @@ npm run duo       # build 后直接起双人服务器
 | `src/input/Controls.js` | 键鼠 + 触屏输入、平台识别、虚拟摇杆、指针锁定 |
 | `src/ui/HUD.js` | DOM HUD、**5 个角色槽底栏**、蓄力条、横幅、命中标记、开始/暂停/结算界面 |
 | `src/style.css` | 全部界面样式与响应式/安全区适配 |
-| `public/models/` | `zombie.glb`（660 KB：7.8k 三角面、50 骨骼、16 段动画）+ `skeleton.glb`（1.4 MB：5.3k 三角面、41 骨骼、13 段动画）+ `alchemist.glb`（1.3 MB：1 万三角面、22 骨骼、5 段动画）+ `football.glb`（1.4 MB：1 万三角面、22 骨骼、5 段动画）+ `zombie-doctor.glb`（0.9 MB：1.2 万三角面、28 骨骼、**0 段动画**→ 程序化骨架，后花园第 10 波 Boss）+ `pumpkin-kid.glb`（800 KB：1.2 万三角面、23 骨骼、0 段动画，队友用）+ `farmer.glb`（1.3 MB 旧队友模型，已不引用）+ `LICENSE-*.txt`，构建时原样拷贝到 `dist/models/`。**普通僵尸用 alchemist，橄榄球用 football，僵尸博士用 zombieDoctor，其余地面僵尸用 zombie；队友用 pumpkin-kid** |
+| `public/models/` | `zombie.glb`（660 KB：7.8k 三角面、50 骨骼、16 段动画）+ `skeleton.glb`（1.4 MB：5.3k 三角面、41 骨骼、13 段动画）+ `alchemist.glb`（1.3 MB：1 万三角面、22 骨骼、5 段动画）+ `football.glb`（1.4 MB：1 万三角面、22 骨骼、5 段动画）+ `zombie-doctor.glb`（0.9 MB：1.2 万三角面、28 骨骼、**0 段动画**→ 程序化骨架，后花园第 10 波 Boss）+ `pumpkin-kid.glb`（800 KB：1.2 万三角面、23 骨骼、0 段动画，队友用）+ `LICENSE-*.txt`，构建时原样拷贝到 `dist/models/`。**普通僵尸用 alchemist，橄榄球用 football，僵尸博士用 zombieDoctor，其余地面僵尸用 zombie；队友用 pumpkin-kid** |
 | `src/net/protocol.js` | 双人消息类型、版本、名字/token/地图/relay 清洗（客户端与服务器共用） |
 | `src/net/NetClient.js` | 浏览器 WebSocket：hello、token（`sessionStorage`，同一浏览器两个标签页不串号）、心跳/RTT、断线重连 |
 | `src/net/DuoSession.js` | 双人会话状态机：自动配对消息 → `Game.startDuo` / `applyRemoteState` / `pause` / `endDuo` |
@@ -253,7 +253,7 @@ npm run duo       # build 后直接起双人服务器
 - 名牌 `createNameplate(name)` 默认挂 `PLATE_Y = 1.92`；死亡时跟着尸体落到地面附近。
 - 成本：1 个蒙皮 draw call + 武器 2~4 个 + 影子 + 名牌；同屏只有 1 个队友，不影响 14 只僵尸的预算。
 - 调试：`__game.spawnRemotePlayer({name:'队友'})` 在出生点右侧生成；联网层接上后由网络位置驱动 `setTransform` / `setMoving` / `setFiring` / `setTarget`。
-- `farmer.glb` + `LICENSE-farmer.txt` 仍留在 `public/models/`（旧版 Quaternius Farmer 队友模型），**RemotePlayer 已不再引用**。
+- 旧版 Quaternius Farmer 队友模型 `farmer.glb`（1.3 MB）已于 M8 删除（`RemotePlayer` 早已不引用）；`LICENSE-farmer.txt` 保留作许可留痕。
 
 ### 5.4 输入与平台
 
