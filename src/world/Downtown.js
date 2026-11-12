@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { toon, litGround, glassTexture, asphaltTexture, duskSkyTexture, plazaTexture } from './materials.js';
+import { buildYard } from './containers.js';
 import { rand, TAU } from '../utils.js';
 import { setFollowShadow } from './shadowFollow.js';
 import { FlowField } from './FlowField.js';
@@ -231,8 +232,26 @@ export class Downtown {
     this.buildWestFacade();
     this.buildRing();
     this.buildDistant();
+    this.buildYard();
     this.buildMotes();
     this.buildText();
+  }
+
+  // 集装箱堆场：把外环的空地（原本只有路灯和远景剪影）改成港区作业场。
+  //
+  // 参考 saltline 的物流场，但只取语汇不取写实：它的城市感靠尺度参照——
+  // 两米半的铁箱码到五米高，人走在箱缝里视线被切成窄巷。
+  // 本图外环 8 米宽的空场正好能容这个景，又不动主街/横楼峡的对枪轴线。
+  //
+  // 位置表在 containers.js 里，已被 containers.test 逐条验证：
+  // 不挡刷怪点(≥1.6m)、不压拾取点(≥1.2m)、不侵主街、箱间零重叠。
+  buildYard() {
+    const r = buildYard({
+      root: this.root,
+      addPlatform: (x, z, w, d, h) => this.addPlatform(x, z, w, d, h),
+      blockColliders: (x, z, w, d) => this.blockColliders(x, z, w, d),
+    });
+    this.yard = r;
   }
 
   buildLights() {
