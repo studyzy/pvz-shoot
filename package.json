@@ -17,7 +17,8 @@
     "test:e2e": "node tests/integration/browser.e2e.webgl.mjs",
     "test:e2e:duo": "node tests/integration/duo-authority.e2e.mjs",
     "sim:headless": "node tools/sim-smoke.mjs",
-    "extract:maps": "node tools/extract-map-data.mjs"
+    "extract:maps": "node tools/extract-map-data.mjs",
+    "test:e2e:pixel": "node tests/integration/postfx-pixel.e2e.mjs"
   },
   "dependencies": {
     "three": "^0.169.0",
