@@ -32,6 +32,10 @@ const CHROME_ARGS = [
   '--disable-dev-shm-usage',
 ];
 
+// 首屏启动等待：CI 的 SwiftShader 机器上，每个新上下文都要冷启动（主包 + glb），
+// 2026-11-12 实测 weapons / mobile 这两个独立上下文会贴到 60s 边缘，统一放宽到 120s。
+const BOOT_TIMEOUT = 120000;
+
 class PhaseError extends Error {}
 
 function check(cond, msg) {
@@ -154,7 +158,7 @@ async function openPage(context, url) {
   // 2026-11-12 起放宽到 120 秒：weapons 场景是第三个阶段，自己开新上下文（冷缓存要重拉
   // 主包 + 12 款 GLB），在 SwiftShader 的慢机器上实测会卡在 60 秒边缘（同一提交连跑三次
   // 都停在 60s 超时，页面无任何 JS 错误）。超时才是真的启动失败。
-  await waitUntil(page, () => !!window.__game, 120000, 'window.__game 出现').catch(async (error) => {
+  await waitUntil(page, () => !!window.__game, BOOT_TIMEOUT, 'window.__game 出现').catch(async (error) => {
     const size = page.viewportSize();
     const file = await shot(page, 'boot-FAIL-' + size.width + 'x' + size.height);
     const errors = [...consoleErrors, ...await drainErrors(page)];
@@ -271,7 +275,7 @@ async function phaseStartup(ctx) {
   const { page } = ctx;
   await page.setViewportSize({ width: 1440, height: 860 });
   await page.reload({ waitUntil: 'load' });
-  await waitUntil(page, () => !!window.__game, 60000, 'window.__game');
+  await waitUntil(page, () => !!window.__game, BOOT_TIMEOUT, 'window.__game');
   await waitUntil(page, () => window.__game.renderer.info.render.calls > 0, 60000, '渲染循环');
 
   const bodyClass = await page.evaluate(() => document.body.className);
@@ -736,7 +740,7 @@ async function phaseMobile(ctx) {
   try {
     // CI runner 冷启动要现拉 1.4 MB 主包 + 几 MB glb，默认 30 秒的 goto 会超；放宽到 90 秒。
   await page.goto(url, { waitUntil: 'load', timeout: 90000 });
-    await waitUntil(page, () => !!window.__game, 60000, 'window.__game');
+    await waitUntil(page, () => !!window.__game, BOOT_TIMEOUT, 'window.__game');
     await waitUntil(page, () => window.__game.renderer.info.render.calls > 0, 60000, '渲染循环');
 
     const mode = await page.evaluate(() => ({
