@@ -20,6 +20,7 @@ import { createSkyDome } from './world/skyDome.js';
 import { createSkyline } from './world/skyline.js';
 import { createWeather } from './fx/weather.js';
 import { fogPresetFor } from './world/heightFog.js';
+import { createProps } from './world/props.js';
 import { HUD } from './ui/HUD.js';
 import { Controls } from './input/Controls.js';
 import { TUNING, WEAPONS, DUO, SUN_SKY, BOUNTY, AIRDROP, CLOUD } from './config.js';
@@ -142,6 +143,9 @@ export class Game {
     this.scene.add(this.skyline.group);
     this.weather = createWeather({ preset: '' });
     this.scene.add(this.weather.group);
+    // M7：环境叙事道具（晾衣绳/垃圾桶/翻倒花盆…）。每类 1 draw call。
+    this.props = createProps({ half: 23 });
+    this.scene.add(this.props.group);
 
     const ctx = (this.ctx = {});
     this.ctx.scene = this.scene;
@@ -1904,6 +1908,13 @@ export class Game {
     }
     if (this.skyline) this.skyline.setPreset(id);
     if (this.weather) this.weather.setPreset(id);
+    // M7：道具跟着地图换。blocked 用地图自带的碰撞体判断 —— 装饰不能生在墙里。
+    if (this.props) {
+      const cols = (map && (map.playerColliders || map.colliders)) || [];
+      this.props.setPreset(id, {
+        blocked: (x, z, r) => cols.some((c) => Math.hypot(x - c.x, z - c.z) < (c.r || 0.5) + r),
+      });
+    }
     // 高度雾的配方在后期合成里用（见 postfx 的 uFog* uniform）。
     // 场景自带的 THREE.Fog 保持地图原本的设定不动：它管内置材质，
     // 强行推远只会让远处失去纵深，是退步而不是优化。
