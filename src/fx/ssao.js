@@ -239,6 +239,9 @@ export function createSSAO(renderer, opts = {}) {
     get texture() { return rt ? rt.texture : null; },
     dispose() {
       if (rt) rt.dispose();
+      // 置空而不是只释放：dispose 之后 render 必须直接返回 false，
+      // 否则会往一张已释放的 RT 里画（和 postfx 的 dispose 语义保持一致）。
+      rt = null;
       quadGeo.dispose();
       quad.material.dispose();
       mat.dispose();
