@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { toon, sandTexture, desertSkyTexture } from './materials.js';
 import { rand, TAU } from '../utils.js';
+import { setFollowShadow } from './shadowFollow.js';
 import { FlowField } from './FlowField.js';
 import { PLAYER_PERCH } from '../config.js';
 
@@ -233,16 +234,9 @@ export class DustYard {
     sun.position.set(22, 30, 14);
     sun.target.position.set(0, 0, 0);
     sun.castShadow = true;
-    sun.shadow.mapSize.set(1024, 1024);
-    sun.shadow.camera.left = -34;
-    sun.shadow.camera.right = 34;
-    sun.shadow.camera.top = 34;
-    sun.shadow.camera.bottom = -34;
-    sun.shadow.camera.near = 1;
-    sun.shadow.camera.far = 96;
     sun.shadow.bias = -0.0006;
     sun.shadow.normalBias = 0.04;
-    sun.shadow.camera.updateProjectionMatrix();
+    this.shadowFollow = setFollowShadow(sun, { half: 20, near: 1, far: 96, mapSize: 1024 });
     this.root.add(sun);
     this.root.add(sun.target);
 

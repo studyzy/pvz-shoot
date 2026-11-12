@@ -122,7 +122,21 @@ function hitForModel(id, src) {
 }
 
 let shadowMatShared = null;
-function shadowMaterial() {
+let shadowMatSoft = null;
+// 两档：solid 用于「这是唯一影子」的无阴影地图；soft 用于空中单位（真实投影还在远处地上，blob 只是位置提示）。
+function shadowMaterial(soft) {
+  if (soft) {
+    if (!shadowMatSoft) {
+      shadowMatSoft = new THREE.MeshBasicMaterial({
+        map: blobShadowTexture(),
+        transparent: true,
+        depthWrite: false,
+        opacity: 0.38,
+        color: 0x20300f,
+      });
+    }
+    return shadowMatSoft;
+  }
   if (!shadowMatShared) {
     shadowMatShared = new THREE.MeshBasicMaterial({
       map: blobShadowTexture(),
@@ -403,14 +417,24 @@ export class Zombie {
       return;
     }
 
-    const shadow = new THREE.Mesh(shadowGeometry, shadowMaterial());
+    const shadow = new THREE.Mesh(shadowGeometry, shadowMaterial(false));
     shadow.rotation.x = -Math.PI / 2;
     // root 在空中时影子要落回地面，而不是跟着飞；气球再缩小一圈，作为「它在天上」的线索
     shadow.position.y = (0.025 - this.airHeight) / this.scaleFactor;
+    // 地面单位：身体网格已经 castShadow（见下面的 buildRig），再叠一层贴图影子就是两层，
+    // 近距离看是脚下一块脏东西。地面僵尸只留真实投影，blob 只给两种必须靠它的情况：
+    //   1) 空中单位 —— 真实投影会飘到很远的地面，反而读不出「它在哪」；
+    //   2) 无阴影地图（forest / cloud，map.noShadows）—— 没有真实投影，不补就贴地漂浮。
+    // 这两条的判据在下面 setGroundShadow() 里，因为 airborne 之后还会变（气球落地/起飞）。
     if (this.airborne) shadow.scale.setScalar(0.6);
     shadow.renderOrder = 1;
     this.shadow = shadow;
     this.root.add(shadow);
+    this.hasGroundShadow = this.airborne || !!(this.map && this.map.noShadows);
+    // 无阴影地图上 blob 是唯一影子 → 实心档；否则（空中单位）用 soft 档。
+    this.shadowSoft = !(this.map && this.map.noShadows);
+    shadow.visible = this.hasGroundShadow;
+    if (this.hasGroundShadow && this.shadowSoft) shadow.material = shadowMaterial(true);
 
     this.model = new THREE.Group();
     this.model.position.y = -2.3;
@@ -1948,6 +1972,26 @@ export class Zombie {
 
     this.pushX = 0;
     this.pushZ = 0;
+    this.syncGroundShadow();
+  }
+
+  // blob 影子只在「必须有它」的时候显示：空中单位，或整张图没有真实投影（forest/cloud）。
+  // airborne 会随气球落地/起飞、飞行单位起降而变，所以每帧校一次（只写一个布尔，代价可忽略）。
+  syncGroundShadow() {
+    if (!this.shadow || this.headless) return;
+    const noReal = !!(this.map && this.map.noShadows);
+    const want = this.airborne || noReal;
+    if (want !== this.hasGroundShadow) {
+      this.hasGroundShadow = want;
+      this.shadow.visible = want;
+    }
+    // 无阴影地图：blob 是唯一影子 → 实心；空中单位：真实投影还在远处地上 → soft。
+    const soft = !noReal;
+    if (want && this.shadowSoft !== soft) {
+      this.shadowSoft = soft;
+      this.shadow.material = shadowMaterial(soft);
+    }
+    if (this.airborne && this.shadow.scale.x !== 0.6) this.shadow.scale.setScalar(0.6);
   }
 
   dispose() {

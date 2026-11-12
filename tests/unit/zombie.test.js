@@ -518,7 +518,9 @@ describe('Zombie · 受击与死亡', () => {
   it('hit 返回是否致死；hp 归零触发 startDeath：粒子 14 颗 + 影子关掉', () => {
     const ctx = makeCtx();
     const z = makeZombie('normal', 0, 5, ctx);
-    expect(z.shadow.visible).toBe(true);
+    // 地面僵尸的 blob 影子默认不显示（身体网格已 castShadow，叠两层就是脚下脏一块）。
+    // 这一条只在「无阴影地图」或「空中单位」才亮 —— 见下面的 syncGroundShadow 用例。
+    expect(z.shadow.visible).toBe(false);
     expect(z.hit(10, false, false)).toBe(false);
     expect(z.dying).toBe(false);
     expect(z.hit(52, false, false)).toBe(true);
@@ -1334,5 +1336,53 @@ describe('Zombie · mountHeadTop 的边界分支', () => {
     ctx.sfx = new Proxy({}, { get: () => () => {} });
     const z = new Zombie('cone', 1, 0, 0, ctx, 1, 1);
     expect(() => z.mountHeadTop()).not.toThrow();
+  });
+});
+
+// blob 影子策略（docs/plans/2026-11-12-render-overhaul.md §1.2）。
+//
+// 身体网格本来就 castShadow，再叠一层 0.8 不透明度的贴图影子就是两层 ——
+// 近距离看是脚下一块脏东西。只有两种情况必须有 blob：
+//   1) 空中单位（真实投影落在很远的远处地面，读不出位置）
+//   2) 整张图关掉阴影（forest / cloud 的 noShadows）—— 不给就贴地漂浮
+describe('Zombie · blob 影子只在必要时显示', () => {
+  it('地面僵尸在有阴影的地图上不显示 blob（真实投影已经够了）', () => {
+    const z = makeZombie('normal', 0, 0, makeCtx({ noShadows: false }));
+    expect(z.airborne).toBe(false);
+    expect(z.shadow.visible).toBe(false);
+  });
+
+  it('无阴影地图（雾林/云园）上地面僵尸必须显示 blob', () => {
+    const z = makeZombie('normal', 0, 0, makeCtx({ noShadows: true }));
+    expect(z.shadow.visible).toBe(true);
+    // 这是它唯一的影子 → 用实心那档（不是空中单位的 soft）
+    expect(z.shadowSoft).toBe(false);
+  });
+
+  it('空中单位显示 soft 档 blob（真实投影在远处，blob 只是位置提示）', () => {
+    const z = makeZombie('balloon', 0, 0, makeCtx({ noShadows: false }));
+    expect(z.airborne).toBe(true);
+    expect(z.shadow.visible).toBe(true);
+    expect(z.shadowSoft).toBe(true);
+  });
+
+  it('update 时跟随 airborne 状态切换可见性（气球落地/起飞）', () => {
+    const ctx = makeCtx({ noShadows: false });
+    const z = makeZombie('normal', 0, 0, ctx);
+    expect(z.shadow.visible).toBe(false);
+    // 手动切到空中 → 下一次 sync 要亮起来
+    z.airborne = true;
+    z.syncGroundShadow();
+    expect(z.shadow.visible).toBe(true);
+    expect(z.shadowSoft).toBe(true);
+    z.airborne = false;
+    z.syncGroundShadow();
+    expect(z.shadow.visible).toBe(false);
+  });
+
+  it('无头模式（服务器模拟）没有 shadow，调用 sync 不崩', () => {
+    const z = makeZombie('normal', 0, 0, makeCtx({ noShadows: false }));
+    z.headless = true;
+    expect(() => z.syncGroundShadow()).not.toThrow();
   });
 });

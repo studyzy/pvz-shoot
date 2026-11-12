@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { toon, glassTexture, asphaltTexture, duskSkyTexture, plazaTexture } from './materials.js';
 import { rand, TAU } from '../utils.js';
+import { setFollowShadow } from './shadowFollow.js';
 import { FlowField } from './FlowField.js';
 import { PLAYER_PERCH } from '../config.js';
 
@@ -247,16 +248,11 @@ export class Downtown {
     sun.position.set(-40, 18, 20);
     sun.target.position.set(0, 0, 0);
     sun.castShadow = true;
-    sun.shadow.mapSize.set(1024, 1024);
-    sun.shadow.camera.left = -50;
-    sun.shadow.camera.right = 50;
-    sun.shadow.camera.top = 50;
-    sun.shadow.camera.bottom = -50;
-    sun.shadow.camera.near = 1;
-    sun.shadow.camera.far = 150;
     sun.shadow.bias = -0.0006;
     sun.shadow.normalBias = 0.04;
-    sun.shadow.camera.updateProjectionMatrix();
+    // 摩天街区场地 100 米宽，原来 ±50 铺满全场是 9.8 cm/texel（最糊的一张）。
+    // 收到 ±22 → 4.3 cm/texel，配合跟随，玩家走到哪阴影跟到哪。
+    this.shadowFollow = setFollowShadow(sun, { half: 22, near: 1, far: 150, mapSize: 1024 });
     this.root.add(sun);
     this.root.add(sun.target);
 

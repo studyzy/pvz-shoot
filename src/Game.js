@@ -85,6 +85,9 @@ export class Game {
     this.airdropSpot = null;
     this.sun = TUNING.startSun;
     this.shakeAmp = 0;
+    // hitstop：命中/击杀时短暂压慢时间轴的剩余时长（秒）与倍率（见 loop()）。
+    this.hitStopT = 0;
+    this.hitStopScale = 1;
     this.menuT = 0;
     this.deathT = 0;
     this.clock = new THREE.Clock();
@@ -150,7 +153,14 @@ export class Game {
 
     ctx.spendSun = (n) => this.spendSun(n);
     ctx.shake = (a) => this.shake(a);
-    ctx.onHit = (head) => this.hud.hitmarker(head);
+    ctx.onHit = (head, killed) => {
+      this.hud.hitmarker(head);
+      // 命中定格：普通命中 40 ms / 爆头 70 ms / 击杀 90 ms。
+      // 爆头和击杀同时成立时按击杀算（更长），不要把两段叠起来。
+      if (killed) this.hitStop(0.09, 0.06);
+      else if (head) this.hitStop(0.06, 0.09);
+      else this.hitStop(0.04, 0.12);
+    };
     ctx.onExplosion = (pos, radius) => this.onExplosion(pos, radius);
     // 每次成功开火都会调这里（含豌豆/爆炸/手雷/护盾）。
     // 双人时要上报服务器 —— 这是「我扣了扳机」的唯一可靠信号。
@@ -1464,6 +1474,8 @@ export class Game {
     this.skySun.interval = this.duo ? DUO.skySunInterval : SUN_SKY.interval;
     if (this.duo) this.sunOrbs.ensureCapacity(DUO.sunOrbPool);
     this.shakeAmp = 0;
+    this.hitStopT = 0;
+    this.hitStopScale = 1;
     this.hud.setSun(this.sun, true);
     this.hud.setHealth(this.player.hp, this.player.maxHp);
     this.peerHp = -1;
@@ -1571,6 +1583,19 @@ export class Game {
 
   shake(amount) {
     this.shakeAmp = Math.min(1.4, this.shakeAmp + amount);
+  }
+
+  // 命中定格。dur 秒内时间轴按 scale 慢放；取「当前剩余」与「新请求」的较长者，
+  // 这样连发时不会每颗豌豆都重新触发一整段定格（那会变成卡顿）。
+  // 只在玩法中生效：菜单/结算里不该抖。
+  hitStop(dur, scale) {
+    if (this.state !== 'playing') return;
+    const d = Number.isFinite(dur) ? dur : 0.05;
+    if (d <= 0) return;
+    if (d > this.hitStopT) {
+      this.hitStopT = d;
+      this.hitStopScale = Number.isFinite(scale) && scale > 0 ? scale : 0.08;
+    }
   }
 
   onKill(z, score, headshot, source = 0) {
@@ -1784,7 +1809,12 @@ export class Game {
     if (!this.running) return;
     requestAnimationFrame(this.loop);
     const raw = this.clock.getDelta();
-    const dt = Math.min(0.05, raw);
+    // 命中定格（hitstop）：命中/击杀时把时间轴压慢 40~90 ms，是打击感最便宜的一层。
+    // 注意用的是 raw 而不是 dt：定格期间相机震动、HUD 动画也该一起慢下来，
+    // 但 trackPerformance 仍然吃真实耗时，否则自适应分辨率会把「我们自己造的慢帧」当成掉帧。
+    const scale = this.hitStopT > 0 ? this.hitStopScale : 1;
+    if (this.hitStopT > 0) this.hitStopT = Math.max(0, this.hitStopT - raw);
+    const dt = Math.min(0.05, raw) * scale;
 
     if (this.state === 'playing') {
       this.update(dt);
@@ -1799,8 +1829,22 @@ export class Game {
 
     this.weapons.root.visible = this.state === 'playing' && !this.player.dead && !this.player.downed;
 
+    // 阴影视锥跟随：窗口钉在玩家（或菜单机位）周围，否则走到场地边缘半边怪没影子。
+    this.syncShadowFollow();
+
     this.trackPerformance(raw);
     this.renderer.render(this.scene, this.camera);
+  }
+
+  // 阴影视锥跟随：把光源窗口钉在玩家脚下。
+  // 玩法中跟玩家；菜单/结算跟相机（后院的菜单机位在场地外侧，跟玩家会让菜单背景没有阴影）。
+  syncShadowFollow() {
+    const follow = this.map && this.map.shadowFollow;
+    if (!follow) return;
+    const focus = (this.state === 'playing' && this.player && this.player.pos)
+      ? this.player.pos
+      : this.camera.position;
+    follow.update(focus);
   }
 
   trackPerformance(raw) {

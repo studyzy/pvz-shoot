@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { toon, snowTexture, snowSkyTexture, iceWallTexture } from './materials.js';
 import { rand, TAU } from '../utils.js';
+import { setFollowShadow } from './shadowFollow.js';
 import { FlowField } from './FlowField.js';
 import { PLAYER_PERCH } from '../config.js';
 
@@ -92,16 +93,9 @@ export class IceWorld {
     sun.position.set(16, 30, 12);
     sun.target.position.set(0, 0, 0);
     sun.castShadow = true;
-    sun.shadow.mapSize.set(1024, 1024);
-    sun.shadow.camera.left = -30;
-    sun.shadow.camera.right = 30;
-    sun.shadow.camera.top = 30;
-    sun.shadow.camera.bottom = -30;
-    sun.shadow.camera.near = 1;
-    sun.shadow.camera.far = 90;
     sun.shadow.bias = -0.0006;
     sun.shadow.normalBias = 0.035;
-    sun.shadow.camera.updateProjectionMatrix();
+    this.shadowFollow = setFollowShadow(sun, { half: 17, near: 1, far: 90, mapSize: 1024 });
     this.root.add(sun);
     this.root.add(sun.target);
 

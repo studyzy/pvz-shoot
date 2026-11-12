@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { toon, grassTexture, skyTexture, glowTexture, cloudTexture } from './materials.js';
 import { COLORS } from '../config.js';
+import { setFollowShadow } from './shadowFollow.js';
 import { rand, TAU } from '../utils.js';
 
 const tmpMat = new THREE.Matrix4();
@@ -86,16 +87,11 @@ export class Arena {
     sun.position.set(24, 32, 16);
     sun.target.position.set(0, 0, 0);
     sun.castShadow = true;
-    sun.shadow.mapSize.set(1024, 1024);
-    sun.shadow.camera.left = -30;
-    sun.shadow.camera.right = 30;
-    sun.shadow.camera.top = 30;
-    sun.shadow.camera.bottom = -30;
-    sun.shadow.camera.near = 1;
-    sun.shadow.camera.far = 90;
     sun.shadow.bias = -0.0006;
     sun.shadow.normalBias = 0.035;
-    sun.shadow.camera.updateProjectionMatrix();
+    // 阴影视锥跟随玩家（±17 米 → 3.3 cm/texel，比原来铺满全场清晰一倍）。
+    // 原来写死 ±30 盖住整张图，玩家走到边缘时一半怪没影子。
+    this.shadowFollow = setFollowShadow(sun, { half: 17, near: 1, far: 90, mapSize: 1024 });
     this.root.add(sun);
     this.root.add(sun.target);
     this.sunLight = sun;
