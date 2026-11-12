@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { deriveSurfaceMaps } from './surfaceMaps.js';
 
 const gradientData = new Uint8Array([70, 122, 180, 235, 255]);
 const gradientTex = new THREE.DataTexture(gradientData, 5, 1, THREE.RedFormat);
@@ -14,6 +15,56 @@ export function toon(color, extra) {
 
 export function flat(color, extra) {
   return new THREE.MeshBasicMaterial(Object.assign({ color }, extra || {}));
+}
+
+/**
+ * 地面材质（M5）：Lambert → Standard + 法线贴图。
+ *
+ * 为什么只迁地面和金属、不动角色：
+ * 角色/植物/云是 Toon 美术语言（分层色阶是刻意的），改成 Standard 会丢掉风格。
+ * 而地面和金属本来就是「写实向」的，有 PBR 才撑得住近距离看和反射。
+ * 这就形成「环境写实 + 角色卡通」的有意分层，也是很多商业 FPS 的做法。
+ *
+ * @param {THREE.Texture} map 已经有的颜色贴图
+ * @param {object} [opts]
+ * @param {number} [opts.color] 染色
+ * @param {number} [opts.roughness]
+ * @param {number} [opts.metalness]
+ * @param {number} [opts.normalScale] 凹凸强度；0 = 不加法线
+ * @returns {THREE.MeshStandardMaterial}
+ */
+export function litGround(map, opts = {}) {
+  const o = opts || {};
+  const mat = new THREE.MeshStandardMaterial({
+    map,
+    color: o.color === undefined ? 0xffffff : o.color,
+    roughness: o.roughness === undefined ? 0.92 : o.roughness,
+    metalness: o.metalness === undefined ? 0.0 : o.metalness,
+  });
+  const scale = o.normalScale === undefined ? 0.8 : o.normalScale;
+  if (map && scale > 0) {
+    const m = deriveSurfaceMaps(map, { roughness: mat.roughness });
+    if (m.normalMap) {
+      mat.normalMap = m.normalMap;
+      mat.normalScale.set(scale, scale);
+    }
+    if (m.roughnessMap) mat.roughnessMap = m.roughnessMap;
+  }
+  return mat;
+}
+
+/**
+ * 金属材质（M5）：桶/栏杆/管道用。metalness 高、roughness 中，靠环境图出反射。
+ * @param {number} color
+ * @param {object} [opts]
+ */
+export function litMetal(color, opts = {}) {
+  const o = opts || {};
+  return new THREE.MeshStandardMaterial({
+    color,
+    roughness: o.roughness === undefined ? 0.42 : o.roughness,
+    metalness: o.metalness === undefined ? 0.85 : o.metalness,
+  });
 }
 
 let _grass = null;

@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { toon, grassTexture, skyTexture, glowTexture, cloudTexture } from './materials.js';
+import { toon, litGround, grassTexture, skyTexture, glowTexture, cloudTexture } from './materials.js';
 import { COLORS } from '../config.js';
 import { setFollowShadow } from './shadowFollow.js';
 import { rand, TAU } from '../utils.js';
@@ -103,7 +103,9 @@ export class Arena {
 
   buildGround() {
     const geo = new THREE.PlaneGeometry(180, 180);
-    const mat = new THREE.MeshLambertMaterial({ map: grassTexture() });
+    // M5：草地迁 Standard + 法线。地面是玩家看得最多、最近的一层，
+    // 平坦漫反射在这一层最露馅。角色/植物保持 Toon（见 litGround 注释）。
+    const mat = litGround(grassTexture(), { roughness: 0.95, normalScale: 0.9 });
     const ground = new THREE.Mesh(geo, mat);
     ground.rotation.x = -Math.PI / 2;
     ground.receiveShadow = true;

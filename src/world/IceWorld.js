@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { toon, snowTexture, snowSkyTexture, iceWallTexture } from './materials.js';
+import { toon, litGround, snowTexture, snowSkyTexture, iceWallTexture } from './materials.js';
 import { rand, TAU } from '../utils.js';
 import { setFollowShadow } from './shadowFollow.js';
 import { FlowField } from './FlowField.js';
@@ -107,7 +107,8 @@ export class IceWorld {
   buildGround() {
     const ground = new THREE.Mesh(
       new THREE.PlaneGeometry(200, 200),
-      new THREE.MeshLambertMaterial({ map: snowTexture(), color: 0xe9f5ff })
+      // 雪面粗糙度低一些：雪有细微的镜面反射，太干会像水泥
+      litGround(snowTexture(), { color: 0xe9f5ff, roughness: 0.72, normalScale: 0.45 })
     );
     ground.rotation.x = -Math.PI / 2;
     ground.receiveShadow = true;

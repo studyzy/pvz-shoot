@@ -165,7 +165,21 @@ describe('粗糙度贴图', () => {
 });
 
 describe('deriveSurfaceMaps', () => {
+  // jsdom 下烘焙被主动跳过（会毁掉 canvas 的 NAPI 引用），所以这两条只在浏览器/真实
+  // canvas 环境跑；CI 里断言的是「跳过时安全返回 null」，逻辑本身由上面的
+  // heightFromSource / detailPass / normalFromHeight 单测覆盖。
+  const IN_JSDOM = typeof navigator !== 'undefined' && /jsdom/i.test(navigator.userAgent || '');
+
+  it('jsdom 下直接返回 null，不碰 canvas（避免 NAPI 引用损坏）', () => {
+    if (!IN_JSDOM) return;
+    const tex = new THREE.CanvasTexture(striped(32));
+    const r = deriveSurfaceMaps(tex, { size: 32 });
+    expect(r.normalMap).toBe(null);
+    expect(r.roughnessMap).toBe(null);
+  });
+
   it('给一张有 image 的贴图，产出法线 + 粗糙度', () => {
+    if (IN_JSDOM) return;
     const tex = new THREE.CanvasTexture(striped(64));
     const r = deriveSurfaceMaps(tex, { size: 64 });
     expect(r.normalMap).toBeInstanceOf(THREE.DataTexture);
@@ -186,6 +200,7 @@ describe('deriveSurfaceMaps', () => {
   });
 
   it('法线贴图的 repeat 跟随颜色贴图（细节尺度要对得上）', () => {
+    if (IN_JSDOM) return;
     const tex = new THREE.CanvasTexture(striped(32));
     tex.repeat.set(6, 6);
     const r = deriveSurfaceMaps(tex, { size: 32 });

@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { toon, glassTexture, asphaltTexture, duskSkyTexture, plazaTexture } from './materials.js';
+import { toon, litGround, glassTexture, asphaltTexture, duskSkyTexture, plazaTexture } from './materials.js';
 import { rand, TAU } from '../utils.js';
 import { setFollowShadow } from './shadowFollow.js';
 import { FlowField } from './FlowField.js';
@@ -267,7 +267,7 @@ export class Downtown {
   buildGround() {
     const ground = new THREE.Mesh(
       new THREE.PlaneGeometry(160, 160),
-      new THREE.MeshLambertMaterial({ map: asphaltTexture() })
+      litGround(asphaltTexture(), { roughness: 0.88, normalScale: 0.5 })
     );
     ground.rotation.x = -Math.PI / 2;
     ground.receiveShadow = true;
@@ -422,7 +422,7 @@ export class Downtown {
     // y=0.01 防 z-fight；纯视觉——不进 platforms/colliders/walls，与拾取/刷怪探针无关。
     const pave = new THREE.Mesh(
       new THREE.PlaneGeometry(32, 32),
-      new THREE.MeshLambertMaterial({ map: plazaTexture() })
+      litGround(plazaTexture(), { roughness: 0.82, normalScale: 0.35 })
     );
     pave.rotation.x = -Math.PI / 2;
     pave.position.set(0, 0.01, 0);

@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { toon, sandTexture, desertSkyTexture } from './materials.js';
+import { toon, litGround, sandTexture, desertSkyTexture } from './materials.js';
 import { rand, TAU } from '../utils.js';
 import { setFollowShadow } from './shadowFollow.js';
 import { FlowField } from './FlowField.js';
@@ -248,7 +248,7 @@ export class DustYard {
   buildGround() {
     const ground = new THREE.Mesh(
       new THREE.PlaneGeometry(160, 160),
-      new THREE.MeshLambertMaterial({ map: sandTexture(), color: 0xf4e6c6 })
+      litGround(sandTexture(), { color: 0xf4e6c6, roughness: 0.98, normalScale: 0.55 })
     );
     ground.rotation.x = -Math.PI / 2;
     ground.receiveShadow = true;

@@ -14,8 +14,21 @@ import * as THREE from 'three';
 // 成本：一次性（地图加载时）在 CPU 上跑一遍 N×N 像素。512² 约 15 ms，可接受；
 // 换来的是所有表面立刻有「凹凸」。运行时不花钱（只是一张纹理）。
 
+// jsdom 的 canvas 是 node-canvas 的 NAPI 绑定：它对 canvas 有「独占引用」语义，
+// 一旦作为 drawImage 的源被消费，之后从外部读 image.width 就会永久抛
+// "Failed to unwrap exclusive reference of CanvasElement"。
+// 法线贴图是纯视觉产物，测试环境完全不需要它 —— 直接跳过，避免污染贴图单例。
+const IS_JSDOM = typeof navigator !== 'undefined' && /jsdom/i.test(navigator.userAgent || '');
+
 /**
  * 从一张 canvas 或 ImageData 生成本高度场。
+ *
+ * 关键实现细节：**不能把传入的 canvas 直接交给 drawImage**。
+ * 在 jsdom（node-canvas 的 NAPI 绑定）下，drawImage 会持有 canvas 的独占引用，
+ * 之后再从外部读 image.width / 交给别的 ctx，就会抛
+ * "Failed to unwrap exclusive reference of CanvasElement" —— 并且是**永久性**的损坏，
+ * 那张贴图单例之后在任何测试里都不能再用。
+ * 所以这里先把源画到自己的临时 canvas 上，并且只读一次像素。
  *
  * @param {CanvasImageSource|{data:Uint8ClampedArray,width:number,height:number}} src
  * @param {number} size 输出尺寸（正方形）
@@ -29,24 +42,31 @@ export function heightFromSource(src, size) {
   const ctx = c.getContext('2d');
   if (!ctx) return new Float32Array(n * n).fill(0.5);
 
-  let drew = false;
+  let px = null;
   try {
-    ctx.drawImage(src, 0, 0, n, n);
-    drew = true;
+    // 优先走中间 canvas 拷贝：避免独占引用
+    const mid = document.createElement('canvas');
+    mid.width = n;
+    mid.height = n;
+    const mctx = mid.getContext('2d');
+    mctx.drawImage(src, 0, 0, n, n);
+    px = mctx.getImageData(0, 0, n, n).data;
   } catch (e) {
-    drew = false;
+    px = null;
   }
-  if (!drew) {
+  if (!px) {
+    // 退路：源本身就是 ImageData（或带 data/width/height 的裸对象）
     try {
-      ctx.putImageData(src, 0, 0);
-      drew = true;
+      if (src && src.data && src.width) {
+        ctx.putImageData(src, 0, 0);
+        px = ctx.getImageData(0, 0, n, n).data;
+      }
     } catch (e) {
-      drew = false;
+      px = null;
     }
   }
-  if (!drew) return new Float32Array(n * n).fill(0.5);
+  if (!px) return new Float32Array(n * n).fill(0.5);
 
-  const px = ctx.getImageData(0, 0, n, n).data;
   const h = new Float32Array(n * n);
   // 亮度 = 0.299R + 0.587G + 0.114B，再叠加一点绿色通道权重：
   // 草地/苔藓的细节主要在绿色里，纯亮度会把草叶纹理抹平。
@@ -229,6 +249,13 @@ const _cache = new WeakMap();
 export function deriveSurfaceMaps(map, opts = {}) {
   if (!map || !map.image) return { normalMap: null, roughnessMap: null };
   if (_cache.has(map)) return _cache.get(map);
+  // jsdom 下烘焙会毁掉 canvas 引用（见 IS_JSDOM 注释），直接返回空；
+  // 测试里真正需要法线的地方自己构造高度场，走 normalFromHeight。
+  if (IS_JSDOM) {
+    const empty = { normalMap: null, roughnessMap: null };
+    _cache.set(map, empty);
+    return empty;
+  }
   let result = { normalMap: null, roughnessMap: null };
   try {
     const size = Math.min(512, Number(opts.size) || 512);
@@ -239,8 +266,12 @@ export function deriveSurfaceMaps(map, opts = {}) {
       roughnessMap: roughnessTexture(opts.roughness === undefined ? 0.85 : opts.roughness, 128, opts.variance),
     };
   } catch (e) {
-    // 烘焙失败（canvas 被污染、内存不足）不该让地图加载挂掉 —— 退化成「没有法线」
+    // 烘焙失败（canvas 被污染、内存不足、NAPI 边界异常）不该让地图加载挂掉 ——
+    // 退化成「没有法线」，地图照常显示。
     result = { normalMap: null, roughnessMap: null };
+    // 失败也缓存：否则每帧/每次建材质都重试一遍，错误会被刷屏
+    _cache.set(map, result);
+    return result;
   }
   // 法线贴图要与颜色贴图同样的平铺次数，否则细节尺度对不上。
   // repeat 可能不存在（有些贴图只在材质的 map.repeat 上设，或测试里传的是裸对象）。

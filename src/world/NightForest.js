@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { toon, nightSkyTexture, forestFloorTexture, moonPatchTexture, glowTexture } from './materials.js';
+import { toon, litGround, nightSkyTexture, forestFloorTexture, moonPatchTexture, glowTexture } from './materials.js';
 import { TAU } from '../utils.js';
 import { FlowField } from './FlowField.js';
 
@@ -264,7 +264,7 @@ export class NightForest {
   }
 
   buildGround() {
-    const ground = new THREE.Mesh(new THREE.PlaneGeometry(130, 130), new THREE.MeshLambertMaterial({ map: forestFloorTexture(), color: 0xb4c5b8 }));
+    const ground = new THREE.Mesh(new THREE.PlaneGeometry(130, 130), litGround(forestFloorTexture(), { color: 0xb4c5b8, roughness: 0.95, normalScale: 0.7 }));
     ground.rotation.x = -Math.PI / 2;
     this.root.add(ground);
     // 不规则、多尺度、软边遮罩；不画中央蓝圆盘。
