@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { createSSAO } from './ssao.js';
 
 // 后期管线（docs/plans/2026-11-12-render-overhaul.md §1.3）。
 //
@@ -119,6 +120,9 @@ uniform float uFade;      // 0 = 黑场（切图/死亡），1 = 正常
 // ---- 高度雾（M3）----
 // 需要场景深度重建视空间距离。深度纹理在 WebGL2 里就是 DEPTH_COMPONENT24。
 uniform sampler2D tDepth;
+uniform sampler2D tAO;      // 半分辨率 SSAO，合成时双线性放大
+uniform float uAOOn;
+uniform float uAOStrength;
 uniform float uNear;
 uniform float uFar;
 uniform vec3  uFogColor;
@@ -197,6 +201,12 @@ void main() {
 
   // ---- Bloom 叠加（在色调映射之前：光晕本身要参与滚降）----
   if (uBloom > 0.001) col += texture2D(tBloom, uv).rgb * uBloom;
+
+  // ---- SSAO（M4）：角落变暗，物体才「站」在场景里而不是贴在上面 ----
+  if (uAOOn > 0.5) {
+    float ao = texture2D(tAO, uv).r;
+    col *= mix(1.0, ao, uAOStrength);
+  }
 
   // ---- 高度雾（在色调映射之前，雾是光的一部分，必须参与滚降）----
   // 用视线方向推高度差：屏幕上方看到的是高处、下方是地面，所以 dy 取视线的竖直分量。
@@ -392,6 +402,8 @@ export function createPostFX(renderer, opts = {}) {
   let sceneRT = null;
   let mips = [];
   let blackTex = null;
+  // SSAO（M4）：半分辨率 AO，档位 2 才跑
+  const ssao = opts.ssao === false ? null : createSSAO(renderer);
 
   const prefMat = new THREE.ShaderMaterial({
     uniforms: {
@@ -444,6 +456,9 @@ export function createPostFX(renderer, opts = {}) {
       uFade: { value: 1 },
       // ---- 高度雾（M3）----
       tDepth: { value: null },
+      tAO: { value: null },
+      uAOOn: { value: 0 },
+      uAOStrength: { value: 0.85 },
       uNear: { value: 0.05 },
       uFar: { value: 240 },
       uFogColor: { value: new THREE.Color(0xdff1ff) },
@@ -529,6 +544,7 @@ export function createPostFX(renderer, opts = {}) {
       if (!api.enabled) return;
       if (w === width && h === height) return;
       buildTargets(w, h);
+      if (ssao) ssao.setSize(width, height);
     },
 
     setFade(v) {
@@ -578,6 +594,13 @@ export function createPostFX(renderer, opts = {}) {
 
         const bloomOn = level >= LEVEL_FULL;
 
+        // ---- SSAO（M4）：需要深度贴图，档位 2 才跑 ----
+        // 放在 Bloom 之前：AO 是几何遮蔽，Bloom 是光溢出，遮蔽必须先作用。
+        let aoTex = null;
+        if (bloomOn && ssao && sceneRT.depthTexture) {
+          if (ssao.render(sceneRT.depthTexture, camera)) aoTex = ssao.texture;
+        }
+
         // ---- 2/3. Bloom 链 ----
         if (bloomOn && mips.length) {
           prefMat.uniforms.tSrc.value = sceneRT.texture;
@@ -616,6 +639,8 @@ export function createPostFX(renderer, opts = {}) {
         compMat.uniforms.uFogOn.value = dt2 ? 1 : 0;
         compMat.uniforms.uNear.value = camera && camera.near ? camera.near : 0.05;
         compMat.uniforms.uFar.value = camera && camera.far ? camera.far : 240;
+        compMat.uniforms.tAO.value = aoTex;
+        compMat.uniforms.uAOOn.value = aoTex ? 1 : 0;
 
         blit(compMat, null, false);
         return true;
@@ -632,6 +657,7 @@ export function createPostFX(renderer, opts = {}) {
 
     dispose() {
       disposeTargets();
+      if (ssao) ssao.dispose();
       quadGeo.dispose();
       quad.material.dispose();
       for (const m of [prefMat, downMat, upMat, compMat]) m.dispose();
