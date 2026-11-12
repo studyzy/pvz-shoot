@@ -67,6 +67,27 @@ export function setFollowShadow(sun, opts) {
       lastX = NaN;
       lastZ = NaN;
     },
+    // 运行时改阴影分辨率与窗口（M8 §7.2 画质档位用）。
+    // 改 mapSize 后必须 dispose 掉旧的 shadow.map，否则 three 会沿用旧贴图尺寸。
+    setSize(size, newHalf) {
+      if (newHalf && newHalf !== api.half) {
+        api.half = Math.max(4, Number(newHalf) || api.half);
+        cam.left = -api.half;
+        cam.right = api.half;
+        cam.top = api.half;
+        cam.bottom = -api.half;
+        cam.updateProjectionMatrix();
+      }
+      const s = Number(size) || 0;
+      if (s > 0 && sun.shadow.mapSize.x !== s) {
+        sun.shadow.mapSize.set(s, s);
+        if (sun.shadow.map) {
+          sun.shadow.map.dispose();
+          sun.shadow.map = null;
+        }
+      }
+      api.reset();
+    },
   };
   return api;
 }

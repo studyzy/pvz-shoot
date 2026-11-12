@@ -1,6 +1,14 @@
 import { WEAPONS } from '../config.js';
 import { formatNum } from '../utils.js';
 
+// M8 §7.2 画质档位的展示顺序与文案（与 fx/quality.js 的 id 对应）
+export const QUALITY_OPTIONS = [
+  { id: 'auto', label: '自动' },
+  { id: 'high', label: '高' },
+  { id: 'medium', label: '中' },
+  { id: 'low', label: '低' },
+];
+
 
 const ICONS = {
   pea: '<svg viewBox="0 0 48 48"><path d="M14 45c2-8 6-12 6-12" stroke="#3e7a10" stroke-width="3.2" fill="none" stroke-linecap="round"/><path d="M20 35c-4.5-2-8.5-1-10 1.4 3 2.2 6.8 2 10-1.4z" fill="#4e9a12"/><circle cx="20" cy="21" r="12.5" fill="#7ed321" stroke="#2f5b0e" stroke-width="2.6"/><rect x="29.5" y="16.5" width="14" height="9.4" rx="4.7" fill="#8ede2a" stroke="#2f5b0e" stroke-width="2.6"/><ellipse cx="14" cy="16" rx="3.2" ry="4.2" fill="#b9f276" opacity="0.85"/><circle cx="26" cy="16.5" r="1.7" fill="#2f5b0e"/><circle cx="17.5" cy="16.5" r="1.7" fill="#2f5b0e"/></svg>',
@@ -76,6 +84,8 @@ export class HUD {
     this.loadList = document.getElementById('loadList');
     this.loadCache = { state: '', pct: -1, count: '', bytes: '', listKey: '' };
     this.duoBtn = document.getElementById('duoBtn');
+    this.qualityOpts = document.getElementById('qualityOpts');
+    this.qualityRow = document.getElementById('qualityRow');
     this.duoShare = document.getElementById('duoShare');
     this.duoStatusEl = document.getElementById('duoStatus');
     this.duoOverScreen = document.getElementById('duoOverScreen');
@@ -173,6 +183,23 @@ export class HUD {
     if (start) start.addEventListener('click', () => { if (this.onStart) this.onStart(); });
     if (this.duoBtn) this.duoBtn.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); if (this.onDuo) this.onDuo(); });
     if (this.duoShare) this.duoShare.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); if (this.onDuoShare) this.onDuoShare(); });
+    // M8 §7.2 画质档位按钮：动态生成，点一下就地切换（不刷新页面）
+    if (this.qualityOpts) {
+      this.qualityOpts.innerHTML = '';
+      for (const opt of QUALITY_OPTIONS) {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'quality-opt';
+        b.dataset.quality = opt.id;
+        b.textContent = opt.label;
+        b.setAttribute('aria-pressed', 'false');
+        b.addEventListener('click', (e) => {
+          e.preventDefault(); e.stopPropagation();
+          if (this.onQuality) this.onQuality(opt.id);
+        });
+        this.qualityOpts.appendChild(b);
+      }
+    }
     if (resume) resume.addEventListener('click', () => { if (this.onResume) this.onResume(); });
     if (restart) restart.addEventListener('click', () => { if (this.onRestart) this.onRestart(); });
     if (again) again.addEventListener('click', () => { if (this.onStart) this.onStart(); });
@@ -675,6 +702,14 @@ export class HUD {
     void this.bannerEl.offsetWidth;
     this.bannerEl.classList.add('show');
     this.bannerEl.style.animationDuration = (duration || 2.2) + 's';
+  }
+
+  // M8 §7.2：高亮当前画质档位
+  setQuality(id) {
+    if (!this.qualityOpts) return;
+    for (const b of this.qualityOpts.children) {
+      b.setAttribute('aria-pressed', b.dataset.quality === id ? 'true' : 'false');
+    }
   }
 
   setMode(touch) {

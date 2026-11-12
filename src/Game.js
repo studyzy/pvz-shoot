@@ -21,6 +21,7 @@ import { createSkyline } from './world/skyline.js';
 import { createWeather } from './fx/weather.js';
 import { fogPresetFor } from './world/heightFog.js';
 import { createProps } from './world/props.js';
+import { readQuality, writeQuality, resolveQuality } from './fx/quality.js';
 import { HUD } from './ui/HUD.js';
 import { Controls } from './input/Controls.js';
 import { TUNING, WEAPONS, DUO, SUN_SKY, BOUNTY, AIRDROP, CLOUD } from './config.js';
@@ -99,7 +100,19 @@ export class Game {
     this.clock = new THREE.Clock();
     this.perfTime = 0;
     this.perfFrames = 0;
-    this.maxPixelRatio = Math.min(window.devicePixelRatio || 1, 2);
+    // 触屏探测放在最前：像素比、后期档位、阴影尺寸都要用
+    const coarse0 = window.matchMedia ? window.matchMedia('(pointer: coarse)').matches : false;
+    const noHover0 = window.matchMedia ? window.matchMedia('(hover: none)').matches : false;
+    const isTouch0 = (coarse0 || noHover0) && (navigator.maxTouchPoints || 0) > 0;
+
+    // 画质档位（M8 §7.2）：玩家在设置里选的优先于自动探测，存 localStorage。
+    this.quality = readQuality();
+    const q = resolveQuality(this.quality, {
+      isTouch: isTouch0,
+      devicePixelRatio: window.devicePixelRatio || 1,
+    });
+    this.qualityResolved = q;
+    this.maxPixelRatio = q.pixelRatioCap;
     this.pixelRatio = this.maxPixelRatio;
 
     const renderer = new THREE.WebGLRenderer({
@@ -119,13 +132,13 @@ export class Game {
     // 后期管线（M2）。?post=0 时 level 为 0，render() 直接返回 false → 退回直出，
     // 与改动前逐字节等价。这是回滚开关，也是 E2E 的对照基线。
     // 触屏探测在这里直接做：controls 要到 205 行才建，比渲染器晚。
-    const coarse = window.matchMedia ? window.matchMedia('(pointer: coarse)').matches : false;
-    const noHover = window.matchMedia ? window.matchMedia('(hover: none)').matches : false;
-    const isTouch = (coarse || noHover) && (navigator.maxTouchPoints || 0) > 0;
-    this.post = createPostFX(renderer, {
-      level: postLevelFromQuery(window.location.search, isTouch),
-      maxLevel: isTouch ? 1 : 2,
-    });
+    const isTouch = isTouch0;
+    // 显式档位优先；auto 时沿用 ?post= 覆盖 / 触屏探测结果
+    const autoLevel = postLevelFromQuery(window.location.search, isTouch);
+    const level = q.postLevel === null ? autoLevel : q.postLevel;
+    this.post = createPostFX(renderer, { level, maxLevel: q.maxPostLevel });
+    // 显式档位锁定，不参与自动降级（auto 才让自适应接管）
+    this.post.locked = q.postLevel !== null;
 
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(73, 1, 0.05, 240);
@@ -254,6 +267,12 @@ export class Game {
     this.hud.onStart = () => this.start();
     this.hud.onDuo = () => this.toggleDuo();
     this.hud.onDuoShare = () => this.copyDuoLink();
+    // M8 §7.2 画质切换
+    this.hud.onQuality = (id) => {
+      this.setQuality(id);
+      this.hud.setQuality(this.quality);
+    };
+    if (this.hud.setQuality) this.hud.setQuality(this.quality);
     this.hud.onResume = () => this.resume();
     this.hud.onRestart = () => this.restart();
     this.hud.onDuoRematch = () => this.requestDuoRematch();
@@ -445,6 +464,15 @@ export class Game {
     // 夜之森林整图关实时投影：省掉一遍 1024 PCFSoft shadow pass，
     // 夜景本来就靠雾和自发光撑氛围。其它地图照旧开着。
     this.renderer.shadowMap.enabled = !map.noShadows;
+    // M8 §7.2：切图后把画质档位的阴影参数重新压上去 ——
+    // 每张地图在构造时按自己的场景写了默认 shadowMapSize，会盖掉玩家的档位选择。
+    if (map.shadowFollow && map.shadowFollow.setSize && this.qualityResolved
+        && this.qualityResolved.shadowMapSize) {
+      map.shadowFollow.setSize(
+        this.qualityResolved.shadowMapSize,
+        this.qualityResolved.shadowHalf || map.shadowFollow.half,
+      );
+    }
     // 摩天街区黄昏整图曝光 +0.25 档（终验「菜单帧过暗」收敛）：材质/灯光提亮一轮后
     // 均色亮度仍低于其它图，曝光是把整帧抬到可比水平的最后一个全局常数；
     // 其它地图回落 1.0（shadowMap.enabled 同款按地图开关先例），幂等无副作用。
@@ -1947,6 +1975,44 @@ export class Game {
     follow.update(focus);
   }
 
+  // ---- M8 §7.2：画质档位 ----
+  // 切换档位要改四样东西：像素比、后期等级、阴影贴图、阴影窗口。
+  // 都就地改，不刷新页面 —— 让玩家能边看边调。
+  setQuality(id) {
+    const q = resolveQuality(id, {
+      isTouch: !!(this.controls && this.controls.isTouch),
+      devicePixelRatio: window.devicePixelRatio || 1,
+    });
+    this.quality = q.id;
+    this.qualityResolved = q;
+    writeQuality(q.id);
+
+    // 像素比
+    this.maxPixelRatio = q.pixelRatioCap;
+    this.pixelRatio = Math.min(this.pixelRatio, this.maxPixelRatio);
+    if (this.renderer) this.renderer.setPixelRatio(this.pixelRatio);
+
+    // 后期：显式档位直接锁到该等级；auto 交还自适应
+    if (this.post) {
+      if (q.postLevel !== null) {
+        this.post.setLevel(q.postLevel);
+        this.post.locked = true;
+      } else {
+        this.post.locked = false;
+      }
+    }
+
+    // 阴影
+    const follow = this.map && this.map.shadowFollow;
+    if (follow && follow.setSize && q.shadowMapSize) {
+      follow.setSize(q.shadowMapSize, q.shadowHalf || follow.half);
+    }
+
+    // 尺寸相关的东西都跟着像素比走
+    this.resize();
+    return q;
+  }
+
   trackPerformance(raw) {
     if (raw <= 0) return;
     this.perfTime += raw;
@@ -1956,6 +2022,9 @@ export class Game {
     this.perfTime = 0;
     this.perfFrames = 0;
     if (!this.post) return;
+    // 玩家在设置里选了显式档位时，不再自动降级 —— 他自己选的画质就该保持，
+    // 否则「我选了高画质，玩了十秒变成低画质」比掉帧更让人困惑。
+    if (this.post.locked) return;
     // 降级顺序（M2）：先降后期档位，档位见底才降 pixelRatio。
     // 用户对分辨率下降比画质下降敏感，所以先牺牲后期。
     const st = {

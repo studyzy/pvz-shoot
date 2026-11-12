@@ -152,6 +152,12 @@
           <button class="ghost-btn duo-btn" id="duoBtn">双人联机</button>
           <button class="ghost-btn duo-btn duo-share hidden" id="duoShare">复制邀请链接</button>
           <div class="duo-status hidden" id="duoStatus" aria-live="polite"></div>
+          <!-- M8 §7.2 画质档位：显式选择比纯自适应好，玩家第一分钟就在掉帧时
+               自适应才刚开始，而低端机玩家自己知道该选低画质 -->
+          <div class="quality-row" id="qualityRow" aria-label="画质">
+            <span class="quality-label">画质</span>
+            <div class="quality-opts" id="qualityOpts"></div>
+          </div>
         </div>
 
         <div class="menu-hints">

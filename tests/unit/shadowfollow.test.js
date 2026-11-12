@@ -93,3 +93,63 @@ describe('setFollowShadow', () => {
     expect(sun.shadow.camera.right).toBeGreaterThan(0);
   });
 });
+
+// M8 §7.2：画质档位要在运行时改阴影分辨率，不能靠重新加载页面
+describe('setSize（运行时改阴影分辨率）', () => {
+  it('改 mapSize 生效', () => {
+    const sun = makeSun();
+    const f = setFollowShadow(sun, { half: 17, mapSize: 1024 });
+    f.setSize(512);
+    expect(sun.shadow.mapSize.x).toBe(512);
+    expect(sun.shadow.mapSize.y).toBe(512);
+  });
+
+  it('同时改窗口半宽，视锥跟着更新', () => {
+    const sun = makeSun();
+    const f = setFollowShadow(sun, { half: 17, mapSize: 1024 });
+    f.setSize(2048, 22);
+    expect(f.half).toBe(22);
+    expect(sun.shadow.camera.right).toBe(22);
+    expect(sun.shadow.camera.left).toBe(-22);
+    expect(sun.shadow.camera.top).toBe(22);
+    expect(sun.shadow.camera.bottom).toBe(-22);
+  });
+
+  it('旧 shadow.map 必须 dispose 并置 null，否则 three 沿用旧尺寸', () => {
+    const sun = makeSun();
+    let disposed = 0;
+    sun.shadow.map = { dispose() { disposed++; } };
+    const f = setFollowShadow(sun, { half: 17, mapSize: 1024 });
+    f.setSize(512);
+    expect(disposed).toBe(1);
+    expect(sun.shadow.map).toBe(null);
+  });
+
+  it('mapSize 未变时不重复 dispose', () => {
+    const sun = makeSun();
+    let disposed = 0;
+    const f = setFollowShadow(sun, { half: 17, mapSize: 1024 });
+    sun.shadow.map = { dispose() { disposed++; } };
+    f.setSize(1024);
+    expect(disposed).toBe(0);
+  });
+
+  it('改尺寸后强制下次 update 重算（否则位置没变就不刷新）', () => {
+    const sun = makeSun();
+    const f = setFollowShadow(sun, { half: 17, mapSize: 1024 });
+    f.update(new THREE.Vector3(10, 0, 10));
+    const bx = sun.target.position.x;
+    f.setSize(512);
+    // 同一个焦点再 update 一次：如果不 reset，会因 lastX/lastZ 相同而直接 return
+    f.update(new THREE.Vector3(10, 0, 10));
+    expect(sun.target.position.x).toBe(bx);
+  });
+
+  it('非法参数不破坏现有配置', () => {
+    const sun = makeSun();
+    const f = setFollowShadow(sun, { half: 17, mapSize: 1024 });
+    f.setSize(0, 0);
+    expect(sun.shadow.mapSize.x).toBe(1024);
+    expect(f.half).toBe(17);
+  });
+});
