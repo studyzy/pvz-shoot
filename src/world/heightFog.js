@@ -13,15 +13,19 @@ import * as THREE from 'three';
 //   2) 远处逐渐吃掉，不需要 pop-in
 //   3) 雾色随高度略变（低处偏白、高处偏天气色），不会是一块死色
 
-// 每张图的雾配方。意思：baseDensity 是地面处的每米雾量，falloff 是「每升高 1 米雾少多少」。
-// 原来的 Fog near/far 换算过来大致对应：far 决定 baseDensity 的量级，night 最浓。
+// 每张图的雾配方。baseDensity 是地面处的每米雾量，falloff 是「每升高 1 米雾少多少」。
+//
+// 定值依据（1-exp(-d*dist)，d = 地面密度）：
+//   后院 d=0.0034 → 60 m 处 18%、150 m 处 40%、220 m 处 53%
+//   —— 远处看得出淡，但不会糊成一片白。原来 0.0125 在 150 m 就到 85%，
+//   整屏只剩雾色，远景剪影和天空全被吃掉（实测踩过：剪影完全看不见）。
 export const FOG_PRESETS = {
-  backyard: { color: 0xdff1ff, baseDensity: 0.0125, falloff: 0.075, groundY: 0, heightMax: 26 },
-  snow: { color: 0xe2f2ff, baseDensity: 0.0165, falloff: 0.06, groundY: 0, heightMax: 26 },
-  dust: { color: 0xe8d6ac, baseDensity: 0.0145, falloff: 0.055, groundY: 0, heightMax: 26 },
-  forest: { color: 0x101e2d, baseDensity: 0.055, falloff: 0.10, groundY: 0, heightMax: 22 },
-  cloud: { color: 0xf6dfc5, baseDensity: 0.0118, falloff: 0.045, groundY: 0, heightMax: 40 },
-  downtown: { color: 0x4a3c50, baseDensity: 0.0082, falloff: 0.05, groundY: 0, heightMax: 60 },
+  backyard: { color: 0xdff1ff, baseDensity: 0.0034, falloff: 0.075, groundY: 0, heightMax: 26, fogMax: 260 },
+  snow: { color: 0xe2f2ff, baseDensity: 0.0042, falloff: 0.055, groundY: 0, heightMax: 26, fogMax: 260 },
+  dust: { color: 0xe8d6ac, baseDensity: 0.0038, falloff: 0.050, groundY: 0, heightMax: 26, fogMax: 260 },
+  forest: { color: 0x101e2d, baseDensity: 0.0165, falloff: 0.100, groundY: 0, heightMax: 22, fogMax: 130 },
+  cloud: { color: 0xf6dfc5, baseDensity: 0.0032, falloff: 0.040, groundY: 0, heightMax: 40, fogMax: 280 },
+  downtown: { color: 0x4a3c50, baseDensity: 0.0026, falloff: 0.045, groundY: 0, heightMax: 60, fogMax: 300 },
 };
 
 /**

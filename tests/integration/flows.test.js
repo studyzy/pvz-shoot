@@ -357,7 +357,11 @@ describe('1. 菜单与地图选择', () => {
     expect(game.map.root.visible).toBe(true);
     expect($('mapSelect').querySelector('[data-map="snow"]').classList.contains('active')).toBe(true);
     expect($('startBtn').textContent).toBe('进入雪地');
-    expect(game.scene.background).not.toBe(before.background);
+    // M3 起天空交给穹顶（skyDome）渲染，scene.background 被显式清空：
+    // 渐变背景会先铺满全屏，把穹顶整个盖住。这里断言的新契约是「背景必须为空，
+    // 且天空配方换成了雪地那份」。
+    expect(game.scene.background).toBe(null);
+    expect(game.sky.uniform.uStars.value).toBe(0);
     expect(game.scene.fog).not.toBe(before.fog);
     expect(game.scene.fog.far).toBe(132);
     // 地面拾取点位随后院地图一起换掉

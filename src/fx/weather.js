@@ -61,8 +61,8 @@ void main() {
   float fade = 1.0 - smoothstep(uBox.x * 0.62, uBox.x, dist);
   vAlpha = fade * uOpacity;
 
-  float size = uSize * uScale;
-  gl_PointSize = max(1.0, size / max(0.001, -mv.z));
+  float size = uSize * uScale * 0.01;
+  gl_PointSize = max(1.5, size / max(0.001, -mv.z));
 }
 `;
 
@@ -83,6 +83,11 @@ void main() {
 `;
 
 // 每张图的天气配方。没有天气的图不建对象（避免白花一个 draw call）。
+//
+// size 是「10 米外的屏幕像素数」，不是世界单位：
+//   gl_PointSize = size * uScale / dist / 100，因为 shader 里已经有 /(-mv.z)。
+// 原来把 size 当世界尺寸用（26），在 10 米外只有 1.6px，被 max(1.0, ...) 夹住，
+// 于是整片雪变成一堆看不见的 1 像素点（实测：完全看不到雪）。
 export const WEATHER_PRESETS = {
   snow: {
     kind: 'snow',
@@ -222,7 +227,8 @@ export function createWeather(opts = {}) {
       if (camera) mat.uniforms.uCam.value.copy(camera.position);
     },
 
-    // 分辨率变了要调（粒子尺寸跟像素高度挂钩）
+    // 视口缩放：默认按窗口高度给（而不是写死 600）。
+    // 粒子在 shader 里是 size*uScale/dist，uScale 就该正比于视口像素高度。
     setViewportScale(h) {
       api.scale = Math.max(200, Number(h) || 600);
       if (mat) mat.uniforms.uScale.value = api.scale;

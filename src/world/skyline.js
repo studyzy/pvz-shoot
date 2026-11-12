@@ -12,13 +12,15 @@ import * as THREE from 'three';
 //   3) 必须在玩家走到的任何位置都「在背后」，所以半径远大于场地半宽（默认 260 米）
 
 // 每张图的远景配方。color 是远景色（已被大气吃掉的样子），h 是轮廓高度范围。
+// 半径必须小于相机远裁面（240）：原本 240~340 的圈整个在远裁之外，实际什么都看不到。
+// 压到 170~200 后仍在场地（半宽 23）之外很远，但能在远裁面内被画出来。
 export const SKYLINE_PRESETS = {
-  backyard: { kind: 'trees', color: 0x7d9c74, color2: 0x9db894, h: [8, 22], count: 64, radius: 260 },
-  snow: { kind: 'peaks', color: 0xc8d8e8, color2: 0xe4eef8, h: [22, 62], count: 40, radius: 300 },
-  dust: { kind: 'houses', color: 0xc9b088, color2: 0xe0cba4, h: [6, 16], count: 52, radius: 270 },
-  forest: { kind: 'trees', color: 0x11202f, color2: 0x182b3d, h: [16, 40], count: 80, radius: 240 },
-  cloud: { kind: 'peaks', color: 0xdcc8b4, color2: 0xf2e0cc, h: [10, 34], count: 36, radius: 280 },
-  downtown: { kind: 'towers', color: 0x2e2740, color2: 0x453a56, h: [40, 150], count: 56, radius: 340 },
+  backyard: { kind: 'trees', color: 0x7d9c74, color2: 0x9db894, h: [8, 22], count: 64, radius: 175 },
+  snow: { kind: 'peaks', color: 0xc8d8e8, color2: 0xe4eef8, h: [22, 62], count: 40, radius: 200 },
+  dust: { kind: 'houses', color: 0xc9b088, color2: 0xe0cba4, h: [6, 16], count: 52, radius: 180 },
+  forest: { kind: 'trees', color: 0x11202f, color2: 0x182b3d, h: [16, 40], count: 80, radius: 165 },
+  cloud: { kind: 'peaks', color: 0xdcc8b4, color2: 0xf2e0cc, h: [10, 34], count: 36, radius: 185 },
+  downtown: { kind: 'towers', color: 0x2e2740, color2: 0x453a56, h: [40, 150], count: 56, radius: 205 },
 };
 
 // 稳定的伪随机：同一张图每次进来轮廓都一样（用种子重建，不用 Math.random）

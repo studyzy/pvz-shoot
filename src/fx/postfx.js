@@ -116,6 +116,19 @@ uniform float uSharpen;
 uniform float uTime;
 uniform float uFade;      // 0 = 黑场（切图/死亡），1 = 正常
 
+// ---- 高度雾（M3）----
+// 需要场景深度重建视空间距离。深度纹理在 WebGL2 里就是 DEPTH_COMPONENT24。
+uniform sampler2D tDepth;
+uniform float uNear;
+uniform float uFar;
+uniform vec3  uFogColor;
+uniform vec3  uFogColorHigh;
+uniform float uFogBase;
+uniform float uFogFalloff;
+uniform float uFogGroundY;
+uniform float uFogMax;
+uniform float uFogOn;
+
 // ACES filmic（Narkowicz 拟合）。比 three 的 Neutral 更「有胶片味」：
 // 高光滚降更柔，暗部不死黑。原来 NeutralToneMapping 下白雪和太阳盘会死白。
 vec3 aces(vec3 x) {
@@ -135,6 +148,29 @@ float hash(vec2 p) {
   p += dot(p, p.yx + 19.19);
   return fract((p.x + p.y) * p.x);
 }
+
+// 视空间线性深度：WebGL 的 depth 是非线性的（1/z 分布），必须反算回来
+float viewDist(vec2 uv) {
+  float d = texture2D(tDepth, uv).x;
+  float zn = d * 2.0 - 1.0;
+  // 透视投影反算：z_view = 2*n*f / (f+n - zn*(f-n))
+  return (2.0 * uNear * uFar) / (uFar + uNear - zn * (uFar - uNear));
+}
+
+// 沿视线的高度雾。y0 是视点高度，dy 是这一段的高度差。
+  // 起点与终点密度取平均（一阶近似）：精确解要指数积分，视觉上分辨不出来。
+  float heightFogAt(vec2 uv, float y0, float dy) {
+    if (uFogOn < 0.5) return 0.0;
+    float dist = viewDist(uv);
+    // 天空（深度为 1）不该被雾吃掉，否则穹顶和云全糊成一片
+    if (dist >= uFar * 0.995) return 0.0;
+    float h0 = max(0.0, y0 - uFogGroundY);
+    float h1 = max(0.0, y0 + dy - uFogGroundY);
+    float d0 = uFogBase * exp(-uFogFalloff * h0);
+    float d1 = uFogBase * exp(-uFogFalloff * h1);
+    float d = (d0 + d1) * 0.5;
+    return clamp(1.0 - exp(-d * min(dist, uFogMax)), 0.0, 1.0);
+  }
 
 void main() {
   vec2 uv = vUv;
@@ -161,6 +197,19 @@ void main() {
 
   // ---- Bloom 叠加（在色调映射之前：光晕本身要参与滚降）----
   if (uBloom > 0.001) col += texture2D(tBloom, uv).rgb * uBloom;
+
+  // ---- 高度雾（在色调映射之前，雾是光的一部分，必须参与滚降）----
+  // 用视线方向推高度差：屏幕上方看到的是高处、下方是地面，所以 dy 取视线的竖直分量。
+  if (uFogOn > 0.5) {
+    float dist = viewDist(uv);
+    // 视空间竖直分量：uv.y 从下到上，配合相机高度近似
+    float dy = (uv.y - 0.5) * 2.0 * dist * 0.32;
+    float f = heightFogAt(uv, uFogGroundY + 1.6, dy);
+    // 雾色随高度变：地面取主色，高处取更亮的那档。用 dy 而不是 dy/26+0.5 ——
+    // 后者在 dy=0（地平线）就已经是 0.5，导致地平线附近一片浅色发白。
+    vec3 fc = mix(uFogColor, uFogColorHigh, clamp(dy / 40.0, 0.0, 1.0));
+    col = mix(col, fc, f);
+  }
 
   // ---- 曝光 + ACES ----
   col *= uExposure;
@@ -297,6 +346,7 @@ export function createPostFX(renderer, opts = {}) {
     render() { return false; },
     setFade() {},
     setBloom() {},
+    setFog() {},
     dispose() {},
     failed: true,
   };
@@ -335,6 +385,8 @@ export function createPostFX(renderer, opts = {}) {
     depthBuffer: true,
     stencilBuffer: false,
     generateMipmaps: false,
+    // 高度雾要读深度：单独一张深度纹理（WebGL 的 depthTexture 挂在 RT 上）
+    depthTexture: null,
   };
 
   let sceneRT = null;
@@ -390,6 +442,17 @@ export function createPostFX(renderer, opts = {}) {
       uSharpen: { value: 0.25 },
       uTime: { value: 0 },
       uFade: { value: 1 },
+      // ---- 高度雾（M3）----
+      tDepth: { value: null },
+      uNear: { value: 0.05 },
+      uFar: { value: 240 },
+      uFogColor: { value: new THREE.Color(0xdff1ff) },
+      uFogColorHigh: { value: new THREE.Color(0xe8f6ff) },
+      uFogBase: { value: 0 },
+      uFogFalloff: { value: 0.075 },
+      uFogGroundY: { value: 0 },
+      uFogMax: { value: 220 },
+      uFogOn: { value: 0 },
     },
     vertexShader: QUAD_VERT,
     fragmentShader: COMPOSITE_FRAG,
@@ -409,13 +472,26 @@ export function createPostFX(renderer, opts = {}) {
     width = Math.max(2, w | 0);
     height = Math.max(2, h | 0);
     try {
+      // 深度纹理：只给场景 RT 建（Bloom 链不需要深度）。用 UnsignedIntType +
+      // DepthFormat，WebGL2 下这是标准组合；WebGL1 拿不到线性过滤的深度，直接跳过。
+      let depthTex = null;
+      if (isWebGL2) {
+        depthTex = new THREE.DepthTexture(width, height);
+        depthTex.type = THREE.UnsignedIntType;
+        depthTex.format = THREE.DepthFormat;
+        depthTex.minFilter = THREE.NearestFilter;
+        depthTex.magFilter = THREE.NearestFilter;
+      }
       sceneRT = new THREE.WebGLRenderTarget(width, height, {
         ...rtOpts,
-        // WebGL2 下开 MSAA，等价于原来的 antialias:true
-        samples: isWebGL2 ? (opts.samples === undefined ? 4 : opts.samples) : 0,
+        depthTexture: depthTex,
+        // WebGL2 下开 MSAA，等价于原来的 antialias:true。
+        // 注意：开了 MSAA 的场景 RT + depthTexture 在部分驱动上不兼容，
+        // 所以有深度纹理时关掉 MSAA，靠后期锐化补轮廓。
+        samples: isWebGL2 && !depthTex ? (opts.samples === undefined ? 4 : opts.samples) : 0,
       });
       mips = bloomMipSizes(width, height, MAX_MIPS).map(([mw, mh]) => (
-        new THREE.WebGLRenderTarget(mw, mh, { ...rtOpts, depthBuffer: false })
+        new THREE.WebGLRenderTarget(mw, mh, { ...rtOpts, depthBuffer: false, depthTexture: null })
       ));
     } catch (e) {
       failed = true;
@@ -462,6 +538,25 @@ export function createPostFX(renderer, opts = {}) {
     // 每帧一次的 Bloom 强度/调参入口（天气、Boss 战可以临时改）
     setBloom(v) {
       compMat.uniforms.uBloom.value = Math.max(0, Number(v) || 0);
+    },
+
+    // 高度雾配方（M3）。baseDensity 为 0 或传 null 时关掉。
+    setFog(preset) {
+      const u = compMat.uniforms;
+      if (!preset || !(preset.baseDensity > 0)) {
+        u.uFogBase.value = 0;
+        return;
+      }
+      u.uFogColor.value.setHex(preset.color);
+      const high = new THREE.Color(preset.color);
+      const hsl = { h: 0, s: 0, l: 0 };
+      high.getHSL(hsl);
+      high.setHSL(hsl.h, hsl.s * 0.72, Math.min(1, hsl.l * 1.12));
+      u.uFogColorHigh.value.copy(high);
+      u.uFogBase.value = preset.baseDensity;
+      u.uFogFalloff.value = preset.falloff;
+      u.uFogGroundY.value = preset.groundY || 0;
+      u.uFogMax.value = preset.fogMax || 220;
     },
 
     render(scene, camera) {
@@ -515,6 +610,12 @@ export function createPostFX(renderer, opts = {}) {
           : 0;
         compMat.uniforms.uFade.value = fade;
         compMat.uniforms.uTime.value = (compMat.uniforms.uTime.value + 0.016) % 1000;
+        // 深度给高度雾用；WebGL1 / 建深度失败时保持 uFogOn=0，雾自动失效不报错
+        const dt2 = sceneRT.depthTexture;
+        compMat.uniforms.tDepth.value = dt2 || null;
+        compMat.uniforms.uFogOn.value = dt2 ? 1 : 0;
+        compMat.uniforms.uNear.value = camera && camera.near ? camera.near : 0.05;
+        compMat.uniforms.uFar.value = camera && camera.far ? camera.far : 240;
 
         blit(compMat, null, false);
         return true;

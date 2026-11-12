@@ -16,6 +16,10 @@ import { RemotePlayer } from './entities/RemotePlayer.js';
 import { CloudCombat } from './entities/CloudCombat.js';
 import { Sfx } from './audio/Sfx.js';
 import { createPostFX, postLevelFromQuery, degradeStep, upgradeStep, LEVEL_OFF } from './fx/postfx.js';
+import { createSkyDome } from './world/skyDome.js';
+import { createSkyline } from './world/skyline.js';
+import { createWeather } from './fx/weather.js';
+import { fogPresetFor } from './world/heightFog.js';
 import { HUD } from './ui/HUD.js';
 import { Controls } from './input/Controls.js';
 import { TUNING, WEAPONS, DUO, SUN_SKY, BOUNTY, AIRDROP, CLOUD } from './config.js';
@@ -126,6 +130,18 @@ export class Game {
     this.camera = new THREE.PerspectiveCamera(73, 1, 0.05, 240);
     this.camera.rotation.order = 'YXZ';
     this.scene.add(this.camera);
+
+    // ---- M3：天空穹顶 / 远景剪影 / 天气粒子 ----
+    // 三件都是「一张图一份，切图只换配方不重建」，所以在这里建一次就够。
+    // 天空穹顶半径 400 大于相机远裁 240：穹顶跟着相机走，所以半径只需覆盖远裁面。
+    // 穹顶半径必须小于相机远裁面，否则整个球在顶点着色器里就被裁掉（看不见）。
+    // 0.85 * far 留一点余量给雾/近裁。
+    this.sky = createSkyDome({ preset: DEFAULT_MAP, radius: 200 });
+    this.scene.add(this.sky.mesh);
+    this.skyline = createSkyline({ preset: DEFAULT_MAP });
+    this.scene.add(this.skyline.group);
+    this.weather = createWeather({ preset: '' });
+    this.scene.add(this.weather.group);
 
     const ctx = (this.ctx = {});
     this.ctx.scene = this.scene;
@@ -399,6 +415,8 @@ export class Game {
       const dpr = this.renderer.getPixelRatio ? this.renderer.getPixelRatio() : 1;
       this.post.setSize(Math.max(2, Math.floor(w * dpr)), Math.max(2, Math.floor(h * dpr)));
     }
+    // 天气粒子的屏幕尺寸正比于视口像素高度
+    if (this.weather) this.weather.setViewportScale(h * (this.renderer.getPixelRatio ? this.renderer.getPixelRatio() : 1));
   }
 
   setMap(id) {
@@ -433,6 +451,11 @@ export class Game {
       if (m.setFlash) m.setFlash(m === map);
     }
     map.activate(this.scene, this.camera);
+    // ---- M3：按地图换天空 / 远景 / 天气 ----
+    // 地图的 activate 会把旧渐变贴图塞进 scene.background —— 那会把穹顶完全挡住
+    // （背景先画满屏，穹顶再画也是被覆盖）。清掉它，天空交给穹顶。
+    this.scene.background = null;
+    this.applyAtmosphere(map);
     this.hud.setMapSelection(map.id);
     this.hud.setStartLabel(map.startLabel);
     if (this.pickups) this.pickups.setMap(map);
@@ -1849,11 +1872,39 @@ export class Game {
     // 阴影视锥跟随：窗口钉在玩家（或菜单机位）周围，否则走到场地边缘半边怪没影子。
     this.syncShadowFollow();
 
+    // ---- M3：每帧推进大气 ----
+    // 天空跟着相机平移（否则走出穹顶半径就穿帮）；粒子绕相机卷回，零 CPU 几何运算。
+    if (this.sky) this.sky.update(dt, this.camera);
+    if (this.weather) this.weather.update(dt, this.camera);
+
     this.trackPerformance(raw);
     // 后期管线；任何一级失败（能力探测不过 / GL 出错 / 档位为 0）都退回直出。
     if (!this.post.render(this.scene, this.camera)) {
       this.renderer.render(this.scene, this.camera);
     }
+  }
+
+  // ---- M3：按地图切换大气 ----
+  // 天空穹顶、远景剪影、天气粒子、高度雾四件一起换，因为它们共同定义「这是什么地方」。
+  // 任何一件缺了都会露馅：只有天空没有远景 → 场地边缘是天接地；只有远景没有天气 → 静止得像张画。
+  applyAtmosphere(map) {
+    const id = (map && map.id) || DEFAULT_MAP;
+    if (this.sky) {
+      this.sky.setPreset(id);
+      // 太阳方向跟着地图的主光走：后院/雪地是正午偏南，摩天街区是低角度黄昏。
+      // 有了它，穹顶的暖带和云的受光面才会和场景里的实际阴影方向一致。
+      const d = this.map && this.map.sunDir;
+      if (d && d.isVector3) this.sky.setSunDir(d);
+    }
+    if (this.skyline) this.skyline.setPreset(id);
+    if (this.weather) this.weather.setPreset(id);
+    // 高度雾的配方在后期合成里用（见 postfx 的 uFog* uniform）。
+    // 场景自带的 THREE.Fog 保持地图原本的设定不动：它管内置材质，
+    // 强行推远只会让远处失去纵深，是退步而不是优化。
+    this.fogPreset = fogPresetFor(id);
+    // 高度雾交给后期合成（需要深度贴图）。?post=0 时后期关掉，雾也随之失效 ——
+    // 这是有意的：回滚路径必须和改动前完全一致。
+    if (this.post) this.post.setFog(this.fogPreset);
   }
 
   // 阴影视锥跟随：把光源窗口钉在玩家脚下。
