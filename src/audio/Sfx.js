@@ -67,6 +67,19 @@ export function decodeWav(src) {
 }
 
 export class Sfx {
+  // M8：ogg 清单。逻辑名与 BUFFERS 的键一致，这样 sample() 可以直接按名字查。
+  // 路径相对 public/ —— Vite 会把 public 下的文件原样发到站点根。
+  static OGG_MANIFEST = {
+    gun1: 'audio/gun1.ogg',
+    gun2: 'audio/gun2.ogg',
+    boom: 'audio/boom.ogg',
+    blackpowder: 'audio/bp.ogg',
+    pop1: 'audio/pop1.ogg',
+    slime2: 'audio/slime2.ogg',
+    bubble: 'audio/bubble.ogg',
+    freeze: 'audio/freeze.ogg',
+  };
+
   constructor() {
     this.ctx = null;
     this.master = null;
@@ -77,6 +90,9 @@ export class Sfx {
     this.reverb = null;
     this.wetGain = null;
     this.wetAmount = 0;
+    // M8：运行时加载的 ogg 缓冲（逻辑名 → AudioBuffer）
+    this.ogg = null;
+    this.oggStarted = false;
   }
 
   unlock() {
@@ -98,6 +114,16 @@ export class Sfx {
       this._buildReverb();
     }
     if (this.ctx.state === 'suspended') this.ctx.resume();
+    // M8：unlock 之后就开始后台加载 ogg。只触发一次。
+    // 不要求 ctx 一定是 running：decodeAudioData 在 suspended 下也能正常解码，
+    // 而在自动播放策略严格的环境里（无头浏览器 / 用户还没交互）状态可能一直是 suspended，
+    // 卡在 running 上就等于永远不加载。
+    if (!this.oggStarted) {
+      this.oggStarted = true;
+      if (this.constructor.OGG_MANIFEST) {
+        this.preloadOgg(this.constructor.OGG_MANIFEST);
+      }
+    }
   }
 
   // 程序化卷积混响（M6）。
@@ -177,12 +203,20 @@ export class Sfx {
   // ---- 采样音效 ----
 
   // 解码好的缓冲挂在实例上（每个 AudioContext 一份），第一次播放时懒解码。
+  //
+  // M8：优先用运行时加载的 ogg（见 preload），回落到内嵌 WAV。
+  // 为什么不在构建时删掉 WAV：内嵌路径是「开第一枪就有声」的保证 —— fetch 是异步的，
+  // 首次触发时文件往往还没到。所以 ogg 加载完成前用内嵌 WAV 兜底，加载完成后切到 ogg。
   sample(name) {
     if (!this.buffers) this.buffers = {};
     if (name in this.buffers) return this.buffers[name];
     let out = null;
+    // 已加载的 ogg 优先
+    if (this.ogg && this.ogg[name] && this.ctx) {
+      out = this.ogg[name];
+    }
     const src = BUFFERS[name];
-    if (src && this.ctx) {
+    if (!out && src && this.ctx) {
       const wav = decodeWav(src);
       if (wav) {
         const buf = this.ctx.createBuffer(wav.channels, wav.frames, wav.rate);
@@ -196,6 +230,36 @@ export class Sfx {
     }
     this.buffers[name] = out;
     return out;
+  }
+
+  /**
+   * 后台加载 ogg 音效（M8）。
+   *
+   * 204 KB 的 ogg 替掉 2.2 MB 的内嵌 WAV。load 是异步的，所以：
+   *   - 加载完成的音效就切到 ogg（省内存、省解析）；
+   *   - 没加载完的继续用内嵌 WAV（开第一枪仍有声）。
+   * 任何一步失败都静默跳过 —— 音频不该让游戏挂掉。
+   *
+   * @param {Record<string,string>} manifest 逻辑名 → public 下的路径
+   * @returns {Promise<void>}
+   */
+  async preloadOgg(manifest) {
+    if (!this.ctx || !manifest || typeof fetch !== 'function') return;
+    if (!this.ogg) this.ogg = {};
+    const jobs = Object.entries(manifest).map(async ([name, url]) => {
+      try {
+        const res = await fetch(url);
+        if (!res.ok) return;
+        const raw = await res.arrayBuffer();
+        const buf = await this.ctx.decodeAudioData(raw);
+        this.ogg[name] = buf;
+        // 解码好就把旧的内嵌版本丢掉，让 sample() 立刻走 ogg
+        if (this.buffers) delete this.buffers[name];
+      } catch (e) {
+        // 单个音效失败不影响其它，也不影响内嵌兜底
+      }
+    });
+    await Promise.all(jobs);
   }
 
   // entries: [[键, 音量], ...]；随机挑一条，随机音高，按 pan 摆位（'mono' 不摆位、压在正前方）。

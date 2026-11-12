@@ -36,6 +36,9 @@ const escapeLatin1 = (s) => {
 };
 
 function embedAudio() {
+  // M8：默认不内嵌。ogg 走运行时加载（见 Sfx.OGG_MANIFEST），首屏从 2.2 MB 降到 204 KB。
+  // 需要「开第一枪就有声、完全不等网络」时用 PVZ_EMBED_AUDIO=1 构建，恢复旧行为。
+  const EMBED = process.env.PVZ_EMBED_AUDIO === '1';
   return {
     name: 'embed-audio',
     // No `enforce`: vite:esbuild runs in the normal bucket before plugins without enforce, and it is
@@ -44,13 +47,19 @@ function embedAudio() {
       if (!id.endsWith('src/fx/audio.js')) return null;
       let out = code;
       for (const [exportName, file] of AUDIO_FILES) {
-        const raw = readFileSync(resolve(ROOT, 'public/audio', file)).toString('latin1');
+        // 不内嵌时把锚点替换成空串：Sfx 会识别为「没有内嵌样本」并回落到合成音效，
+        // 同时 ogg 加载完成后立刻接管。
+        let replacement = "''";
+        if (EMBED) {
+          const raw = readFileSync(resolve(ROOT, 'public/audio', file)).toString('latin1');
+          replacement = Q + escapeLatin1(raw) + Q;
+        }
         // The file is spliced in by index, never through String.prototype.replace: sample bytes can spell
         // any substring (the $-patterns of replace() especially), and index-based assignment cannot care.
         const anchor = 'export const ' + exportName + ' = %%INJECT%%;';
         const at = out.indexOf(anchor);
         if (at < 0) throw new Error('embed-audio: missing anchor for ' + exportName + ' in src/fx/audio.js');
-        out = out.slice(0, at) + 'export const ' + exportName + ' = ' + Q + escapeLatin1(raw) + Q + ';' + out.slice(at + anchor.length);
+        out = out.slice(0, at) + 'export const ' + exportName + ' = ' + replacement + ';' + out.slice(at + anchor.length);
       }
       return { code: out, map: null };
     },
