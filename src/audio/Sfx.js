@@ -72,6 +72,11 @@ export class Sfx {
     this.master = null;
     this.noiseBuf = null;
     this.muted = false;
+    // 混响总线（M6）：干声 → master，湿声 → convolver → wetGain → master。
+    // 两条支路并存，靠 wetGain 控制「这个场景有多空」。
+    this.reverb = null;
+    this.wetGain = null;
+    this.wetAmount = 0;
   }
 
   unlock() {
@@ -90,8 +95,72 @@ export class Sfx {
       this.noiseBuf = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
       const data = this.noiseBuf.getChannelData(0);
       for (let i = 0; i < len; i++) data[i] = Math.random() * 2 - 1;
+      this._buildReverb();
     }
     if (this.ctx.state === 'suspended') this.ctx.resume();
+  }
+
+  // 程序化卷积混响（M6）。
+  //
+  // 为什么自己生成 IR 而不用采样：一段 2.4 秒的立体声 IR 在 48 kHz 下是 460 KB 的
+  // 未压缩数据，六个场景各一条就是 2.7 MB —— 而这个项目的整个 JS 才 1.1 MB。
+  // 用噪声 + 指数衰减 + 早期反射生成，长度和音色都按场景算，运行时成本为零。
+  //
+  // 信号链：
+  //   干声 --(直通)--------------> master
+  //   干声 --(send)--> convolver --> wetGain --> master
+  _buildReverb() {
+    if (!this.ctx || !this.ctx.createConvolver) return;
+    try {
+      const conv = this.ctx.createConvolver();
+      const wet = this.ctx.createGain();
+      wet.gain.value = 0;
+      conv.buffer = this._impulse(2.4, 2.9);
+      conv.normalize = true;
+      conv.connect(wet);
+      wet.connect(this.master);
+      this.reverb = conv;
+      this.wetGain = wet;
+    } catch (e) {
+      // 混响是锦上添花，任何异常都不该让整个音频挂掉
+      this.reverb = null;
+      this.wetGain = null;
+    }
+  }
+
+  // 生成一条衰减噪声 IR。
+  // decay 越大尾巴越短（指数衰减的指数），rooms 的早期反射决定「这是室内还是旷野」。
+  _impulse(seconds, decay) {
+    const sr = this.ctx.sampleRate;
+    const n = Math.max(1, Math.floor(sr * seconds));
+    const buf = this.ctx.createBuffer(2, n, sr);
+    for (let ch = 0; ch < 2; ch++) {
+      const d = buf.getChannelData(ch);
+      for (let i = 0; i < n; i++) {
+        const t = i / n;
+        // 噪声 * 指数衰减。开头的 (1-t)^0 段用 sqrt 提一点早期能量，让房间感更实
+        const env = Math.pow(1 - t, decay) * (0.35 + 0.65 * Math.sqrt(1 - t));
+        d[i] = (Math.random() * 2 - 1) * env;
+      }
+      // 早期反射：几个离散的延迟脉冲（墙面反射），比纯噪声更像真实空间
+      const taps = [0.011, 0.019, 0.031, 0.047];
+      for (let k = 0; k < taps.length; k++) {
+        const idx = Math.floor(taps[k] * sr * (1 + ch * 0.07));
+        if (idx < n) d[idx] += (k % 2 ? -1 : 1) * (0.55 / (k + 1));
+      }
+    }
+    return buf;
+  }
+
+  // 按地图设混响量。0 = 户外旷野，0.5+ = 室内/街区回声。
+  // 这个值在切图时调一次，不是每帧。
+  setReverb(amount) {
+    const v = Math.max(0, Math.min(1, Number(amount) || 0));
+    this.wetAmount = v;
+    if (this.wetGain && this.ctx) {
+      // 用 setTargetAtTime 而不是直接赋值：切图瞬间不会有台阶声
+      this.wetGain.gain.setTargetAtTime(v * 0.42, this.ctx.currentTime, 0.15);
+    }
   }
 
   setMuted(m) {
@@ -161,6 +230,8 @@ export class Sfx {
       out = pan;
     }
     out.connect(this.master);
+    // 湿声：同一路信号分一部分进混响
+    if (this.reverb) out.connect(this.reverb);
     src.start(t);
     // 一次性音效不循环；播完自动断开，避免长时间游戏里节点越积越多
     src.onended = () => { src.disconnect(); g.disconnect(); };
@@ -204,6 +275,7 @@ export class Sfx {
     }
     osc.connect(gain);
     out.connect(this.master);
+    if (this.reverb) out.connect(this.reverb);
     osc.start(t);
     osc.stop(t + dur + 0.03);
 

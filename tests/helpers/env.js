@@ -92,12 +92,17 @@ export function createFakeAudioContext() {
         detune: new FakeParam(0),
       })
     ),
-    createBuffer: vi.fn((ch, len, rate) => ({
-      length: len,
-      sampleRate: rate,
-      numberOfChannels: ch,
-      getChannelData: () => new Float32Array(len),
-    })),
+    createBuffer: vi.fn((ch, len, rate) => {
+      // getChannelData 必须返回同一份数组：真实 API 就是这样，写进去的数据再读要能读到。
+      // 之前每次 new Float32Array(len) 会让所有写入静默丢失（混响 IR 的测试就抓到过）。
+      const chans = Array.from({ length: ch }, () => new Float32Array(len));
+      return {
+        length: len,
+        sampleRate: rate,
+        numberOfChannels: ch,
+        getChannelData: (i) => chans[i || 0],
+      };
+    }),
     createBufferSource: vi.fn(() =>
       fakeNode({
         buffer: null,
@@ -111,6 +116,8 @@ export function createFakeAudioContext() {
       fakeNode({ type: 'lowpass', frequency: new FakeParam(350), Q: new FakeParam(1), detune: new FakeParam(0) })
     ),
     createStereoPanner: vi.fn(() => fakeNode({ pan: new FakeParam(0) })),
+    // 混响（M6）：convolver 只要能被 connect、能接 buffer 就够
+    createConvolver: vi.fn(() => fakeNode({ buffer: null, normalize: true })),
     createWaveShaper: vi.fn(() => fakeNode({ curve: null, oversample: 'none' })),
     createDynamicsCompressor: vi.fn(() =>
       fakeNode({

@@ -3,8 +3,9 @@ import { installFakeAudio } from '../helpers/env.js';
 import { Sfx, decodeWav } from '../../src/audio/Sfx.js';
 import { gun1 } from '../../src/fx/audio.js';
 
-// 第 0 个 createGain 是 unlock 时的 master，之后的才是单次音效的包络。
-const effectGains = (ctx) => ctx.createGain.mock.results.slice(1).map((r) => r.value);
+// 第 0 个 createGain 是 unlock 时的 master，第 1 个是混响 wetGain（M6），
+// 之后的才是单次音效的包络。
+const effectGains = (ctx) => ctx.createGain.mock.results.slice(2).map((r) => r.value);
 
 describe('Sfx', () => {
   let audio;
@@ -45,8 +46,8 @@ describe('Sfx', () => {
     it('unlock 预生成 1.2 秒噪声缓冲，全部是 [-1,1] 随机数', () => {
       const s = unlocked();
       const ctx = audio.created[0];
-      expect(ctx.createBuffer).toHaveBeenCalledTimes(1);
-      expect(ctx.createBuffer).toHaveBeenCalledWith(1, Math.floor(44100 * 1.2), 44100);
+      // 第 1 次是噪声缓冲，第 2 次是混响 IR（M6）—— 断言第一个而不是总数
+      expect(ctx.createBuffer.mock.calls[0]).toEqual([1, Math.floor(44100 * 1.2), 44100]);
       expect(s.noiseBuf).toBeTruthy();
       expect(s.noiseBuf.length).toBe(Math.floor(44100 * 1.2));
       const data = s.noiseBuf.getChannelData(0);
@@ -65,8 +66,10 @@ describe('Sfx', () => {
       expect(audio.created).toHaveLength(1);
       expect(s.ctx).toBe(ctx);
       expect(s.master).toBe(master);
-      expect(ctx.createBuffer).toHaveBeenCalledTimes(1);
-      expect(ctx.createGain).toHaveBeenCalledTimes(1);
+      // 重复 unlock 不能重复建缓冲/节点（噪声 1 + IR 1 = 2，第二次 unlock 不该再涨）
+      expect(ctx.createBuffer).toHaveBeenCalledTimes(2);
+      // master + wetGain
+      expect(ctx.createGain).toHaveBeenCalledTimes(2);
     });
 
     it('ctx 为 suspended 时 unlock 调 resume', () => {
