@@ -196,10 +196,10 @@ async function ensurePlaying(page) {
   if (state === 'playing') return;
   if (state !== 'menu') {
     await page.evaluate(() => window.__game.backToMenu());
-    await page.waitForFunction(() => window.__game.state === 'menu', null, { timeout: 5000 });
+    await page.waitForFunction(() => window.__game.state === 'menu', null, { timeout: 30000, polling: 100 });
   }
   await page.click('#startBtn');
-  await page.waitForFunction(() => window.__game.state === 'playing', null, { timeout: 10000 });
+  await page.waitForFunction(() => window.__game.state === 'playing', null, { timeout: 30000, polling: 100 });
 }
 
 // 清场并刷出指定类型的僵尸（只构造前置条件；类型分布本身由 config.wavePlan 决定）。
@@ -283,7 +283,7 @@ async function phaseStartup(ctx) {
 
   // 真实点击开始按钮
   await page.click('#startBtn');
-  await page.waitForFunction(() => window.__game.state === 'playing', null, { timeout: 10000 });
+  await page.waitForFunction(() => window.__game.state === 'playing', null, { timeout: 30000, polling: 100 });
   await waitUntil(page, () => window.__game.hud.isTouch === false, 3000, 'HUD 进入桌面模式');
   check(await page.isHidden('#startScreen'), '开始后 #startScreen 应隐藏');
   check(await page.evaluate(() => !document.getElementById('hud').classList.contains('hidden')), '开始后 #hud 应可见');
@@ -653,7 +653,7 @@ async function phaseMaps(ctx) {
     const g = window.__game;
     if (g.state !== 'menu') g.backToMenu();
   });
-  await page.waitForFunction(() => window.__game.state === 'menu', null, { timeout: 5000 });
+  await page.waitForFunction(() => window.__game.state === 'menu', null, { timeout: 30000, polling: 100 });
   await waitUntil(page, () => {
     const s = document.getElementById('startScreen');
     return s && !s.classList.contains('hidden');
@@ -678,7 +678,7 @@ async function phaseMaps(ctx) {
     await page.waitForFunction(
       (want) => window.__game.mapId === want && window.__game.state === 'menu',
       id,
-      { timeout: 5000 }
+      { timeout: 30000, polling: 100 }
     );
     await page.waitForTimeout(250); // 让渲染循环跑几帧
     const after = await page.evaluate((want) => {
@@ -759,7 +759,7 @@ async function phaseMobile(ctx) {
 
     // 真实 tap 开始
     await page.tap('#startBtn');
-    await page.waitForFunction(() => window.__game.state === 'playing', null, { timeout: 10000 });
+    await page.waitForFunction(() => window.__game.state === 'playing', null, { timeout: 30000, polling: 100 });
     const lockCallsTouch = await page.evaluate(() => window.__e2e.lockCalls);
     check(lockCallsTouch === 0, '触屏设备不应调用 requestPointerLock，实际调用 ' + lockCallsTouch + ' 次');
 
@@ -886,7 +886,7 @@ async function phaseMobile(ctx) {
     // 慢 runner 上 SwiftShader 一帧要好几秒，resize 事件得等当前帧跑完才派发；
     // 5s 会把「机器慢」误判成「没暂停」（2026-11-12 实测 weapons 跑到 658s 的机器上就超了）。
     await page.setViewportSize({ width: 390, height: 844 });
-    await waitUntil(page, () => window.__game.state !== 'playing', 15000, '竖屏后游戏暂停');
+    await waitUntil(page, () => window.__game.state !== 'playing', 30000, '竖屏后游戏暂停');
     const portrait = await page.evaluate(() => {
       const el = document.getElementById('orientationGate');
       const r = el.getBoundingClientRect();
@@ -921,7 +921,7 @@ async function phaseMobile(ctx) {
     await page.setViewportSize({ width: 844, height: 390 });
     await waitUntil(page, () => getComputedStyle(document.getElementById('orientationGate')).display === 'none', 5000, '横屏后拦截层隐藏');
     await page.tap('#startBtn');
-    await page.waitForFunction(() => window.__game.state === 'playing', null, { timeout: 15000 });
+    await page.waitForFunction(() => window.__game.state === 'playing', null, { timeout: 30000, polling: 100 });
     check(consoleErrors.length === 0, '手机场景出现 console error：\n   - ' + consoleErrors.join('\n   - '));
     return {
       metrics: {
@@ -999,7 +999,7 @@ async function phasePerf(ctx) {
     requestAnimationFrame(tick);
   });
   try {
-    await page.waitForFunction(() => window.__perf && window.__perf.done, null, { timeout: 40000 });
+    await page.waitForFunction(() => window.__perf && window.__perf.done, null, { timeout: 60000, polling: 100 });
   } finally {
     await page.evaluate(() => window.__game.controls.setFiring(false)).catch(() => {});
   }
@@ -1062,8 +1062,8 @@ async function phaseFlashlight(ctx) {
   await page.evaluate(() => window.__game.setMap('forest'));
   await waitUntil(page, () => window.__game.mapId === 'forest', 8000, '切到夜之森林');
   await page.click('#startBtn');
-  await page.waitForFunction(() => window.__game.state === 'playing', null, { timeout: 10000 });
-  await page.waitForFunction(() => window.__game.mapId === 'forest', null, { timeout: 8000 });
+  await page.waitForFunction(() => window.__game.state === 'playing', null, { timeout: 30000, polling: 100 });
+  await page.waitForFunction(() => window.__game.mapId === 'forest', null, { timeout: 30000, polling: 100 });
   await page.evaluate(() => {
     const g = window.__game;
     g.player.hp = 1e9;
@@ -1293,7 +1293,7 @@ async function phaseGameOver(ctx) {
 
   // 真实点“再来一局”
   await page.click('#againBtn');
-  await page.waitForFunction(() => window.__game.state === 'playing', null, { timeout: 5000 });
+  await page.waitForFunction(() => window.__game.state === 'playing', null, { timeout: 30000, polling: 100 });
   await page.waitForTimeout(300);
   const again = await page.evaluate(() => {
     const g = window.__game;
@@ -1343,7 +1343,7 @@ async function phaseSkeleton(ctx) {
     if (g.state !== 'menu') g.backToMenu();
     return { state: g.state };
   });
-  await page.waitForFunction(() => window.__game.state === 'menu', null, { timeout: 5000 });
+  await page.waitForFunction(() => window.__game.state === 'menu', null, { timeout: 30000, polling: 100 });
   await page.evaluate(() => window.__game.setMap('snow'));
   await page.evaluate(() => {
     const g = window.__game;
@@ -1358,7 +1358,7 @@ async function phaseSkeleton(ctx) {
   await page.waitForFunction(
     () => window.__game.models && window.__game.models.skeleton.ready,
     null,
-    { timeout: 60000 }
+    { timeout: 60000, polling: 100 }
   ).catch(() => {});
   const skReady = await page.evaluate(() => !!(window.__game.models && window.__game.models.skeleton.ready));
   check(skReady, '骷髅 glb 60 秒内没加载完');
@@ -1487,9 +1487,9 @@ async function phaseSkeleton(ctx) {
     g.zombies.reset();
     if (g.state !== 'menu') g.backToMenu();
   });
-  await page.waitForFunction(() => window.__game.state === 'menu', null, { timeout: 5000 });
+  await page.waitForFunction(() => window.__game.state === 'menu', null, { timeout: 30000, polling: 100 });
   await page.evaluate(() => window.__game.setMap('backyard'));
-  await page.waitForFunction(() => window.__game.mapId === 'backyard', null, { timeout: 5000 });
+  await page.waitForFunction(() => window.__game.mapId === 'backyard', null, { timeout: 30000, polling: 100 });
 
   return {
     metrics: {
@@ -1519,9 +1519,9 @@ async function phaseBossDoctor(ctx) {
     g.zombies.reset();
     if (g.state !== 'menu') g.backToMenu();
   });
-  await page.waitForFunction(() => window.__game.state === 'menu', null, { timeout: 5000 });
+  await page.waitForFunction(() => window.__game.state === 'menu', null, { timeout: 30000, polling: 100 });
   await page.evaluate(() => window.__game.setMap('backyard'));
-  await page.waitForFunction(() => window.__game.mapId === 'backyard', null, { timeout: 5000 });
+  await page.waitForFunction(() => window.__game.mapId === 'backyard', null, { timeout: 30000, polling: 100 });
   await page.evaluate(() => {
     const g = window.__game;
     g.start();
