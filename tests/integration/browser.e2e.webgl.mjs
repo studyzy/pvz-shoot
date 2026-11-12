@@ -150,9 +150,11 @@ async function openPage(context, url) {
   page.on('pageerror', (e) => consoleErrors.push('pageerror: ' + ((e && e.message) || e)));
   // CI runner 冷启动要现拉 1.4 MB 主包 + 几 MB glb，默认 30 秒的 goto 会超；放宽到 90 秒。
   await page.goto(url, { waitUntil: 'load', timeout: 90000 });
-  // 慢 runner（CI 冷启动 / 连续开多个上下文）偶尔要 30 秒以上才跑到 window.__game，
-  // 这里给到 60 秒；超时才是真的启动失败。
-  await waitUntil(page, () => !!window.__game, 60000, 'window.__game 出现').catch(async (error) => {
+  // 慢 runner（CI 冷启动 / 连续开多个上下文）偶尔要 30 秒以上才跑到 window.__game。
+  // 2026-11-12 起放宽到 120 秒：weapons 场景是第三个阶段，自己开新上下文（冷缓存要重拉
+  // 主包 + 12 款 GLB），在 SwiftShader 的慢机器上实测会卡在 60 秒边缘（同一提交连跑三次
+  // 都停在 60s 超时，页面无任何 JS 错误）。超时才是真的启动失败。
+  await waitUntil(page, () => !!window.__game, 120000, 'window.__game 出现').catch(async (error) => {
     const size = page.viewportSize();
     const file = await shot(page, 'boot-FAIL-' + size.width + 'x' + size.height);
     const errors = [...consoleErrors, ...await drainErrors(page)];
