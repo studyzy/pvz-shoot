@@ -1208,3 +1208,45 @@ describe('ZombieManager · 巨型骷髅 Boss', () => {
     });
   });
 });
+
+describe('ZombieManager · 客机播种与摘除', () => {
+  it('netSpawn 收到同一 id 不重复生成；netDespawn 摘人并清掉 Boss 引用', async () => {
+    await boot();
+    const zm = clearField();
+    zm.setRemote(true);
+    try {
+      const snap = { id: 501, t: 'boss', x: 0, z: -6 };
+      const z = zm.netSpawn(snap);
+      expect(z).toBeTruthy();
+      expect(zm.zombies).toContain(z);
+      // Boss 快照出生后要立起顶部血条的引用
+      expect(zm.boss).toBe(z);
+      // 主机每帧都在发快照：同一个 id 只能复用，不能叠出第二只
+      expect(zm.netSpawn({ ...snap })).toBe(z);
+      expect(zm.zombies.filter((x) => x.netId === 501).length).toBe(1);
+
+      zm.netDespawn(501);
+      expect(zm.zombies).not.toContain(z);
+      expect(zm.boss).toBe(null);
+      expect(zm.despawned.has(501)).toBe(true);
+      // 摘除后迟到的快照不能再把人刷回来（顺序错乱时的保护）
+      expect(zm.netSpawn({ ...snap })).toBe(null);
+    } finally {
+      zm.setRemote(false);
+      zm.reset();
+    }
+  });
+
+  it('客机模式下 startWave 不自己刷波（波次由主机权威驱动）', async () => {
+    await boot();
+    const zm = clearField();
+    zm.setRemote(true);
+    try {
+      zm.startWave(3);
+      expect(zm.queue.length).toBe(0);
+    } finally {
+      zm.setRemote(false);
+      zm.reset();
+    }
+  });
+});

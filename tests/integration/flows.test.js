@@ -1848,3 +1848,122 @@ describe('14. 武器角色槽端到端', () => {
     expect(game.hud.slotDock.classList.contains('hidden')).toBe(false);
   });
 });
+
+describe('13. 画质档位（M8 §7.2）', () => {
+  // 后期管线在 jsdom 里退化成哑对象，这里换成可观测的替身：
+  // 要断言的是「Game 有没有按档位去调它」，不是 GL 真的跑没跑。
+  const stubPost = () => {
+    const post = {
+      level: 2,
+      maxLevel: 2,
+      locked: false,
+      setLevel: vi.fn(function (n) { this.level = n; }),
+      // resize() 会把新尺寸喂回管线；这些用例只关心有没有被调用
+      setSize: vi.fn(),
+    };
+    game.post = post;
+    return post;
+  };
+
+  it('切到低画质：像素比 1、后期直出、阴影贴图降到 512', () => {
+    const post = stubPost();
+    // 后院这张图不一定挂了阴影跟随窗口，这里装一个可观测的替身
+    const follow = { half: 17, setSize: vi.fn(function (s, h) { this.mapSize = s; this.half = h; }) };
+    game.map.shadowFollow = follow;
+    const q = game.setQuality('low');
+    expect(q.id).toBe('low');
+    expect(game.quality).toBe('low');
+    expect(game.qualityResolved.pixelRatioCap).toBe(1);
+    expect(game.maxPixelRatio).toBe(1);
+    expect(game.pixelRatio).toBe(1);
+    expect(game.renderer.setPixelRatio).toHaveBeenLastCalledWith(1);
+    expect(post.setLevel).toHaveBeenCalledWith(0);
+    expect(post.locked).toBe(true);
+    // 阴影贴图与窗口一起跟着档位收：低档 512²、窗口半宽 18 米（后院默认 17）
+    expect(follow.setSize).toHaveBeenCalledWith(512, 18);
+    expect(follow.half).toBe(18);
+    // 档位要落盘，下次进来直接生效
+    expect(localStorage.getItem('pvz.quality')).toBe('low');
+  });
+
+  it('切回自动档：把后期交还自适应（不锁定档位）', () => {
+    const post = stubPost();
+    game.setQuality('high');
+    expect(post.locked).toBe(true);
+    game.setQuality('auto');
+    expect(game.quality).toBe('auto');
+    expect(post.locked).toBe(false);
+    // auto 不再显式设档，交给 trackPerformance 决定
+    expect(post.setLevel).toHaveBeenCalledTimes(1);
+  });
+
+  it('HUD 点档位 → Game 切换 → HUD 高亮，全链路一致', () => {
+    const post = stubPost();
+    const btn = document.querySelector('#qualityOpts [data-quality="medium"]');
+    click(btn);
+    expect(game.quality).toBe('medium');
+    expect(game.maxPixelRatio).toBeCloseTo(1.5, 5);
+    expect(post.level).toBe(1);
+    expect(btn.getAttribute('aria-pressed')).toBe('true');
+    expect(document.querySelector('#qualityOpts [data-quality="auto"]').getAttribute('aria-pressed'))
+      .toBe('false');
+  });
+
+  it('显式档位下掉帧也不自动降级（玩家选的画质要守住）', () => {
+    const post = stubPost();
+    game.setQuality('high');
+    game.pixelRatio = 2;
+    game.maxPixelRatio = 2;
+    game.perfTime = 0;
+    game.perfFrames = 0;
+    for (let i = 0; i < 80; i++) game.trackPerformance(0.05); // 20fps
+    expect(game.pixelRatio).toBe(2);
+    expect(post.setLevel).toHaveBeenCalledTimes(1); // 只有 setQuality 那一次
+  });
+
+  it('没有后期管线时自适应直接放弃，不炸', () => {
+    game.post = null;
+    expect(() => {
+      for (let i = 0; i < 80; i++) game.trackPerformance(0.05);
+    }).not.toThrow();
+  });
+
+  it('像素比已经满了再恢复帧率，就先升后期档位', () => {
+    const post = stubPost();
+    post.level = 0;
+    game.post = post;
+    game.pixelRatio = 2;
+    game.maxPixelRatio = 2;
+    game.perfTime = 0;
+    game.perfFrames = 0;
+    for (let i = 0; i < 400; i++) game.trackPerformance(1 / 120);
+    expect(post.setLevel).toHaveBeenCalledWith(1);
+    expect(game.pixelRatio).toBe(2);
+  });
+});
+
+describe('14. 状态机守卫', () => {
+  it('pause / resume / gameOver 在错误状态下是空操作', () => {
+    expect(game.state).toBe('menu');
+    game.pause();                       // 菜单里没有局可暂停
+    expect(game.state).toBe('menu');
+    game.resume();                      // 没暂停过也不该「恢复」出什么东西
+    expect(game.state).toBe('menu');
+
+    game.start();
+    game.gameOver();
+    expect(game.state).toBe('over');
+    const score = game.score;
+    game.gameOver();                    // 重复触发不该二次结算
+    expect(game.score).toBe(score);
+    game.pause();                       // 结算页上暂停无效
+    expect(game.state).toBe('over');
+  });
+
+  it('对局中不能直接点图切图（只有菜单里可以）', () => {
+    game.start();
+    const mapId = game.mapId;
+    game.selectMap(mapId === 'snow' ? 'backyard' : 'snow');
+    expect(game.mapId).toBe(mapId);
+  });
+});

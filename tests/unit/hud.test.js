@@ -956,3 +956,65 @@ describe('HUD · 双人按钮与防御性早退', () => {
     if (row) expect(row.classList.contains('hidden')).toBe(true);
   });
 });
+
+describe('HUD · 画质档位（M8 §7.2）', () => {
+  let hud;
+  beforeEach(() => {
+    installGlobals();
+    mountIndexHtml();
+    hud = new HUD();
+  });
+
+  it('按 QUALITY_OPTIONS 生成四个按钮，顺序与文案固定', () => {
+    const opts = [...document.querySelectorAll('#qualityOpts .quality-opt')];
+    expect(opts.map((b) => b.dataset.quality)).toEqual(['auto', 'high', 'medium', 'low']);
+    expect(opts.map((b) => b.textContent)).toEqual(['自动', '高', '中', '低']);
+    // 还没选之前不该有任何一档被点亮
+    expect(opts.every((b) => b.getAttribute('aria-pressed') === 'false')).toBe(true);
+  });
+
+  it('点按钮把档位回调出去（就地切换，不刷新页面）', () => {
+    const seen = [];
+    hud.onQuality = (id) => seen.push(id);
+    click($('qualityOpts').querySelector('[data-quality="low"]'));
+    click($('qualityOpts').querySelector('[data-quality="high"]'));
+    expect(seen).toEqual(['low', 'high']);
+  });
+
+  it('setQuality 只点亮当前档位', () => {
+    hud.setQuality('medium');
+    let pressed = [...document.querySelectorAll('.quality-opt')]
+      .filter((b) => b.getAttribute('aria-pressed') === 'true');
+    expect(pressed.map((b) => b.dataset.quality)).toEqual(['medium']);
+
+    hud.setQuality('auto');
+    pressed = [...document.querySelectorAll('.quality-opt')]
+      .filter((b) => b.getAttribute('aria-pressed') === 'true');
+    expect(pressed.map((b) => b.dataset.quality)).toEqual(['auto']);
+  });
+});
+
+describe('HUD · DOM 被裁剪时的防御性早退', () => {
+  it('可选区块缺失时各 setter 直接返回，不抛错', () => {
+    installGlobals();
+    mountIndexHtml();
+    // 旧缓存页面 / 精简入口可能没有这些可选块（加载清单、双人、队友血条、画质、蓄力条）
+    for (const id of [
+      'loadList', 'duoStatus', 'duoBtn', 'duoShare', 'duoOverScreen', 'duoOverStatus',
+      'peerHpRow', 'qualityOpts', 'chargeBar', 'chargeFill',
+    ]) {
+      const el = document.getElementById(id);
+      if (el) el.remove();
+    }
+    const bare = new HUD();
+    expect(() => bare.renderLoadList({ files: [{ label: 'a', done: true }] })).not.toThrow();
+    expect(() => bare.setDuoMode(true)).not.toThrow();
+    expect(() => bare.setDuoShare('https://example.com/duo/1')).not.toThrow();
+    expect(() => bare.showDuoResult({ scores: [1, 2], kills: [0, 1], seat: 0, wave: 3, peerName: 'B', reason: 'WIPE' })).not.toThrow();
+    expect(() => bare.setDuoResultStatus('队友掉线')).not.toThrow();
+    expect(() => bare.setDuoHud(true)).not.toThrow();
+    expect(() => bare.setPeerHealth(80, 100)).not.toThrow();
+    expect(() => bare.setCharges(0, 0, 3)).not.toThrow();
+    expect(() => bare.setQuality('low')).not.toThrow();
+  });
+});

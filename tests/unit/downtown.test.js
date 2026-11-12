@@ -273,3 +273,51 @@ describe('摩天街区 Downtown 专项', () => {
     expect(JSON.stringify(map.pickupSpots)).toBe(k0);
   });
 });
+
+describe('摩天街区 · 碰撞体辅助与材质接线', () => {
+  let m;
+  beforeAll(() => {
+    m = new Downtown(new THREE.Scene());
+  }, SECONDS);
+
+  it('blockColliders：比僵尸还瘦的盒子退化成单个圆', () => {
+    const before = m.colliders.length;
+    m.blockColliders(5, 5, 1, 1); // 半宽 0.5 < 半径 0.68 → 两个方向都是 0
+    expect(m.colliders.length).toBe(before + 1);
+    expect(m.colliders.at(-1)).toMatchObject({ x: 5, z: 5, r: 0.68 });
+  });
+
+  it('blockColliders：横向细长盒沿 x 每 1.1 米铺一个圆（z 不变）', () => {
+    const before = m.colliders.length;
+    m.blockColliders(0, 10, 6, 1);
+    const added = m.colliders.slice(before);
+    expect(added.length).toBeGreaterThan(2);
+    expect(new Set(added.map((c) => c.z))).toEqual(new Set([10]));
+    // 铺满整条边：两端的圆心正好在 ±(6/2-0.68)
+    expect(Math.min(...added.map((c) => c.x))).toBeCloseTo(-2.32, 5);
+    expect(Math.max(...added.map((c) => c.x))).toBeCloseTo(2.32, 5);
+  });
+
+  it('blockColliders：纵向细长盒沿 z 铺（x 不变）', () => {
+    const before = m.colliders.length;
+    m.blockColliders(-12, 0, 1, 6);
+    const added = m.colliders.slice(before);
+    expect(added.length).toBeGreaterThan(2);
+    expect(new Set(added.map((c) => c.x))).toEqual(new Set([-12]));
+  });
+
+  it('setEnv：重复喂同一张 envMap 幂等，null 直接忽略', () => {
+    const map2 = new Downtown(new THREE.Scene());
+    const env = new THREE.Texture();
+    map2.setEnv(env);
+    expect(map2.matGlass.envMap).toBe(env);
+    expect(map2.matGlass.metalness).toBeCloseTo(0.28, 5);
+
+    const version = map2.matGlass.version;
+    map2.setEnv(env);      // 同一张：直接 return，不再触发材质重编译
+    expect(map2.matGlass.version).toBe(version);
+
+    map2.setEnv(null);     // 保护：没 envMap 也不该把已有的清掉
+    expect(map2.matGlass.envMap).toBe(env);
+  });
+});

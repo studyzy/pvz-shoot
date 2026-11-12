@@ -8,6 +8,7 @@
 // 不测像素。
 import { describe, it, expect } from 'vitest';
 import * as THREE from 'three';
+import { makeGLRenderer } from '../helpers/glstub.js';
 import { createSSAO, aoNoiseTexture, AO_FRAG } from '../../src/fx/ssao.js';
 
 describe('SSAO · 能力探测', () => {
@@ -119,5 +120,72 @@ describe('SSAO · 尺寸策略', () => {
     const s = createSSAO(null);
     s.dispose();
     expect(s.enabled).toBe(false);
+  });
+});
+
+// 装配层：能力探测通过后 RT 真的建了吗？尺寸策略与失败兜底在下面是可观测的。
+describe('SSAO · 装配（假 GL 渲染器）', () => {
+  it('探测通过后 enabled=true，初始就有一张 2×2 的 RT', () => {
+    const s = createSSAO(makeGLRenderer().renderer);
+    expect(s.enabled).toBe(true);
+    expect(s.texture).toBeTruthy();
+    expect(s.texture.image.width).toBe(2);
+    s.dispose();
+  });
+
+  it('按半分辨率建 RT：1280×720 → 640×360', () => {
+    const s = createSSAO(makeGLRenderer().renderer);
+    s.setSize(1280, 720);
+    expect(s.texture.image.width).toBe(640);
+    expect(s.texture.image.height).toBe(360);
+    s.dispose();
+  });
+
+  it('极小尺寸抬到 2，避免 0 尺寸 RT 让 GL 报错', () => {
+    const s = createSSAO(makeGLRenderer().renderer);
+    s.setSize(1, 1);
+    expect(s.texture.image.width).toBeGreaterThanOrEqual(2);
+    expect(s.texture.image.height).toBeGreaterThanOrEqual(2);
+    s.dispose();
+  });
+
+  it('render 读深度图与相机投影逆矩阵，跑完把渲染目标还原', () => {
+    const { renderer, calls } = makeGLRenderer();
+    const s = createSSAO(renderer);
+    s.setSize(640, 360);
+    const camera = new THREE.PerspectiveCamera(70, 16 / 9, 0.1, 200);
+    expect(s.render(new THREE.DepthTexture(640, 360), camera)).toBe(true);
+    expect(calls.render.length).toBe(1);
+    // 最后一个渲染目标必须是 null：SSAO 只在半分辨率 RT 里跑一帧
+    expect(calls.setRenderTarget.at(-1)).toBe(null);
+    s.dispose();
+  });
+
+  it('没有相机时用默认近远平面（不依赖调用方一定传）', () => {
+    const s = createSSAO(makeGLRenderer().renderer);
+    expect(s.render(new THREE.DepthTexture(4, 4), null)).toBe(true);
+    s.dispose();
+  });
+
+  it('没有深度图（WebGL1 或建深度失败）时不出帧', () => {
+    const s = createSSAO(makeGLRenderer().renderer);
+    expect(s.render(null, null)).toBe(false);
+    s.dispose();
+  });
+
+  it('GL 抛错时释放 RT 并退回 false，之后不再尝试', () => {
+    const { renderer } = makeGLRenderer({ onRender: () => { throw new Error('gl lost'); } });
+    const s = createSSAO(renderer);
+    expect(s.render(new THREE.DepthTexture(4, 4), null)).toBe(false);
+    expect(s.texture).toBe(null);
+    expect(s.render(new THREE.DepthTexture(4, 4), null)).toBe(false);
+    s.dispose();
+  });
+
+  it('dispose 释放 RT：texture 变 null', () => {
+    const s = createSSAO(makeGLRenderer().renderer);
+    s.dispose();
+    expect(s.enabled).toBe(false);
+    expect(s.texture).toBe(null);
   });
 });

@@ -212,3 +212,41 @@ describe('WeaponPickups · clear', () => {
     expect(p.finished).toBe(true);
   });
 });
+
+describe('WeaponPickups · 空池与非法入参的兜底', () => {
+  it('池子被清空后：掉落 / 空投 / 刷新都只返回 false，不抛错', () => {
+    const { p } = fresh();
+    p.items = [];
+    expect(p.dropAt(0, 1, 1)).toBe(false);
+    expect(p.spawnAir(0, 1, 1)).toBe(false);
+    expect(p.spawnRandom()).toBe(false);
+    expect(() => p.reset()).not.toThrow();
+  });
+
+  it('没有地图时 reset 直接返回（开局前调用是合法的）', () => {
+    const p = new WeaponPickups(makeCtx());
+    expect(() => p.reset()).not.toThrow();
+    expect(p.items.every((it) => it.spot === null)).toBe(true);
+  });
+
+  it('spawnRandom 指定一个已被占用的点位时拒绝出道具', () => {
+    const { p } = fresh();
+    // 开局刷出的那一个占着点位，不是空位
+    const activeIdx = p.items.findIndex((it) => it.active);
+    expect(activeIdx).toBeGreaterThanOrEqual(0);
+    expect(p.spawnRandom(activeIdx)).toBe(false);
+  });
+
+  it('applyNetList：同 id 重复只落一次，空闲点不够时安静退出', () => {
+    const { p } = fresh();
+    const before = p.items.filter((it) => it.active).length;
+    p.applyNetList([
+      { id: 91, i: 0, x: 2, z: 2 },
+      { id: 91, i: 0, x: 2, z: 2 },
+    ]);
+    const after = p.items.filter((it) => it.active).length;
+    // 第一条落位（复用开局的那一个），重复项被 seen 挡掉
+    expect(after).toBe(before);
+    expect(p.items.filter((it) => it.active && it.id === 91).length).toBe(1);
+  });
+});

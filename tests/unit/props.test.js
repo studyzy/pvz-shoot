@@ -204,3 +204,23 @@ describe('createProps', () => {
     }
   });
 });
+describe('异常配方 · 兜底', () => {
+  it('未知道具类型只跳过自己，同组的已知类型照常摆出来', () => {
+    PROPS_PRESETS.__test_unknown = { seed: 31, kinds: { bogus: { count: 5 }, rock: { count: 3 } } };
+    const p = createProps({ preset: '__test_unknown', half: 20, wallHalf: 1 });
+    expect(p.count()).toBeGreaterThan(0);
+    // bogus 不该产生空的 InstancedMesh，group 里只该有 rock 那一个
+    expect(p.group.children.length).toBe(1);
+    p.dispose();
+    delete PROPS_PRESETS.__test_unknown;
+  });
+
+  it('一整类都被 blocked 拒绝时不留下空 mesh（几何与材质当场释放）', () => {
+    PROPS_PRESETS.__test_blocked = { seed: 31, kinds: { rock: { count: 4 } } };
+    const p = createProps({ preset: '__test_blocked', half: 20, wallHalf: 1, blocked: () => true });
+    expect(p.count()).toBe(0);
+    expect(p.group.children.length).toBe(0);
+    p.dispose();
+    delete PROPS_PRESETS.__test_blocked;
+  });
+});

@@ -2,7 +2,7 @@
 //
 // 全仓原本 0 处 normalMap / roughnessMap：所有表面都是「颜色贴图 + 平滑着色」，
 // 光是平的，凑近看是一张贴纸。这里把已有的颜色贴图当高度场，Sobel 求梯度转法线。
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, it, expect, beforeAll, vi } from 'vitest';
 import * as THREE from 'three';
 import {
   heightFromSource, detailPass, normalFromHeight, roughnessTexture, deriveSurfaceMaps,
@@ -211,5 +211,31 @@ describe('deriveSurfaceMaps', () => {
   it('烘焙异常时退化为 null（地图加载不能因为法线挂掉）', () => {
     const bad = { image: { width: 4, height: 4 } };
     expect(() => deriveSurfaceMaps(bad, {})).not.toThrow();
+  });
+});
+// 高度场是「颜色贴图 → 法线」的第一步，取不到像素时必须安静地退化：
+// 拿不到 2D 上下文、或 drawImage 因 canvas 独占引用失败，都不能让地图加载挂掉。
+describe('法线贴图 · 源不可用时的退路', () => {
+  it('拿不到 2D 上下文时返回中性高度场', () => {
+    const spy = vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
+    const h = heightFromSource({}, 4);
+    spy.mockRestore();
+    expect(h.length).toBe(16);
+    expect([...h].every((v) => v === 0.5)).toBe(true);
+  });
+
+  it('drawImage 失败时退回 putImageData（ImageData 源）', () => {
+    const white = new Uint8ClampedArray(4 * 4 * 4).fill(255);
+    const ctx = {
+      drawImage() { throw new Error('exclusive reference'); },
+      putImageData() {},
+      getImageData(x, y, w, h) { return { data: white.slice(0, w * h * 4) }; },
+    };
+    vi.spyOn(document, 'createElement').mockReturnValue({ width: 0, height: 0, getContext: () => ctx });
+    const h = heightFromSource({ data: white, width: 4, height: 4 }, 4);
+    vi.mocked(document.createElement).mockRestore();
+    expect(h.length).toBe(16);
+    // 纯白像素：0.25R + 0.55G + 0.2B = 1
+    expect(h[0]).toBeCloseTo(1, 5);
   });
 });

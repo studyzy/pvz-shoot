@@ -1386,3 +1386,50 @@ describe('Zombie · blob 影子只在必要时显示', () => {
     expect(() => z.syncGroundShadow()).not.toThrow();
   });
 });
+
+describe('Zombie · dispose 回收', () => {
+  it('从场景摘掉、停掉动画、释放材质', async () => {
+    const THREE = await import('three');
+    const z = makeZombie('normal');
+    const parent = new THREE.Group();
+    parent.add(z.root);
+    const mat = z.mats[0];
+    const matSpy = vi.spyOn(mat, 'dispose');
+    const stopSpy = z.mixer ? vi.spyOn(z.mixer, 'stopAllAction') : null;
+
+    z.dispose();
+
+    expect(z.root.parent).toBe(null);
+    if (stopSpy) expect(stopSpy).toHaveBeenCalled();
+    expect(matSpy).toHaveBeenCalled();
+  });
+
+  it('没有父节点 / 没有动画时也安全', () => {
+    const z = makeZombie('normal');
+    z.mixer = null;
+    expect(() => z.dispose()).not.toThrow();
+    expect(() => z.dispose()).not.toThrow(); // 重复回收不抛
+  });
+});
+
+describe('Zombie · 网络快照 applyNetState', () => {
+  it('st=3 表示已死：播死亡动作、藏掉影子与技能提示', () => {
+    const z = makeZombie('normal');
+    const played = vi.spyOn(z, 'play');
+    z.applyNetState({ st: 3 });
+    expect(z.dying).toBe(true);
+    expect(played).toHaveBeenCalledWith('die', 0.12);
+    expect(z.shadow.visible).toBe(false);
+    // 再来一次不会重播死亡
+    played.mockClear();
+    z.applyNetState({ st: 3 });
+    expect(played).not.toHaveBeenCalled();
+  });
+
+  it('护甲归零时铁桶/帽子当场隐藏（客机看到的是同一副样子）', () => {
+    const z = makeZombie('football');
+    if (!z.hat) return; // 该类型没有可掉的配件
+    z.applyNetState({ ar: 0 });
+    expect(z.hat.visible).toBe(false);
+  });
+});
