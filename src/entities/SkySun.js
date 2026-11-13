@@ -25,6 +25,13 @@ export class SkySun {
     if (this.elapsed < 0) this.elapsed = 0;
 
     const b = map.bounds;
+    // 无限地图（赛博空间）自带落点：bounds 是 10 公里的哨兵值，
+    // 按 bounds 撒会让阳光落到没人到得了的地方。地图给了 skySunSpot() 就用它。
+    if (typeof map.skySunSpot === 'function') {
+      const s = map.skySunSpot();
+      this.ctx.sunOrbs.spawnSky(s.x, s.z);
+      return;
+    }
     const m = SUN_SKY.edgeMargin;
     // bounds 是半边长 { x, z }，随机点限制在离边缘 edgeMargin 以内。
     // 极小的图（半边长 < margin）要把 margin 收回来，否则区间反转会刷到界外。

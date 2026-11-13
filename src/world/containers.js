@@ -332,9 +332,12 @@ export const YARD_MACHINES = [
   { kind: 'gantry', x: -37.5, z: -39.4, yaw: Math.PI / 2, collide: false },
   { kind: 'gantry', x: 37.5, z: -39.4, yaw: Math.PI / 2, collide: false },
   { kind: 'gantry', x: 37.5, z: 39.4, yaw: Math.PI / 2, collide: false },
-  // 卡车与堆高机摆在场地内的内环车道（z≈±34）：玩家能走近、能撞上，必须绕行
-  { kind: 'truck', x: 8.0, z: -34.2, yaw: 0, collide: true },
-  { kind: 'truck', x: -8.0, z: 34.2, yaw: Math.PI, collide: true },
+  // 卡车与堆高机摆在场地内的内环车道（z≈±34）：玩家能走近、能撞上，必须绕行。
+  // x=±8 不行：卡车 9.8 米宽，内边缘会伸到 x=∓3.1，把主街（x∈[-7,7]）中段切出
+  // 一道 9.8 米长的横向路障，还把两侧人行道的流场标障（downtown.test「楼峡主街贯通」
+  // 因此长期红）。挪到 x=±13：内边缘 ∓8.1，压在 8 米宽的外环车道里，主街完全不碰。
+  { kind: 'truck', x: 13.0, z: -34.2, yaw: 0, collide: true },
+  { kind: 'truck', x: -13.0, z: 34.2, yaw: Math.PI, collide: true },
   { kind: 'stacker', x: -25.0, z: -34.2, yaw: 0.3, collide: true },
   { kind: 'stacker', x: 25.0, z: 34.2, yaw: Math.PI - 0.3, collide: true },
 ];

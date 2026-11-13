@@ -785,7 +785,7 @@ export function duskSkyTexture() {
 let _envs = null;
 // 程序化户外环境贴图（PMREM）：只给 PBR 材质提供反射与高光，不参与场景雾/背景。
 export function outdoorEnvironment(renderer, mapId) {
-  const key = mapId === 'snow' ? 'snow' : mapId === 'dust' ? 'dust' : mapId === 'forest' ? 'forest' : mapId === 'cloud' ? 'cloud' : mapId === 'downtown' ? 'downtown' : 'backyard';
+  const key = mapId === 'snow' ? 'snow' : mapId === 'dust' ? 'dust' : mapId === 'forest' ? 'forest' : mapId === 'cloud' ? 'cloud' : mapId === 'downtown' ? 'downtown' : mapId === 'cyber' ? 'cyber' : 'backyard';
   if (_envs && _envs[key]) return _envs[key];
   if (!_envs) _envs = {};
 
@@ -822,6 +822,13 @@ export function outdoorEnvironment(renderer, mapId) {
     sky.addColorStop(0.5, '#3a2c50');
     sky.addColorStop(0.82, '#c06e40');
     sky.addColorStop(1, '#f0a85e');
+  } else if (key === 'cyber') {
+    // 赛博空间：紫黑夜空 + 一道洋红/青的霓虹地平线。楼体是金属，全靠这张图给反光上色
+    sky.addColorStop(0, '#0b0618');
+    sky.addColorStop(0.45, '#1d1038');
+    sky.addColorStop(0.78, '#5a2a7a');
+    sky.addColorStop(0.93, '#27e8ff');
+    sky.addColorStop(1, '#ff3ea5');
   } else {
     sky.addColorStop(0, '#2b6ab8');
     sky.addColorStop(0.45, '#8ecdf5');
@@ -847,6 +854,9 @@ export function outdoorEnvironment(renderer, mapId) {
   } else if (key === 'downtown') {
     ground.addColorStop(0, '#54485c');
     ground.addColorStop(1, '#221a30');
+  } else if (key === 'cyber') {
+    ground.addColorStop(0, '#0a1420');
+    ground.addColorStop(1, '#05070e');
   } else {
     ground.addColorStop(0, '#7ba24a');
     ground.addColorStop(1, '#3d5320');

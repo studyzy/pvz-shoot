@@ -476,7 +476,10 @@ export class Game {
     // 摩天街区黄昏整图曝光 +0.25 档（终验「菜单帧过暗」收敛）：材质/灯光提亮一轮后
     // 均色亮度仍低于其它图，曝光是把整帧抬到可比水平的最后一个全局常数；
     // 其它地图回落 1.0（shadowMap.enabled 同款按地图开关先例），幂等无副作用。
-    this.renderer.toneMappingExposure = map.id === 'downtown' ? 1.5 : 1.0;
+    // 赛博空间走地图自己声明的 map.exposure：霓虹很亮、场景很暗，需要单独一档。
+    this.renderer.toneMappingExposure = typeof map.exposure === 'number'
+      ? map.exposure
+      : map.id === 'downtown' ? 1.5 : 1.0;
     // 手电是挂相机的（全局存在），不会被 root.visible 关掉：activate 里点亮它、
     // 同时把其它地图的手电关掉。TECH-flashlight.md §4 的"按地图开关"就落在这里。
     for (let i = 0; i < this.maps.length; i++) {
@@ -1803,6 +1806,12 @@ export class Game {
     // ZombieManager 处于 remote 模式时，update() 只推进动画与插值，不做 AI 决策。
     // 单人：本地即权威，invokeNav + AI 正常跑。
     if (!this.duo && this.map.updateNav) this.map.updateNav(this.player, dt);
+    // 无限地图（赛博空间）：区块锚点一变，拾取点位跟着玩家搬家。
+    // 只重挂点位、不 restart 关卡 —— 否则每 24 米就多刷一把枪，经济直接崩。
+    if (this.map.spotsDirty && this.pickups) {
+      this.map.spotsDirty = false;
+      this.pickups.rebase(this.map);
+    }
     this.zombies.update(dt, this.player, this.map.colliders, this.netGuest ? [this.player, this.netGuest] : null);
     if (this.netGuest && this.netControls) {
       // 客人掉线/卡住时 input 会停；300ms 没新包就把移动与开火归零，别让代理一直往前走。

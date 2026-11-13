@@ -130,6 +130,18 @@ export const WEATHER_PRESETS = {
     opacity: 0.32,
     color: 0xe8d2a0,
   },
+  // 赛博空间：向上飘的青色数据尘。用 firefly 分支（加色 + 负速度 = 上升），
+  // 比「雨」更适合这张图：雨要拉长的 sprite，点精灵做不出来，硬做只会变成雪。
+  cyber: {
+    kind: 'firefly',
+    count: 520,
+    box: [26, 12, 26],
+    speed: -0.42,
+    drift: 2.4,
+    size: 20,
+    opacity: 0.55,
+    color: 0x27e8ff,
+  },
 };
 
 /**

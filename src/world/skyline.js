@@ -21,6 +21,9 @@ export const SKYLINE_PRESETS = {
   forest: { kind: 'trees', color: 0x11202f, color2: 0x182b3d, h: [16, 40], count: 80, radius: 165 },
   cloud: { kind: 'peaks', color: 0xdcc8b4, color2: 0xf2e0cc, h: [10, 34], count: 36, radius: 185 },
   downtown: { kind: 'towers', color: 0x2e2740, color2: 0x453a56, h: [40, 150], count: 56, radius: 205 },
+  // 赛博空间：远景剪影要淡得多（雾已经吃掉大半），只留一点更高更远的塔尖，
+  // 让 96 米外的雾后面还有「更远的城市」，而不是一堵纯色墙。
+  cyber: { kind: 'towers', color: 0x1d1430, color2: 0x2a1b45, h: [60, 190], count: 64, radius: 232 },
 };
 
 // 稳定的伪随机：同一张图每次进来轮廓都一样（用种子重建，不用 Math.random）

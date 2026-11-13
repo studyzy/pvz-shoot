@@ -4,6 +4,7 @@ import { DustYard } from './DustYard.js';
 import { NightForest } from './NightForest.js';
 import { CloudCarnival } from './CloudCarnival.js';
 import { Downtown } from './Downtown.js';
+import { CyberSpace } from './CyberSpace.js';
 
 export const MAPS = [
   {
@@ -66,6 +67,16 @@ export const MAPS = [
     desc: '黄昏 CBD 十字大道攻防：双塔楼峡、天桥高线与停车楼顶',
     startLabel: '进入摩天街区',
     create: (scene) => new Downtown(scene),
+  },
+  {
+    id: 'cyber',
+    mode: '无限扩展',
+    name: '无尽的赛博空间',
+    short: '赛博',
+    tag: 'CYBERSPACE',
+    desc: '没有边界的数据都市：楼群按坐标实时生长，走多远都不会到头',
+    startLabel: '接入无尽的赛博空间',
+    create: (scene) => new CyberSpace(scene),
   },
 ];
 

@@ -333,10 +333,10 @@ describe('0. 首屏素材下载', () => {
 });
 
 describe('1. 菜单与地图选择', () => {
-  it('开局渲染六张地图卡片，默认选中后院，startBtn 文案来自 startLabel', () => {
+  it('开局渲染全部地图卡片，默认选中后院，startBtn 文案来自 startLabel', () => {
     expect(game.state).toBe('menu');
     const cards = [...$('mapSelect').querySelectorAll('.map-card')];
-    expect(cards.map((c) => c.dataset.map)).toEqual(['backyard', 'snow', 'dust', 'forest', 'cloud', 'downtown']);
+    expect(cards.map((c) => c.dataset.map)).toEqual(['backyard', 'snow', 'dust', 'forest', 'cloud', 'downtown', 'cyber']);
     expect(cards[0].querySelector('.map-name').textContent).toBe('戴夫的后院');
     expect(cards[1].querySelector('.map-tag').textContent).toBe('FY_ICEWORLD');
     expect(cards[0].classList.contains('active')).toBe(true);

@@ -461,6 +461,23 @@ export class WeaponPickups {
     this.beginLevel();
   }
 
+  // 无限地图专用：点位跟着玩家搬家，但**不重开关卡**。
+  //
+  // 为什么不能复用 setMap：setMap 末尾调 beginLevel()，那会重置 spawnTimer 并立刻刷一个道具。
+  // 赛博空间每跨 24 米就换一次锚点 —— 直接调 setMap 等于每 24 米白送一把枪。
+  // 这里只做两件事：未使用的点位移到新位置，已使用的点（used=true）位置无所谓，
+  // 因为它们在 spawnRandom 里已经被过滤掉了。正在地上的道具（active）原位不动，
+  // 否则玩家会看到脚下那把枪凭空传送。
+  rebase(map) {
+    this.map = map;
+    const spots = (map && map.pickupSpots) || [];
+    for (let i = 0; i < this.items.length; i++) {
+      const item = this.items[i];
+      if (item.active || item.used || item.dropped) continue;
+      item.spot = i < spots.length ? spots[i] : null;
+    }
+  }
+
   // 一关开始：重置所有点位与刷新节拍。整关只在开局由它刷道具，过程中不再重置。
   beginLevel() {
     this.spawnTimer = rand(SPAWN_MIN, SPAWN_MAX);

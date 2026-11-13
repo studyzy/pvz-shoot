@@ -1115,6 +1115,13 @@ h2 {
 .map-card.map-forest .map-chip { background: rgba(126, 240, 180, .14); color: rgba(180, 255, 214, .88); }
 .map-card.map-forest.active .map-chip { background: rgba(126, 240, 180, .9); color: #06261a; }
 .map-card.map-cloud { --art-a: rgba(255, 236, 180, .8); --art-b: rgba(255, 255, 255, .55); --art-c: rgba(255, 206, 112, .98); border-color: rgba(255, 224, 168, .26); background: linear-gradient(180deg, rgba(44, 78, 116, .74), rgba(20, 34, 56, .86)); }
+.map-card.map-cyber { --art-a: rgba(39, 232, 255, .5); --art-b: rgba(26, 12, 48, .96); --art-c: rgba(255, 62, 165, .95); border-color: rgba(39, 232, 255, .30); background: linear-gradient(180deg, rgba(20, 10, 40, .86), rgba(6, 4, 16, .92)); }
+.map-card.map-cyber .map-tag { color: rgba(39, 232, 255, .88); letter-spacing: .12em; }
+.map-card.map-cyber .map-desc { color: rgba(206, 176, 255, .62); }
+.map-card.map-cyber.active { border-color: #27e8ff; background: linear-gradient(180deg, rgba(32, 16, 62, .9), rgba(10, 6, 24, .94)); box-shadow: 0 0 0 2px rgba(39, 232, 255, .22), 0 0 22px rgba(255, 62, 165, .35); }
+.map-card.map-cyber.active::after { background: #27e8ff; }
+.map-card.map-cyber .map-chip { background: rgba(255, 62, 165, .16); color: rgba(255, 176, 216, .9); }
+.map-card.map-cyber.active .map-chip { background: rgba(255, 62, 165, .92); color: #14061f; }
 .map-card.map-cloud .map-tag { color: rgba(255, 232, 186, .82); }
 .map-card.map-cloud.active { border-color: #ffd79a; background: linear-gradient(180deg, rgba(58, 100, 146, .84), rgba(28, 46, 74, .9)); box-shadow: 0 0 0 2px rgba(255, 215, 154, .2), 0 0 20px rgba(255, 215, 154, .3); }
 .map-card.map-cloud.active::after { background: #ffd79a; }

@@ -11,6 +11,7 @@ import { writeFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { JSDOM } from 'jsdom';
+import { CHUNK, VIEW_RADIUS, SOLID_RADIUS, chunkData } from '../src/world/cyberChunks.js';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -94,7 +95,45 @@ function extract(map) {
   return out;
 }
 
-const data = maps.map(extract);
+/**
+ * 无限地图（赛博空间）的取数：没有固定范围，不能按整图导出。
+ * 只导出**出生区块 + 周围一圈**的快照（玩家开局所在的那片），
+ * 并打上 infinite:true —— 服务端看到这个标记就自己按坐标生成，
+ * 而不是相信这份静态快照（见 src/sim/headlessMap.js）。
+ */
+function extractInfinite(map) {
+  const chunks = [];
+  for (let dz = -1; dz <= 1; dz++) {
+    for (let dx = -1; dx <= 1; dx++) {
+      const d = chunkData(dx, dz);
+      chunks.push({
+        cx: dx, cz: dz,
+        colliders: d.colliders.map((c) => ({ x: round(c.x), z: round(c.z), r: round(c.r) })),
+        platforms: d.platforms.map((p) => ({ x: round(p.x), z: round(p.z), w: round(p.w), d: round(p.d), h: round(p.h) })),
+        walls: d.walls.map((w) => ({ ...w })),
+      });
+    }
+  }
+  return {
+    id: map.id,
+    infinite: true,
+    chunk: CHUNK,
+    viewRadius: VIEW_RADIUS,
+    solidRadius: SOLID_RADIUS,
+    bounds: { x: map.bounds.x, z: map.bounds.z },
+    spawn: { x: round(map.spawn.x), z: round(map.spawn.z), yaw: round(map.spawn.yaw || 0) },
+    // 出生快照（仅供没有区块生成器的消费者兜底；有生成器时不用它）
+    colliders: chunks.flatMap((c) => c.colliders),
+    platforms: chunks.flatMap((c) => c.platforms),
+    walls: chunks.flatMap((c) => c.walls),
+    chunks,
+    pickupSpots: (map.pickupSpots || []).map((p) => ({ x: round(p[0] ?? p.x), z: round(p[1] ?? p.z) })),
+    zombieSpawnPoints: (map.zombieSpawnPoints || []).map((p) => ({ x: round(p[0]), z: round(p[1]) })),
+    nav: null,
+  };
+}
+
+const data = maps.map((m) => (m.infinite ? extractInfinite(m) : extract(m)));
 const outPath = resolve(ROOT, 'src/sim/mapdata.json');
 writeFileSync(outPath, JSON.stringify(data, null, 0));
 console.log('提取完成 ->', outPath);

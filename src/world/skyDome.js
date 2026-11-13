@@ -249,6 +249,24 @@ export const SKY_PRESETS = {
     cloudSpeed: 0.005,
     stars: 0.12,
   },
+  // 赛博空间：看不见的太阳（沉在地平线下方），只留一圈「城市光污染」的洋红地平线带。
+  // sunDir 写在 CyberSpace.js 里，y<0 → shader 的 sunUp=0，太阳盘与光晕自动消失，
+  // 但方位角上的 horizonTint / glow 还在，于是地平线读作「远处城市把云照亮了」。
+  cyber: {
+    zenith: [0x140b2a, 0x1d1038],
+    horizon: [0x5a2a7a, 0x7a2f6a],
+    horizonAway: [0x150d28, 0x0b0718],
+    sun: [0xff4fb0, 0x27e8ff],
+    sunSize: 9000,
+    sunGlow: 0.35,
+    cloudCover: 0.20,
+    cloudScale: 2.8,
+    cloudSpeed: 0.010,
+    stars: 0.5,
+    cloudBright: 0.13,
+    horizonTint: [1.55, 0.85, 1.75],
+    glow: [1.25, 0.28, 0.85],
+  },
 };
 
 // 白天（改动前）的地平线提亮与近距光晕常量：其它地图不写这两个字段时用它，

@@ -26,6 +26,9 @@ export const FOG_PRESETS = {
   forest: { color: 0x101e2d, baseDensity: 0.0165, falloff: 0.100, groundY: 0, heightMax: 22, fogMax: 130 },
   cloud: { color: 0xf6dfc5, baseDensity: 0.0032, falloff: 0.040, groundY: 0, heightMax: 40, fogMax: 280 },
   downtown: { color: 0x4a3c50, baseDensity: 0.0026, falloff: 0.045, groundY: 0, heightMax: 60, fogMax: 300 },
+  // 赛博空间：雾要浓到在 96 米吃掉可视圈边界（无限地图的关键，见 CyberSpace.js 文件头）。
+  // 0.028 在 40 米就是 67%、80 米 89%，配合场景自带的 Fog(20,96) 一起把边界藏掉。
+  cyber: { color: 0x120a20, baseDensity: 0.028, falloff: 0.012, groundY: 0, heightMax: 60, fogMax: 140 },
 };
 
 /**

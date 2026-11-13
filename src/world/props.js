@@ -86,6 +86,19 @@ export const PROPS_PRESETS = {
       newspaper: { count: 8, size: [0.5, 0.01, 0.35] },
     },
   },
+  // 赛博空间：地面的「数据残渣」。全部贴地、无碰撞，纯环境叙事。
+  // clearRadius 给小值：这张图的出生广场本来就被区块生成器清空了（HOME_CLEAR=11），
+  // 再叠一层大半径等于广场中央什么都不放，会显得空。
+  cyber: {
+    seed: 20261118,
+    clearRadius: 6,
+    kinds: {
+      newspaper: { count: 10, size: [0.5, 0.01, 0.35] },
+      cone: { count: 5, size: [0.32, 0.7] },
+      barrel: { count: 4, size: [0.45, 1.0] },
+      tire: { count: 4, size: [0.6, 0.24] },
+    },
+  },
 };
 
 // 单类道具的几何构造。返回 { geo, mat, y }：
