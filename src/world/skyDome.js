@@ -249,28 +249,25 @@ export const SKY_PRESETS = {
     cloudSpeed: 0.005,
     stars: 0.12,
   },
-  // 赛博空间：《创》的夜空 —— 几乎纯黑的天顶 + 一道极窄的青地平线。
-  //
-  // 上一版是「紫色夜空 + 洋红/青双色光污染」，那是赛博朋克。
-  // 网格世界的天空**什么都不该有**：没有云、没有星、没有彩霞，
-  // 只有地平线上一道细光，因为它只是「世界的边界被点亮了」。
-  //
-  // horizonTint 保证 1.0（不过曝）：唯一的亮源必须留给地平线本身，
-  // 否则整张图会往紫色漂回去。
+  // 赛博空间：赛博朋克夜空的**光污染**。
+  // 城市上方永远不会是纯黑的：地面几百万个光源把低空照成一层
+  // 紫红色的雾，天顶才稍微干净。这正是「绚丽」的来源之一：
+  // 天空本身是画面里最大的一块彩色区域。
+  // 关键词是「分层的色」：天顶深紫黑 → 中层紫 → 地平线洋红 → 贴着地平线一道青。
   cyber: {
-    zenith: [0x000000, 0x01040a],
-    horizon: [0x0a3d4d, 0x12657a],
-    horizonAway: [0x000000, 0x000306],
-    sun: [0x5bf0ff, 0x5bf0ff],
+    zenith: [0x0a0518, 0x140a28],
+    horizon: [0x7a2d6a, 0xb03a7a],
+    horizonAway: [0x140a24, 0x1a0c2c],
+    sun: [0xff4fb0, 0x2ee6ff],
     sunSize: 9000,
-    sunGlow: 0.18,
-    cloudCover: 0.0,
-    cloudScale: 2.8,
-    cloudSpeed: 0.010,
-    stars: 0.0,
-    cloudBright: 0.0,
-    horizonTint: [0.55, 0.95, 1.05],
-    glow: [0.30, 0.75, 0.95],
+    sunGlow: 0.55,
+    cloudCover: 0.26,
+    cloudScale: 2.2,
+    cloudSpeed: 0.014,
+    stars: 0.35,
+    cloudBright: 0.10,
+    horizonTint: [1.45, 0.95, 1.35],
+    glow: [1.15, 0.45, 0.85],
   },
 };
 

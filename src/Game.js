@@ -1962,7 +1962,13 @@ export class Game {
     this.fogPreset = fogPresetFor(id);
     // 高度雾交给后期合成（需要深度贴图）。?post=0 时后期关掉，雾也随之失效 ——
     // 这是有意的：回滚路径必须和改动前完全一致。
-    if (this.post) this.post.setFog(this.fogPreset);
+    if (this.post) {
+      this.post.setFog(this.fogPreset);
+      // Bloom 强度按地图给：赛博空间的「绚丽」几乎全靠泛光 ——
+      // 亮窗、霓虹描边、地面光斑都要溢出光晕才像夜景。
+      // 默认 0.06 是为白天场景调的量级，夜景需要 3 倍以上。
+      if (typeof map.bloom === 'number') this.post.setBloom(map.bloom);
+    }
   }
 
   // ---- M6：把姿态的 fov 修正叠到相机上 ----

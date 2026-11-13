@@ -23,7 +23,7 @@ export const SKYLINE_PRESETS = {
   downtown: { kind: 'towers', color: 0x2e2740, color2: 0x453a56, h: [40, 150], count: 56, radius: 205 },
   // 赛博空间：远景剪影要淡得多（雾已经吃掉大半），只留一点更高更远的塔尖，
   // 让 96 米外的雾后面还有「更远的城市」，而不是一堵纯色墙。
-  cyber: { kind: 'towers', color: 0x020609, color2: 0x04121a, h: [70, 210], count: 64, radius: 232 },
+  cyber: { kind: 'towers', color: 0x1a0d2e, color2: 0x2a1240, h: [70, 210], count: 72, radius: 232 },
 };
 
 // 稳定的伪随机：同一张图每次进来轮廓都一样（用种子重建，不用 Math.random）

@@ -16,6 +16,8 @@
 //
 // 这个文件同时被 src/world/CyberSpace.js（渲染）和 src/sim/headlessMap.js（服务端）使用。
 
+const TAU = Math.PI * 2;
+
 export const CHUNK = 24;
 // 区块本地坐标范围是 [-12, 12]
 export const HALF = CHUNK / 2;
@@ -90,20 +92,29 @@ function ringColliders(x, z, w, d, out) {
 
 // 霓虹色板：渲染层按 tone 取色，数据层只存索引，避免两边色值漂移。
 //
-// 《创》(TRON) 的用色规则：整个清单世界里只有**一种**主色（青色电光），
-// 外加一种警示色（橙）。彩色霓虹是「赛博朋克夜市」，不是「网格世界」。
-// 所以这里从 4 色收敛成 2 色，而且主色压倒性占多数 ——
-// 满屏乱色会让画面读起来像玩具，单一色相的明度层次才有「电子空间」的味道。
-// tone 字段保持 0..N 的索引语义，只是 N 从 4 变 2。
-export const NEON_TONES = [0x5bf0ff, 0xff7a2f];
+// 赛博朋克夜景的核心不是「一种色」，而是**冷暖对撞**：
+// 青（技术/数据）撞洋红（欲望/商业），中间夹一层紫做过渡，
+// 再留一个琥珀做「老旧白炽灯」的破败感。
+// 这四个色相放在一起才是《银翼杀手》/《攻壳》的夜市，
+// 单一色相只会读成「电子游戏的一关」。
+export const NEON_TONES = [
+  0x2ee6ff, // 青：主色，占大头
+  0xff2d95, // 洋红：次级主色
+  0xa855f7, // 紫：过渡
+  0xffb020, // 琥珀：破败的暖光
+];
 
-// 主色调与警示色的权重（0..1）：约 86% 的楼是青的，橙只做点缀。
-export const WARN_CHANCE = 0.14;
+// 配色权重（累加）。青 40% / 洋红 30% / 紫 20% / 琥珀 10%。
+// 青和洋红是「双主色」，紫是它们之间的混色，琥珀只做点缀 ——
+// 比例错了会立刻变成「彩虹」，所以这里写死成表而不是随手 rng。
+const TONE_CDF = [0.40, 0.70, 0.90, 1.0];
 
-// 按权重掷一次 tone。集中在这里而不是散在 5 处 Math.floor，
-// 以后调权重只改一个常数。
 function toneRoll(rng) {
-  return rng() < WARN_CHANCE ? 1 : 0;
+  const v = rng();
+  for (let i = 0; i < TONE_CDF.length; i++) {
+    if (v < TONE_CDF[i]) return i;
+  }
+  return 0;
 }
 
 function pickCells(rng, n) {
@@ -123,12 +134,26 @@ function pickCells(rng, n) {
 
 const ARCHETYPES = ['towers', 'bridge', 'arena', 'plaza'];
 
+// 街面杂物的尺寸谱：[基准宽, 宽随机, 基准高, 高随机, 基准深, 深随机]
+// 用「几组相似的东西」而不是完全随机的尺寸，因为真实街道上的物件
+// 是有规格的（垃圾桶都差不多大，路障都有标准高度）。
+// 全部是低矮体（0.4~3.2 米），远看是地面的碎块，近看是小物件。
+const CLUTTER_KINDS = [
+  [0.55, 0.25, 0.95, 0.35, 0.55, 0.25], // 垃圾桶
+  [1.6, 0.7, 0.85, 0.25, 0.22, 0.1],    // 路障栏
+  [0.16, 0.06, 2.6, 1.1, 0.16, 0.06],   // 霓虹灯管立柱
+  [1.1, 0.5, 0.5, 0.3, 0.8, 0.35],      // 变压箱
+  [2.4, 1.2, 0.18, 0.1, 0.9, 0.4],      // 倾倒的广告板
+  [0.35, 0.15, 1.3, 0.6, 0.35, 0.15],   // 消防栓/立柱
+  [3.0, 1.4, 0.22, 0.08, 0.22, 0.08],   // 地面管线
+];
+
 /**
  * 生成一个区块的内容。纯函数、可缓存、可在 Node 里跑。
  *
  * @param {number} cx
  * @param {number} cz
- * @returns {{cx:number,cz:number,arche:string,blocks:Array,pillars:Array,holo:Array,colliders:Array,platforms:Array,walls:Array}}
+ * @returns {{cx:number,cz:number,arche:string,blocks:Array,pillars:Array,holo:Array,props:Array,colliders:Array,platforms:Array,walls:Array}}
  */
 export function chunkData(cx, cz) {
   const rng = makeRng(hash2(cx, cz) || 1);
@@ -140,6 +165,7 @@ export function chunkData(cx, cz) {
   const blocks = [];
   const pillars = [];
   const holo = [];
+  const props = [];
 
   const pushBlock = (bx, bz, w, d, h, tone) => {
     if (home) {
@@ -152,13 +178,67 @@ export function chunkData(cx, cz) {
   if (arche === 'towers') {
     const n = 2 + Math.floor(rng() * 2);
     for (const [cellX, cellZ] of pickCells(rng, n)) {
-      const w = 4.5 + rng() * 2.5;
-      const d = 4.5 + rng() * 2.5;
-      const h = 7 + rng() * 8;
-      pushBlock(cellX + (rng() - 0.5) * 1.4, cellZ + (rng() - 0.5) * 1.4, w, d, h, toneRoll(rng));
+      // 尺寸谱：这是「赛博朋克」和「低模方块」的分水岭。
+      // 原来 4.5~7 米宽、7~15 米高 —— 只有 4~5 层，贴 6×8 的窗格图
+      // 只能露出半格，屏幕上就是一块白板。
+      // 真实的赛博朋克街区是**又窄又高**：楼宽 6~11 米（窄面），
+      // 高 22~62 米（7~19 层），高宽比 3~6，这样才有压迫感，
+      // 而且 62 米高的楼能铺下 2 张窗格贴图（每张 26.4 米），
+      // 窗格才真正读得出来。
+      const w = 6 + rng() * 5;
+      const d = 6 + rng() * 5;
+      const h = 22 + rng() * 40;
+      const bx = cellX + (rng() - 0.5) * 1.4;
+      const bz = cellZ + (rng() - 0.5) * 1.4;
+      pushBlock(bx, bz, w, d, h, toneRoll(rng));
+      // 屋顶设备：这是把「盒子」读成「楼」的关键。
+      // 一个纯立方体无论贴什么纹理都是盒子；真正的楼顶有
+      // 空调机组、水箱、电梯机房、天线 —— 它们打破顶部的直线，
+      // 让天际线有起伏，而且给 silhouettes 提供了辨识度。
+      // 高楼的屋顶还常常退台（setback），所以顶部再叠一个小一点的盒子。
+      const roofN = 1 + Math.floor(rng() * 3);
+      for (let ri = 0; ri < roofN; ri++) {
+        const rw = 1.0 + rng() * (w * 0.55);
+        const rd = 1.0 + rng() * (d * 0.55);
+        props.push({
+          x: ox + bx + (rng() - 0.5) * (w - rw),
+          y: h,
+          z: oz + bz + (rng() - 0.5) * (d - rd),
+          w: rw, h: 0.7 + rng() * 2.2, d: rd,
+          rot: 0,
+          tone: toneRoll(rng),
+        });
+      }
+      // 天线 / 尖塔：细高柱，只在较高的楼上出现
+      if (h > 12 && rng() < 0.45) {
+        props.push({
+          x: ox + bx, y: h, z: oz + bz,
+          w: 0.22, h: 3 + rng() * 6, d: 0.22,
+          rot: 0,
+          tone: toneRoll(rng),
+        });
+      }
+      // 楼侧的招牌是一栋楼「有内容」的关键：纯窗格的楼只是办公楼，
+      // 挂上竖排灯箱/巨大广告才像赛博朋克街区。
+      // 每栋高楼有 65% 概率带一块招牌，挂在朝向随机的一面。
+      if (h > 8 && rng() < 0.65) {
+        const side = rng() < 0.5 ? 1 : -1;
+        const along = rng() < 0.5;
+        const sx = along ? 0 : side * (w / 2 + 0.35);
+        const sz = along ? side * (d / 2 + 0.35) : 0;
+        holo.push({
+          x: ox + cellX + sx,
+          y: 4 + rng() * (h * 0.75),
+          z: oz + cellZ + sz,
+          w: Math.min(3.2, w * 0.7),
+          h: 1.6 + rng() * 2.4,
+          tone: toneRoll(rng),
+        });
+      }
     }
     // 楼间一根光柱（纯装饰，不挡人）
-    pillars.push({ x: ox + (rng() - 0.5) * 16, z: oz + (rng() - 0.5) * 16, h: 26 + rng() * 12, tone: toneRoll(rng) });
+    pillars.push({ x: ox + (rng() - 0.5) * 16, z: oz + (rng() - 0.5) * 16, h: 60 + rng() * 40, tone: toneRoll(rng) });
+
   } else if (arche === 'bridge') {
     // 一条横跨的高架：玩家可以从下面走过去，也能跳上两侧的矮台绕行
     const along = rng() > 0.5;
@@ -186,6 +266,26 @@ export function chunkData(cx, cz) {
     if (!home) holo.push({ x: ox + (rng() - 0.5) * 12, y: 2.8, z: oz + (rng() - 0.5) * 12, w: 3 + rng() * 2, h: 1.8, tone: toneRoll(rng) });
   }
 
+    // 街面杂物：赛博朋克街区的「脏」和「密」全靠这些。
+    // 只有楼 + 光 + 反光仍然像展厅；真实街区有垃圾桶、路障、
+    // 霓虹管、变压箱、歪倒的广告牌。它们体量小，所以不挡路（纯装饰，
+    // 不加碰撞），但视觉上把地面的空白填满了。
+    // 每个区块 5~9 件，散在楼与楼之间的缝隙里。
+    const clutter = 8 + Math.floor(rng() * 6);
+    for (let ci = 0; ci < clutter; ci++) {
+      const kind = CLUTTER_KINDS[Math.floor(rng() * CLUTTER_KINDS.length)];
+      const cw = kind[0] + rng() * kind[1];
+      const ch = kind[2] + rng() * kind[3];
+      const cd = kind[4] + rng() * kind[5];
+      props.push({
+        x: ox + (rng() - 0.5) * (CHUNK - 3),
+        y: 0,
+        z: oz + (rng() - 0.5) * (CHUNK - 3),
+        w: cw, h: ch, d: cd,
+        rot: rng() * TAU,
+        tone: toneRoll(rng),
+      });
+    }
   const colliders = [];
   const platforms = [];
   const walls = [];
@@ -199,7 +299,7 @@ export function chunkData(cx, cz) {
     walls.push({ x: p.x, z: p.z, r: 0.55, h: p.h });
   }
 
-  return { cx, cz, arche, blocks, pillars, holo, colliders, platforms, walls };
+  return { cx, cz, arche, blocks, pillars, holo, props, colliders, platforms, walls };
 }
 
 // 缓存：同一块地反复取（碰撞圈每帧问、视觉圈生成时再问一次）。

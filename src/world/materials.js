@@ -823,15 +823,16 @@ export function outdoorEnvironment(renderer, mapId) {
     sky.addColorStop(0.82, '#c06e40');
     sky.addColorStop(1, '#f0a85e');
   } else if (key === 'cyber') {
-    // 赛博空间（《创》）：纯黑环境 + 地平线一道青。
-    // 楼体已经改成不受光的 MeshBasicMaterial 纯黑，这张 envMap 现在只影响
-    // 玩家/僵尸那些 Standard 材质 —— 所以它必须也是黑的，
-    // 否则角色会带上城市的紫调，跟黑剪影世界脱开。
-    sky.addColorStop(0, '#000000');
-    sky.addColorStop(0.55, '#01070c');
-    sky.addColorStop(0.88, '#0a3d4d');
-    sky.addColorStop(0.97, '#5bf0ff');
-    sky.addColorStop(1, '#0a3d4d');
+    // 赛博空间：赛博朋克夜空的光污染。
+    // 这张 envMap 现在同时服务三处：玻璃幕墙的反射、湿沥青地面的倒影、
+    // 玩家/僵尸的 PBR 材质。所以它必须是**完整的城市光色**，
+    // 而不是一片黑 —— 地面和幕墙的「绚丽」全部来自这张图的反射。
+    sky.addColorStop(0, '#0a0518');
+    sky.addColorStop(0.42, '#2a1440');
+    sky.addColorStop(0.72, '#7a2d6a');
+    sky.addColorStop(0.9, '#b03a7a');
+    sky.addColorStop(0.97, '#2ee6ff');
+    sky.addColorStop(1, '#7a2d6a');
   } else {
     sky.addColorStop(0, '#2b6ab8');
     sky.addColorStop(0.45, '#8ecdf5');
@@ -858,9 +859,9 @@ export function outdoorEnvironment(renderer, mapId) {
     ground.addColorStop(0, '#54485c');
     ground.addColorStop(1, '#221a30');
   } else if (key === 'cyber') {
-    // 地面反射同样是黑：网格世界的表面不反射任何东西
-    ground.addColorStop(0, '#01060a');
-    ground.addColorStop(1, '#000000');
+    // 地面反射：湿沥青映着上方的霓虹，所以是深紫蓝而不是黑
+    ground.addColorStop(0, '#140a24');
+    ground.addColorStop(1, '#05030c');
   } else {
     ground.addColorStop(0, '#7ba24a');
     ground.addColorStop(1, '#3d5320');

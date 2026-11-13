@@ -87,7 +87,7 @@ describe('cyberChunks · 区块生成是纯函数', () => {
       for (let cz = -4; cz <= 4; cz++) {
         for (const b of CC.chunkData(cx, cz).blocks) {
           expect(b.h, `chunk ${cx},${cz} block h=${b.h}`).toBeGreaterThan(0.5);
-          expect(b.h).toBeLessThan(16);
+          expect(b.h).toBeLessThan(70);
         }
       }
     }

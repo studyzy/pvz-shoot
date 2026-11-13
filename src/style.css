@@ -1674,14 +1674,23 @@ body.touch .next-wave { top: calc(56px + var(--safe-t)); }
    所有选择器都挂在 body[data-map="cyber"] 下，退出赛博空间立刻恢复原风格。
    ========================================================================== */
 
+/* 三色霓虹体系：青（数据/科技）/ 洋红（商业/欲望）/ 琥珀（老旧暖光）。
+   单一色相读起来像「电子游戏的一关」；三色对撞才是赛博朋克夜市。
+   分工固定：青是主信息色（血条/数字/边框），
+   洋红是强调色（选中态/新消息/危险提示），琥珀只做暖点缀。 */
 body[data-map="cyber"] {
-  --cy: #5bf0ff;
-  --cy-dim: rgba(91, 240, 255, .55);
-  --cy-line: rgba(91, 240, 255, .34);
-  --cy-fill: rgba(6, 22, 28, .72);
-  --cy-glow: 0 0 10px rgba(91, 240, 255, .45), 0 0 2px rgba(91, 240, 255, .9);
-  --warn: #ff7a2f;
-  background: #000;
+  --cy: #2ee6ff;
+  --cy-dim: rgba(46, 230, 255, .55);
+  --cy-line: rgba(46, 230, 255, .38);
+  --cy-fill: rgba(10, 18, 34, .74);
+  --cy-glow: 0 0 12px rgba(46, 230, 255, .5), 0 0 3px rgba(46, 230, 255, .9);
+  --mg: #ff2d95;
+  --mg-dim: rgba(255, 45, 149, .55);
+  --mg-line: rgba(255, 45, 149, .40);
+  --mg-glow: 0 0 14px rgba(255, 45, 149, .55), 0 0 3px rgba(255, 45, 149, .9);
+  --am: #ffb020;
+  --warn: #ff2d95;
+  background: #08040f;
 }
 
 /* 切角：用 clip-path 削掉左上和右下两个角，模拟数据终端的斜切面板 */
@@ -2061,3 +2070,142 @@ body[data-map="cyber"] .peer-icon {
 /* 波次横幅里的橙色光点（敌人受击环）与远景剪影的紫色：
    剪影色在 skyline.js 的 SKYLINE_PRESETS.cyber 里，这里不用管；
    但地面上的橙色光环是敌人标记，保留 —— 它是「敌意」的语义色。 */
+
+/* ---- 赛博朋克 UI 的第二层：渐变、内发光、双色描边 ----
+   上面那批规则解决了「形态」（切角、无毛玻璃），但形态对还不够 ——
+   面板全是一个色的平底，读起来像线框原型图。
+   这一层补的是「材质」：
+     · 面板底改成从左上到右下的暗紫渐变（不是单一 rgba）
+     · 边框用双色：外圈洋红、内圈青（模拟霓虹灯管的双层辉光）
+     · 顶部一条 1px 的高光，让它看起来是块有厚度的玻璃而不是贴纸
+   这些细节单看都很小，叠起来才是「做过的 UI」和「没做过的 UI」的差别。 */
+
+body[data-map="cyber"] .chip,
+body[data-map="cyber"] .wave-chip,
+body[data-map="cyber"] .sun-pill,
+body[data-map="cyber"] .icon-btn,
+body[data-map="cyber"] .slot-btn,
+body[data-map="cyber"] .weapon-btn,
+body[data-map="cyber"] .quality-opt,
+body[data-map="cyber"] .tutorial,
+body[data-map="cyber"] .ammo-chip {
+  background:
+    linear-gradient(160deg, rgba(38, 16, 58, .88) 0%, rgba(10, 14, 32, .92) 55%, rgba(6, 10, 22, .94) 100%);
+  border-color: var(--cy-line);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, .10),
+    inset 0 0 18px rgba(46, 230, 255, .07),
+    0 0 12px rgba(255, 45, 149, .10);
+}
+
+/* 血条：外壳双色描边，内条是青→洋红的渐变（不是单一青） */
+body[data-map="cyber"] .hp-bar,
+body[data-map="cyber"] .shield-bar,
+body[data-map="cyber"] .peer-bar {
+  background: linear-gradient(180deg, rgba(18, 8, 28, .95), rgba(6, 8, 18, .95));
+  border-color: var(--mg-line);
+  box-shadow:
+    inset 0 0 14px rgba(255, 45, 149, .14),
+    0 0 10px rgba(46, 230, 255, .12);
+}
+body[data-map="cyber"] #hpFill {
+  background: linear-gradient(90deg, #2ee6ff 0%, #7ce8ff 55%, #eaffff 100%);
+  box-shadow: 0 0 14px rgba(46, 230, 255, .85), inset 0 1px 0 rgba(255, 255, 255, .5);
+}
+/* 掉血：转洋红（这张图的警示色），不是橙 */
+body[data-map="cyber"] .hp-row.low #hpFill {
+  background: linear-gradient(90deg, #a0175c, #ff2d95 60%, #ffd6ea);
+  box-shadow: 0 0 16px rgba(255, 45, 149, .9), inset 0 1px 0 rgba(255, 255, 255, .45);
+}
+body[data-map="cyber"] #shieldFill {
+  background: repeating-linear-gradient(115deg, #2ee6ff 0 10px, rgba(46, 230, 255, .25) 10px 20px);
+  box-shadow: 0 0 12px rgba(46, 230, 255, .6);
+}
+
+/* 波次牌：洋红描边 + 青字，双色对撞最明显的一块 */
+body[data-map="cyber"] .wave-chip {
+  color: #eaffff;
+  border-color: var(--mg-dim);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, .12),
+    0 0 20px rgba(255, 45, 149, .32),
+    0 0 40px rgba(46, 230, 255, .14);
+  text-shadow: 0 0 10px rgba(46, 230, 255, .85);
+}
+
+/* 阳光计数：琥珀色 —— 它是「资源」，用暖色和青色的「状态」区分开。
+   这也顺手解决了之前整屏没暖色、画面发冷的问题。 */
+body[data-map="cyber"] .sun-pill {
+  border-color: rgba(255, 176, 32, .55);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, .12),
+    0 0 18px rgba(255, 176, 32, .28);
+}
+body[data-map="cyber"] .sun-pill b {
+  color: var(--am);
+  text-shadow: 0 0 12px rgba(255, 176, 32, .9), 0 0 3px rgba(255, 200, 90, 1);
+}
+body[data-map="cyber"] .sun-pill svg { filter: none; }
+
+/* 选中态：洋红填充 + 青描边（双色反向，和未选中拉开层次） */
+body[data-map="cyber"] .slot-btn.active {
+  border-color: var(--mg);
+  background: linear-gradient(160deg, rgba(86, 10, 48, .95), rgba(28, 8, 30, .95));
+  box-shadow:
+    0 0 0 1px rgba(46, 230, 255, .5),
+    0 0 24px rgba(255, 45, 149, .5),
+    inset 0 0 20px rgba(255, 45, 149, .18);
+}
+
+/* 主按钮：整屏的视觉落点。洋红底 + 青字 + 双层外发光 */
+body[data-map="cyber"] #startBtn {
+  background: linear-gradient(160deg, rgba(74, 8, 44, .96), rgba(20, 6, 26, .96));
+  border-color: var(--cy);
+  color: #eaffff;
+  text-shadow: 0 0 12px rgba(46, 230, 255, .95);
+  box-shadow:
+    0 0 0 1px rgba(255, 45, 149, .45),
+    0 0 30px rgba(255, 45, 149, .40),
+    0 0 60px rgba(46, 230, 255, .18),
+    inset 0 1px 0 rgba(255, 255, 255, .14);
+}
+body[data-map="cyber"] .big-btn {
+  background: linear-gradient(160deg, rgba(60, 8, 38, .95), rgba(16, 6, 24, .95));
+  border-color: var(--cy);
+  color: #eaffff;
+  box-shadow:
+    0 0 0 1px rgba(255, 45, 149, .35),
+    0 0 24px rgba(255, 45, 149, .32),
+    inset 0 1px 0 rgba(255, 255, 255, .12);
+}
+
+/* 标题：双色发光 —— 文字本身青，外发光洋红，这是霓虹灯管的真实观感
+   （灯管中心是白热的，周围才是彩色光晕） */
+body[data-map="cyber"] .menu-head h1 {
+  color: #f2ffff;
+  text-shadow:
+    0 0 14px rgba(46, 230, 255, .95),
+    0 0 34px rgba(46, 230, 255, .55),
+    0 0 66px rgba(255, 45, 149, .50);
+}
+
+/* 地图卡片选中态同步双色 */
+body[data-map="cyber"] .map-card.map-cyber.active {
+  border-color: var(--cy);
+  box-shadow:
+    0 0 0 1px rgba(255, 45, 149, .45),
+    0 0 30px rgba(255, 45, 149, .35),
+    0 0 60px rgba(46, 230, 255, .18);
+}
+
+/* 结算数字：洋红，让结果页有情绪 */
+body[data-map="cyber"] .stats span {
+  color: #ffe6f4;
+  text-shadow: 0 0 16px rgba(255, 45, 149, .75), 0 0 34px rgba(255, 45, 149, .35);
+}
+
+/* 准星锁定：洋红（和全局警示色统一） */
+body[data-map="cyber"] #crosshair.lock .ch {
+  background: var(--mg);
+  box-shadow: 0 0 8px rgba(255, 45, 149, .95), 0 0 0 1px rgba(0, 0, 0, .6);
+}
