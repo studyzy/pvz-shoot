@@ -39,7 +39,7 @@ const HOLO_CAP = 192;
 
 const FOG_NEAR = 20;
 const FOG_FAR = 96;
-const FOG_COLOR = 0x120a20;
+const FOG_COLOR = 0x02060a;
 
 const tmpMat = new THREE.Matrix4();
 const tmpPos = new THREE.Vector3();
@@ -50,7 +50,11 @@ const tmpAxis = new THREE.Vector3(0, 1, 0);
 
 // 楼体描边：12 条细棱拼成一个 1×1×1 的线框盒，整体缩放成任意尺寸。
 // 合成一份几何 → 一个 InstancedMesh 画完全城的霓虹边框。
-function wireBoxGeo(t = 0.035) {
+//
+// 《创》的轮廓光必须**看得出粗细**：0.035 在远处只有不到一个像素，
+// 加上 bloom 之后会糊成一层雾而不是一条线。0.055 让 24 米外的楼
+// 也能稳定占到 1.5~2 像素，泛光才有「灯管」的实体感。
+function wireBoxGeo(t = 0.055) {
   const parts = [];
   for (const y of [-0.5, 0.5]) {
     for (const z of [-0.5, 0.5]) {
@@ -111,8 +115,12 @@ function mergePosition(list) {
   return out;
 }
 
-// 全息广告贴图：暗底 + 霓虹「字块」+ 扫描线。加色混合下只留亮的部分。
-// 用固定种子：同一张图每次进来招牌图案一样（不能每次刷新都换）。
+// 全息数据板：暗底 + 一排排横向「数据条」+ 边框 + 扫描线。
+//
+// 上一版画的是「文字块」（模拟广告牌上的字），那是赛博朋克街景的语汇。
+// 《创》里的屏幕显示的是**结构化数据**：等宽的横条、网格、骨架线，
+// 不需要看起来像任何语言 —— 它只是「一排排正在流过的信息」。
+// 所以这里改成横条 + 竖刻度 + 边框，没有「字」的形状。
 function holoTexture() {
   if (holoTexture.tex) return holoTexture.tex;
   const w = 128;
@@ -131,18 +139,20 @@ function holoTexture() {
     return s / 4294967296;
   };
   ctx.fillStyle = '#ffffff';
-  for (let row = 0; row < 4; row++) {
-    let x = 8;
-    const y = 10 + row * 20;
-    while (x < w - 12) {
-      const bw = 3 + Math.round(rnd() * 7);
-      if (rnd() > 0.28) ctx.fillRect(x, y, bw, 11);
-      x += bw + 4;
-    }
+  // 数据条：长度参差，但都从左边对齐 —— 像一列正在刷新的读数
+  for (let row = 0; row < 12; row++) {
+    const y = 8 + row * 7;
+    const len = 20 + rnd() * 78;
+    ctx.fillRect(10, y, len, 2.5);
   }
-  ctx.fillStyle = 'rgba(0,0,0,0.45)';
+  // 右侧竖刻度：给数据板一个「仪表」的骨架
+  ctx.fillRect(w - 14, 10, 1.5, h - 24);
+  for (let i = 0; i < 8; i++) ctx.fillRect(w - 18, 12 + i * 9, 5, 1.5);
+  // 扫描线
+  ctx.fillStyle = 'rgba(0,0,0,0.5)';
   for (let y = 0; y < h; y += 3) ctx.fillRect(0, y, w, 1);
-  ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+  // 外框
+  ctx.strokeStyle = 'rgba(255,255,255,0.75)';
   ctx.lineWidth = 2;
   ctx.strokeRect(1, 1, w - 2, h - 2);
   const tex = new THREE.CanvasTexture(c);
@@ -151,41 +161,27 @@ function holoTexture() {
   return tex;
 }
 
-// 霓虹地砖：深蓝紫底 + 噪点 + 青色网格 + 一条洋红分格线。
+// 《创》的地面网格：纯黑底 + 一根极细的青线 + 更暗的次级分格线。
+// 跟上一版（噪点地砖 + 洋红跳格线）的关键区别：
+//   · 不要噪点。噪点是「脏」，网格世界的表面必须是干净的
+//   · 主格线要细、要亮、要锐（1px 实线 + 一层很淡的辉光），不能是 3px 糊条
+//   · 次级线只到主线的 1/4 亮度，用来给速度感，不能和主线抢
 function gridTexture() {
   if (gridTexture.tex) return gridTexture.tex;
-  const s = 256;
+  const s = 512;
   const c = document.createElement('canvas');
   c.width = s;
   c.height = s;
   const ctx = c.getContext('2d');
-  // 固定种子噪点：贴图是模块级缓存，但要可复现（截图对比 / 视觉回归）
-  let r = 0x1a2b3c4d;
-  const rnd = () => {
-    r ^= r << 13; r >>>= 0;
-    r ^= r >>> 17;
-    r ^= r << 5; r >>>= 0;
-    return r / 4294967296;
-  };
-  ctx.fillStyle = '#070b16';
+  ctx.fillStyle = '#000000';
   ctx.fillRect(0, 0, s, s);
-  for (let i = 0; i < 2600; i++) {
-    const v = 18 + Math.floor(rnd() * 26);
-    ctx.fillStyle = 'rgb(' + Math.floor(v * 0.6) + ',' + Math.floor(v * 0.85) + ',' + (v + 12) + ')';
-    ctx.fillRect(rnd() * s, rnd() * s, 2, 2);
-  }
-  ctx.strokeStyle = 'rgba(39,232,255,0.55)';
-  ctx.lineWidth = 3;
-  ctx.beginPath();
-  ctx.moveTo(0.5, 0);
-  ctx.lineTo(0.5, s);
-  ctx.moveTo(0, 0.5);
-  ctx.lineTo(s, 0.5);
-  ctx.stroke();
-  ctx.strokeStyle = 'rgba(39,232,255,0.12)';
+
+  // 次级分格：每格再切 4 份，只画很淡的线。
+  // 这条线不参与 emissiveIntensity 的主亮，纯靠贴图自身的亮度区分层次。
+  ctx.strokeStyle = 'rgba(40,150,180,0.28)';
   ctx.lineWidth = 1;
   for (let i = 1; i < 4; i++) {
-    const p = (s / 4) * i;
+    const p = (s / 4) * i + 0.5;
     ctx.beginPath();
     ctx.moveTo(p, 0);
     ctx.lineTo(p, s);
@@ -193,13 +189,27 @@ function gridTexture() {
     ctx.lineTo(s, p);
     ctx.stroke();
   }
-  // 不是每格都有洋红：跳着放才有「接口松动」的赛博感
-  ctx.strokeStyle = 'rgba(255,62,165,0.30)';
+
+  // 主格线：一条 2px 的亮青线，外面套一层宽度更大的低透明度辉光。
+  // 辉光用两遍画（宽淡 + 窄亮），比 shadowBlur 快且不吃边缘。
+  ctx.strokeStyle = 'rgba(91,240,255,0.16)';
+  ctx.lineWidth = 7;
+  ctx.beginPath();
+  ctx.moveTo(0.5, 0);
+  ctx.lineTo(0.5, s);
+  ctx.moveTo(0, 0.5);
+  ctx.lineTo(s, 0.5);
+  ctx.stroke();
+
+  ctx.strokeStyle = 'rgba(150,250,255,0.95)';
   ctx.lineWidth = 2;
   ctx.beginPath();
-  ctx.moveTo(0, s * 0.75);
-  ctx.lineTo(s, s * 0.75);
+  ctx.moveTo(1, 0);
+  ctx.lineTo(1, s);
+  ctx.moveTo(0, 1);
+  ctx.lineTo(s, 1);
   ctx.stroke();
+
   const tex = new THREE.CanvasTexture(c);
   tex.wrapS = THREE.RepeatWrapping;
   tex.wrapT = THREE.RepeatWrapping;
@@ -360,12 +370,17 @@ export class CyberSpace {
   }
 
   buildLights() {
-    // 天光：上方冷青、下方洋红反射。赛博朋克的环境光永远是「两盏互相打架的灯」。
-    const hemi = new THREE.HemisphereLight(0x4f8cff, 0x601a52, 1.15);
+    // 《创》的光照原则：**几乎不给环境光**。
+    // 现实世界靠漫反射，网格世界靠「物体自己发光 + 黑场衬托」。
+    // 一旦把 hemisphere 开到 1.15，楼体的每个面都被均匀照亮，
+    // 立刻变成「黑暗里的纸盒子」—— 那是赛博朋克夜市，不是 TRON。
+    // 所以环境光压到 0.28：只够看出楼是立体的，不足以把楼体照亮。
+    const hemi = new THREE.HemisphereLight(0x2a7fa8, 0x04121a, 0.28);
     this.root.add(hemi);
 
-    // 主光：高空斜切的冷白，给楼体切出硬边。
-    const sun = new THREE.DirectionalLight(0xbfe6ff, 1.55);
+    // 主光：不做造型，只给一点点方向感让楼体的「暗面更暗」，
+    // 真正的轮廓全靠霓虹描边自己亮。强度低、颜色带青。
+    const sun = new THREE.DirectionalLight(0x8fd8ff, 0.5);
     sun.position.set(18, 40, 12);
     sun.target.position.set(0, 0, 0);
     sun.castShadow = true;
@@ -375,25 +390,23 @@ export class CyberSpace {
     this.root.add(sun);
     this.root.add(sun.target);
     this.sunLight = sun;
-
-    // 补光：洋红从偏低的角度舔背光面，让楼不糊成一团黑。
-    const fill = new THREE.DirectionalLight(0xff4fb0, 0.75);
-    fill.position.set(-26, 8, -20);
-    this.root.add(fill);
   }
 
   buildGround() {
     const tex = gridTexture();
     tex.repeat.set(GROUND_SIZE / GROUND_TILE, GROUND_SIZE / GROUND_TILE);
     this.groundTex = tex;
+    // 《创》的地面：不是「有纹理的深色地砖」，而是**纯黑平面 + 发光线**。
+    // 所以贴图只提供网格线（map 压暗、emissiveMap 提亮），
+    // 底色走纯黑，roughness 拉满让地面完全不反光 —— 反光会把它拉回现实质感。
     this.groundMat = new THREE.MeshStandardMaterial({
       map: tex,
-      color: 0xffffff,
-      roughness: 0.55,
-      metalness: 0.35,
-      // 自发光让网格线在暗处自己亮，不必依赖灯（路灯是没有的）
-      emissive: 0x0a2a3a,
-      emissiveIntensity: 1,
+      color: 0x05080c,
+      roughness: 0.92,
+      metalness: 0.0,
+      emissive: 0xffffff,
+      emissiveMap: tex,
+      emissiveIntensity: 0.55,
     });
     const ground = new THREE.Mesh(new THREE.PlaneGeometry(GROUND_SIZE, GROUND_SIZE), this.groundMat);
     ground.rotation.x = -Math.PI / 2;
@@ -401,30 +414,49 @@ export class CyberSpace {
     this.root.add(ground);
     this.ground = ground;
 
-    // 地面光带：贴地的极淡青色加色平面，缓慢扫过时像数据总线的光。
+    // 地面光带：《创》里最识别的一个动作 —— 一道亮线贴着地面扫过去，
+// 像系统的自检在刷过这个平面。上一版是「很淡的青色加色块」（opacity .055），
+// 几乎看不见；现在做成一道真正的亮线（0.5m 芯 + 两侧衰减），
+// 并且不止一条：三条不同速度/相位的平行光带，才有「数据在流动」的层次。
     this.sheenMat = new THREE.MeshBasicMaterial({
-      color: 0x27e8ff,
+      color: 0x5bf0ff,
       transparent: true,
-      opacity: 0.055,
+      opacity: 0.9,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
+      toneMapped: false,
     });
-    const sheen = new THREE.Mesh(new THREE.PlaneGeometry(GROUND_SIZE, 26), this.sheenMat);
-    sheen.rotation.x = -Math.PI / 2;
-    sheen.position.y = 0.02;
+    const sheen = new THREE.Group();
+    const bandWidths = [0.5, 0.16, 0.16];
+    const bandOffsets = [0, -2.2, 2.2];
+    this.sheenBands = [];
+    for (let i = 0; i < bandWidths.length; i++) {
+      const g = new THREE.PlaneGeometry(GROUND_SIZE, bandWidths[i]);
+      g.rotateX(-Math.PI / 2);
+      const m = new THREE.Mesh(g, this.sheenMat.clone());
+      m.material.opacity = i === 0 ? 0.85 : 0.30;
+      m.position.set(0, i * 0.002, bandOffsets[i]);
+      m.renderOrder = 3;
+      sheen.add(m);
+      this.sheenBands.push(m);
+    }
     this.root.add(sheen);
     this.sheen = sheen;
   }
 
   buildCity() {
-    // 楼体：单位立方体 + 实例矩阵缩放。深色 PBR 基底靠 instanceColor 染暗调霓虹。
-    this.blockMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.34, metalness: 0.62 });
+    // 楼体：《创》里建筑是**吸收光**的黑体量，不反射、不发光，
+    // 唯一的视觉信息来自边缘那一圈光。所以用 MeshBasicMaterial 纯黑 +
+    // 不受光，而不是 Standard —— 受光材质再暗也会有明暗过渡，
+    // 一有过渡就变成「打了光的箱子」，黑剪影感立刻消失。
+    // 不用 Standard 还顺带省掉了这块的灯光计算。
+    this.blockMat = new THREE.MeshBasicMaterial({ color: 0x03060a });
     const blockGeo = new THREE.BoxGeometry(1, 1, 1);
     blockGeo.translate(0, 0.5, 0); // 原点移到箱底，按「高」缩放即可落地
     this.blocks = new THREE.InstancedMesh(blockGeo, this.blockMat, BLOCK_CAP);
     this.blocks.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-    this.blocks.castShadow = true;
-    this.blocks.receiveShadow = true;
+    this.blocks.castShadow = false;
+    this.blocks.receiveShadow = false;
     this.blocks.count = 0;
     this.blocks.frustumCulled = false;
     this.root.add(this.blocks);
@@ -445,14 +477,42 @@ export class CyberSpace {
     this.root.add(this.edges);
 
     // 光柱：地面直上三十米的加色圆柱，远景里的方向锚点。
-    const pillarGeo = new THREE.CylinderGeometry(0.5, 0.5, 1, 8, 1, true);
+    const pillarGeo = new THREE.CylinderGeometry(0.5, 0.5, 1, 10, 1, true);
     pillarGeo.translate(0, 0.5, 0);
-    this.pillarMat = new THREE.MeshBasicMaterial({
-      color: 0xffffff,
+    // 光柱必须**往上衰减**。
+    // 上一版用 MeshBasicMaterial 加色：柱体从上到下一样亮，一路顶到屏幕外，
+    // 读起来像一根插在场景里的白棒子，而不是光。
+    // 真实的光柱（《创》里的发射井/信标）是「根亮、梢散」，所以这里用 shader
+    // 按局部 y（0=地面, 1=柱顶）做二次衰减，并把加色强度再乘一层。
+    this.pillarMat = new THREE.ShaderMaterial({
+      uniforms: {
+        uOpacity: { value: 0.5 },
+      },
+      vertexShader: `
+        attribute mat4 instanceMatrix;
+        attribute vec3 instanceColor;
+        varying float vY;
+        varying vec3 vColor;
+        void main() {
+          vY = position.y; // translate 之后 0..1
+          vColor = instanceColor;
+          gl_Position = projectionMatrix * modelViewMatrix * instanceMatrix * vec4(position, 1.0);
+        }
+      `,
+      fragmentShader: `
+        uniform float uOpacity;
+        varying float vY;
+        varying vec3 vColor;
+        void main() {
+          // 二次衰减：底部 1.0，柱顶 0.06。留一点底噪，别让它彻底消失。
+          float fade = 1.0 - vY;
+          fade = fade * fade * 0.94 + 0.06;
+          gl_FragColor = vec4(vColor * fade, fade * uOpacity);
+        }
+      `,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
       transparent: true,
-      opacity: 0.5,
       side: THREE.DoubleSide,
       toneMapped: false,
     });
@@ -506,8 +566,8 @@ export class CyberSpace {
         tmpScale.set(b.w, b.h, b.d);
         tmpMat.compose(tmpPos, tmpQuat, tmpScale);
         this.blocks.setMatrixAt(bi, tmpMat);
-        // 楼体本身是暗的：霓虹压到 18%，只有描边走全强度
-        tmpColor.setHex(tone).multiplyScalar(0.18);
+        // 楼体固定纯黑（实例色也只留极小的色差，避免完全融成一片死黑）
+        tmpColor.setHex(0x05090e);
         this.blocks.setColorAt(bi, tmpColor);
         bi++;
 
@@ -569,6 +629,7 @@ export class CyberSpace {
     const cx = this.anchorX;
     const cz = this.anchorZ;
     this.ground.position.set(cx, 0, cz);
+    // 光带组跟着锚点走；各条带子的 z 偏移在 update 里单独动画
     this.sheen.position.set(cx, 0.02, cz);
     const tile = GROUND_TILE;
     // repeat = 40 → 纹理 0..1 覆盖 8 米，所以 offset 用 anchor/8 的小数部分
@@ -637,16 +698,23 @@ export class CyberSpace {
 
   update(dt) {
     this.time += dt;
-    // 霓虹呼吸：只动材质标量，不碰实例缓冲。
-    const pulse = 0.86 + Math.sin(this.time * 1.9) * 0.14;
-    this.edgeMat.opacity = 0.72 + pulse * 0.26;
-    this.pillarMat.opacity = 0.34 + pulse * 0.22;
-    this.holoMat.opacity = 0.62 + Math.sin(this.time * 2.7 + 1.3) * 0.16;
-    this.groundMat.emissiveIntensity = 0.7 + pulse * 0.5;
-    // 扫描光带沿 z 轴缓慢推过地面（只在锚点周围 320 米内，够用）
-    const bandZ = ((this.time * 7) % (GROUND_SIZE + 40)) - GROUND_SIZE / 2;
-    this.sheen.position.z = this.anchorZ + bandZ;
-    this.sheenMat.opacity = 0.045 + Math.sin(this.time * 1.4) * 0.012;
+    // 《创》的呼吸感很克制：光要「稳」，只是在极小的范围内微颤，
+    // 像电子设备的热漂移，而不是霓虹招牌那样一明一暗。
+    const pulse = 0.94 + Math.sin(this.time * 1.4) * 0.06;
+    this.edgeMat.opacity = 0.88 * pulse;
+    this.pillarMat.uniforms.uOpacity.value = 0.62 * pulse;
+    this.holoMat.opacity = 0.55 + Math.sin(this.time * 2.1 + 1.3) * 0.10;
+    this.groundMat.emissiveIntensity = 0.5 * pulse;
+    // 三条地面光带：不同速度与相位，沿 z 轴循环推进。
+    // 让光带在锚点 ±160 米内循环（地面平面 320 米），到边界时已经在雾里，
+    // 所以看不到「光带跳回起点」这件事。
+    const span = GROUND_SIZE;
+    for (let i = 0; i < this.sheenBands.length; i++) {
+      const speed = i === 0 ? 14 : 9 + i * 3.5;
+      const phase = i * 0.37;
+      const z = ((this.time * speed + phase * span) % span) - span / 2;
+      this.sheenBands[i].position.z = z;
+    }
   }
 }
 

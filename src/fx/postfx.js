@@ -573,6 +573,10 @@ export function createPostFX(renderer, opts = {}) {
       u.uFogFalloff.value = preset.falloff;
       u.uFogGroundY.value = preset.groundY || 0;
       u.uFogMax.value = preset.fogMax || 220;
+      // 颗粒可以按地图关掉：纯黑场景（赛博空间）里胶片颗粒会被放大成满屏噪点，
+      // 因为颗粒在暗部权重最高，而这张图 80% 的像素是暗部。
+      // 默认值保持原样（0.015），只有显式传 grain:0 的地图才关。
+      if (typeof preset.grain === 'number') u.uGrain.value = preset.grain;
     },
 
     render(scene, camera) {

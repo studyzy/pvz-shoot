@@ -823,12 +823,15 @@ export function outdoorEnvironment(renderer, mapId) {
     sky.addColorStop(0.82, '#c06e40');
     sky.addColorStop(1, '#f0a85e');
   } else if (key === 'cyber') {
-    // 赛博空间：紫黑夜空 + 一道洋红/青的霓虹地平线。楼体是金属，全靠这张图给反光上色
-    sky.addColorStop(0, '#0b0618');
-    sky.addColorStop(0.45, '#1d1038');
-    sky.addColorStop(0.78, '#5a2a7a');
-    sky.addColorStop(0.93, '#27e8ff');
-    sky.addColorStop(1, '#ff3ea5');
+    // 赛博空间（《创》）：纯黑环境 + 地平线一道青。
+    // 楼体已经改成不受光的 MeshBasicMaterial 纯黑，这张 envMap 现在只影响
+    // 玩家/僵尸那些 Standard 材质 —— 所以它必须也是黑的，
+    // 否则角色会带上城市的紫调，跟黑剪影世界脱开。
+    sky.addColorStop(0, '#000000');
+    sky.addColorStop(0.55, '#01070c');
+    sky.addColorStop(0.88, '#0a3d4d');
+    sky.addColorStop(0.97, '#5bf0ff');
+    sky.addColorStop(1, '#0a3d4d');
   } else {
     sky.addColorStop(0, '#2b6ab8');
     sky.addColorStop(0.45, '#8ecdf5');
@@ -855,8 +858,9 @@ export function outdoorEnvironment(renderer, mapId) {
     ground.addColorStop(0, '#54485c');
     ground.addColorStop(1, '#221a30');
   } else if (key === 'cyber') {
-    ground.addColorStop(0, '#0a1420');
-    ground.addColorStop(1, '#05070e');
+    // 地面反射同样是黑：网格世界的表面不反射任何东西
+    ground.addColorStop(0, '#01060a');
+    ground.addColorStop(1, '#000000');
   } else {
     ground.addColorStop(0, '#7ba24a');
     ground.addColorStop(1, '#3d5320');

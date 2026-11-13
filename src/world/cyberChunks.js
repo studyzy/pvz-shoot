@@ -89,7 +89,22 @@ function ringColliders(x, z, w, d, out) {
 }
 
 // 霓虹色板：渲染层按 tone 取色，数据层只存索引，避免两边色值漂移。
-export const NEON_TONES = [0x27e8ff, 0xff3ea5, 0xa06bff, 0x9bff4d];
+//
+// 《创》(TRON) 的用色规则：整个清单世界里只有**一种**主色（青色电光），
+// 外加一种警示色（橙）。彩色霓虹是「赛博朋克夜市」，不是「网格世界」。
+// 所以这里从 4 色收敛成 2 色，而且主色压倒性占多数 ——
+// 满屏乱色会让画面读起来像玩具，单一色相的明度层次才有「电子空间」的味道。
+// tone 字段保持 0..N 的索引语义，只是 N 从 4 变 2。
+export const NEON_TONES = [0x5bf0ff, 0xff7a2f];
+
+// 主色调与警示色的权重（0..1）：约 86% 的楼是青的，橙只做点缀。
+export const WARN_CHANCE = 0.14;
+
+// 按权重掷一次 tone。集中在这里而不是散在 5 处 Math.floor，
+// 以后调权重只改一个常数。
+function toneRoll(rng) {
+  return rng() < WARN_CHANCE ? 1 : 0;
+}
 
 function pickCells(rng, n) {
   const pool = [];
@@ -140,35 +155,35 @@ export function chunkData(cx, cz) {
       const w = 4.5 + rng() * 2.5;
       const d = 4.5 + rng() * 2.5;
       const h = 7 + rng() * 8;
-      pushBlock(cellX + (rng() - 0.5) * 1.4, cellZ + (rng() - 0.5) * 1.4, w, d, h, Math.floor(rng() * NEON_TONES.length));
+      pushBlock(cellX + (rng() - 0.5) * 1.4, cellZ + (rng() - 0.5) * 1.4, w, d, h, toneRoll(rng));
     }
     // 楼间一根光柱（纯装饰，不挡人）
-    pillars.push({ x: ox + (rng() - 0.5) * 16, z: oz + (rng() - 0.5) * 16, h: 26 + rng() * 12, tone: Math.floor(rng() * NEON_TONES.length) });
+    pillars.push({ x: ox + (rng() - 0.5) * 16, z: oz + (rng() - 0.5) * 16, h: 26 + rng() * 12, tone: toneRoll(rng) });
   } else if (arche === 'bridge') {
     // 一条横跨的高架：玩家可以从下面走过去，也能跳上两侧的矮台绕行
     const along = rng() > 0.5;
     const off = (rng() - 0.5) * 6;
-    if (along) pushBlock(0, off, 21, 3.2, 2.9, Math.floor(rng() * NEON_TONES.length));
-    else pushBlock(off, 0, 3.2, 21, 2.9, Math.floor(rng() * NEON_TONES.length));
+    if (along) pushBlock(0, off, 21, 3.2, 2.9, toneRoll(rng));
+    else pushBlock(off, 0, 3.2, 21, 2.9, toneRoll(rng));
     for (const [cellX, cellZ] of pickCells(rng, 2)) {
       const w = 4 + rng() * 2;
-      pushBlock(cellX * 0.6, cellZ * 0.6, w, w, 1.2 + rng() * 0.6, Math.floor(rng() * NEON_TONES.length));
+      pushBlock(cellX * 0.6, cellZ * 0.6, w, w, 1.2 + rng() * 0.6, toneRoll(rng));
     }
-    holo.push({ x: ox + (rng() - 0.5) * 10, y: 3.6, z: oz + (rng() - 0.5) * 10, w: 4 + rng() * 2, h: 2.2, tone: Math.floor(rng() * NEON_TONES.length) });
+    holo.push({ x: ox + (rng() - 0.5) * 10, y: 3.6, z: oz + (rng() - 0.5) * 10, w: 4 + rng() * 2, h: 2.2, tone: toneRoll(rng) });
   } else if (arche === 'arena') {
     // 四块 1.2 米矮掩体：能跳上去、能挡子弹、能绕
     for (const [cellX, cellZ] of pickCells(rng, 3 + Math.floor(rng() * 2))) {
       const w = 3.4 + rng() * 1.6;
-      pushBlock(cellX, cellZ, w, w, 1.15 + rng() * 0.25, Math.floor(rng() * NEON_TONES.length));
+      pushBlock(cellX, cellZ, w, w, 1.15 + rng() * 0.25, toneRoll(rng));
     }
   } else {
     // plaza：空场 + 一根光柱 + 一块孤楼
     if (!home) {
       const [cellX, cellZ] = pickCells(rng, 1)[0];
-      pushBlock(cellX, cellZ, 5 + rng() * 2, 5 + rng() * 2, 3 + rng() * 4, Math.floor(rng() * NEON_TONES.length));
+      pushBlock(cellX, cellZ, 5 + rng() * 2, 5 + rng() * 2, 3 + rng() * 4, toneRoll(rng));
     }
-    pillars.push({ x: ox + (rng() - 0.5) * 12, z: oz + (rng() - 0.5) * 12, h: 20 + rng() * 10, tone: Math.floor(rng() * NEON_TONES.length) });
-    if (!home) holo.push({ x: ox + (rng() - 0.5) * 12, y: 2.8, z: oz + (rng() - 0.5) * 12, w: 3 + rng() * 2, h: 1.8, tone: Math.floor(rng() * NEON_TONES.length) });
+    pillars.push({ x: ox + (rng() - 0.5) * 12, z: oz + (rng() - 0.5) * 12, h: 20 + rng() * 10, tone: toneRoll(rng) });
+    if (!home) holo.push({ x: ox + (rng() - 0.5) * 12, y: 2.8, z: oz + (rng() - 0.5) * 12, w: 3 + rng() * 2, h: 1.8, tone: toneRoll(rng) });
   }
 
   const colliders = [];

@@ -249,23 +249,28 @@ export const SKY_PRESETS = {
     cloudSpeed: 0.005,
     stars: 0.12,
   },
-  // 赛博空间：看不见的太阳（沉在地平线下方），只留一圈「城市光污染」的洋红地平线带。
-  // sunDir 写在 CyberSpace.js 里，y<0 → shader 的 sunUp=0，太阳盘与光晕自动消失，
-  // 但方位角上的 horizonTint / glow 还在，于是地平线读作「远处城市把云照亮了」。
+  // 赛博空间：《创》的夜空 —— 几乎纯黑的天顶 + 一道极窄的青地平线。
+  //
+  // 上一版是「紫色夜空 + 洋红/青双色光污染」，那是赛博朋克。
+  // 网格世界的天空**什么都不该有**：没有云、没有星、没有彩霞，
+  // 只有地平线上一道细光，因为它只是「世界的边界被点亮了」。
+  //
+  // horizonTint 保证 1.0（不过曝）：唯一的亮源必须留给地平线本身，
+  // 否则整张图会往紫色漂回去。
   cyber: {
-    zenith: [0x140b2a, 0x1d1038],
-    horizon: [0x5a2a7a, 0x7a2f6a],
-    horizonAway: [0x150d28, 0x0b0718],
-    sun: [0xff4fb0, 0x27e8ff],
+    zenith: [0x000000, 0x01040a],
+    horizon: [0x0a3d4d, 0x12657a],
+    horizonAway: [0x000000, 0x000306],
+    sun: [0x5bf0ff, 0x5bf0ff],
     sunSize: 9000,
-    sunGlow: 0.35,
-    cloudCover: 0.20,
+    sunGlow: 0.18,
+    cloudCover: 0.0,
     cloudScale: 2.8,
     cloudSpeed: 0.010,
-    stars: 0.5,
-    cloudBright: 0.13,
-    horizonTint: [1.55, 0.85, 1.75],
-    glow: [1.25, 0.28, 0.85],
+    stars: 0.0,
+    cloudBright: 0.0,
+    horizonTint: [0.55, 0.95, 1.05],
+    glow: [0.30, 0.75, 0.95],
   },
 };
 

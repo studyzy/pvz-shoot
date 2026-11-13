@@ -457,6 +457,10 @@ export class Game {
     this.map = map;
     this.mapId = map.id;
     this.ctx.map = map;
+    // UI 主题跟着地图走：CSS 用 [data-map="cyber"] 这套选择器接管配色。
+    // 放在 body 而不是某个容器上，是因为 HUD/暂停/结算/菜单的根节点各不相同，
+    // 只有 body 是它们的公共祖先。切图必须跟着变，否则退出赛博空间后 HUD 还是黑的。
+    document.body.dataset.map = map.id;
     this.ctx.env = outdoorEnvironment(this.renderer, map.id);
     // 地图可选 setEnv：把 PMREM 环境贴图挂给地图自带的单例材质（摩天街区玻璃幕墙反射）。
     // NightForest.setFlash 同款「按地图开关」先例；重复 setMap 幂等，材质不重建。
