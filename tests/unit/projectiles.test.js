@@ -849,7 +849,8 @@ describe('throwCherry', () => {
     expect(c.life).toBe(0);
     expect(c.damage).toBe(210);
     expect(c.radius).toBeCloseTo(5.6, 9);
-    expect(c.ground).toBe(0.25);
+    // target.y 是准星落点的地面高度（地形地图非 0），爆点高度 = 地面 + 0.25
+    expect(c.ground).toBe(1.25);
     expect(c.mat.color.getHex()).toBe(0xe8452f);
     expect(c.mat.emissive.getHex()).toBe(0x5a0c05);
     expect(c.group.scale.x).toBe(1);
@@ -858,7 +859,7 @@ describe('throwCherry', () => {
   it('西瓜：地面高度 0.45、缩放 1.35、绿色自发光', () => {
     P.throwCherry(new THREE.Vector3(0, 1.5, 0), new THREE.Vector3(0, 1, -10), cherryDef({ id: 'melon', color: 0x3fae3a, damage: 280, radius: 6.6 }));
     const c = P.cherries.filter((x) => x.active)[0];
-    expect(c.ground).toBe(0.45);
+    expect(c.ground).toBe(1.45);
     expect(c.group.scale.x).toBeCloseTo(1.35, 9);
     expect(c.mat.color.getHex()).toBe(0x3fae3a);
     expect(c.mat.emissive.getHex()).toBe(0x143d10);
@@ -951,7 +952,8 @@ describe('throwCherry', () => {
     }
     expect(onExplosion).toHaveBeenCalledTimes(1);
     const [pos, radius] = onExplosion.mock.calls[0];
-    expect(pos.y).toBeCloseTo(0.4, 9);
+    // 爆点 = 落点地面高度 0.4 + 0.25（旧断言把它当成固定 0.4 平面）
+    expect(pos.y).toBeCloseTo(0.65, 9);
     expect(radius).toBeCloseTo(5.6, 9);
     // 落地爆炸发生在引信到点之前
     expect(frames).toBeLessThan(2.6 * 60);

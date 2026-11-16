@@ -1,11 +1,12 @@
 import { SUN_SKY } from '../config.js';
-import { rand } from '../utils.js';
+import { rand, clamp } from '../utils.js';
 
 // 天降阳光：按固定间隔在三张地图范围内随机落下一颗。
 // 只是小福利（每 30 秒 1 颗 = 0.167 阳光/秒），主收入仍然来自击杀掉落。
 export class SkySun {
   constructor(ctx) {
     this.ctx = ctx;
+    this.player = ctx.player || null;
     this.elapsed = 0;
     // 双人 22 s、单人 30 s（Game.resetRun 按模式写入）
     this.interval = SUN_SKY.interval;
@@ -30,6 +31,17 @@ export class SkySun {
     if (typeof map.skySunSpot === 'function') {
       const s = map.skySunSpot();
       this.ctx.sunOrbs.spawnSky(s.x, s.z);
+      return;
+    }
+    // 大地图（彩绘山谷 ±530 米）：按整张图的方框撒会让阳光落到几百米外，永远捡不到。
+    // 玩家附近 12~50 米才是「天降」的意义所在。
+    const p = this.player;
+    if (map.spawnAroundPlayer && p && p.pos) {
+      const a = rand(0, Math.PI * 2);
+      const r = rand(12, 50);
+      const x = clamp(p.pos.x + Math.cos(a) * r, -b.x + 1, b.x - 1);
+      const z = clamp(p.pos.z + Math.sin(a) * r, -b.z + 1, b.z - 1);
+      this.ctx.sunOrbs.spawnSky(x, z);
       return;
     }
     const m = SUN_SKY.edgeMargin;

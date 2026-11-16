@@ -154,7 +154,9 @@ export class ProjectileSystem {
     c.fuse = 2.6;
     c.life = 0;
     // 落地点取粒子效果的高度：西瓜 1.35 倍缩放，落点抬高一点才像砸在地上。
-    c.ground = def.id === 'melon' ? 0.45 : 0.25;
+    // target.y 是准星落点的地面高度（地形地图不是 0），要加在里面，否则坡上会炸在半空/地下。
+    const groundY = target && Number.isFinite(target.y) ? target.y : 0;
+    c.ground = groundY + (def.id === 'melon' ? 0.45 : 0.25);
     c.proximityY = Math.max(2.4, origin.y + 1);
     c.mat.color.setHex(def.color || 0xe8452f);
     c.mat.emissive.setHex(def.id === 'melon' ? 0x143d10 : 0x5a0c05);
@@ -205,8 +207,10 @@ export class ProjectileSystem {
       const map = this.ctx.map;
       const bounds = (map && map.bounds) || { x: 23, z: 23 };
       let wallT = sweepWalls((map && map.walls) || noWalls, bounds.x, bounds.z, p.prev, p.pos, PEA_RADIUS, tmpN);
-      if (p.prev.y > 0 && p.pos.y <= 0) {
-        const groundT = p.prev.y / (p.prev.y - p.pos.y);
+      // 地形地图：地面不是 y=0，取弹丸当前所在处的高度；其余地图 gY 恒为 0。
+      const gY = map && typeof map.heightAt === 'function' ? map.heightAt(p.pos.x, p.pos.z) : 0;
+      if (p.prev.y > gY && p.pos.y <= gY) {
+        const groundT = (p.prev.y - gY) / Math.max(1e-6, p.prev.y - p.pos.y);
         if (wallT < 0 || groundT < wallT) wallT = groundT;
       }
       const bell = this.ctx.cloud && this.ctx.cloud.bellIntersection(p.prev, p.pos);
@@ -314,7 +318,10 @@ export class ProjectileSystem {
       c.group.rotation.z += dt * 3;
       if (boom) {
         tmpB.copy(c.pos);
-        if (tmpB.y < 0.4) tmpB.y = 0.4;
+        // 地形地图：爆炸点不要沉到地下（原来按 y=0 平面卡 0.4）
+        const map = this.ctx.map;
+        const gY = map && typeof map.heightAt === 'function' ? map.heightAt(tmpB.x, tmpB.z) : 0;
+        if (tmpB.y < gY + 0.4) tmpB.y = gY + 0.4;
         this.explodeAt(tmpB, c.radius, c.damage, true, null, false, c.weapon);
         c.active = false;
         c.group.visible = false;

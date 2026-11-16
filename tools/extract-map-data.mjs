@@ -65,6 +65,8 @@ function extract(map) {
   const out = {
     id: map.id,
     bounds: map.bounds ? { x: map.bounds.x, z: map.bounds.z } : null,
+    // 圆形行走半径（彩绘山谷 = 原版 REACH）；矩形 bounds 只用于子弹/僵尸钳位
+    reach: map.reach || 0,
     spawn: map.spawn ? { x: round(map.spawn.x), z: round(map.spawn.z), yaw: round(map.spawn.yaw || 0) } : null,
     colliders: (map.colliders || []).map((c) => ({ x: round(c.x), z: round(c.z), r: round(c.r) })),
     platforms: (map.platforms || []).map((p) => ({

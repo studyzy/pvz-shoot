@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { MAPS, DEFAULT_MAP, createMaps } from './world/maps.js';
+import { VALLEY_TIME } from './world/valleyHours.js';
 import { loadSummary, onLoadProgress, loader } from './assets/LoadProgress.js';
 import { bossForWave, ZOMBIES } from './config.js';
 import { Player } from './entities/Player.js';
@@ -176,7 +177,7 @@ export class Game {
     this.pickups = new WeaponPickups(ctx);
     // WeaponSystem.dropSlot 要把丢下的枪交回地面（ctx.pickups.dropAt）
     ctx.pickups = this.pickups;
-    this.skySun = new SkySun({ map: null, sunOrbs: this.sunOrbs });
+    this.skySun = new SkySun({ map: null, sunOrbs: this.sunOrbs, player: this.player });
 
     ctx.player = this.player;
     ctx.particles = this.particles;
@@ -281,6 +282,9 @@ export class Game {
     this.hud.onChangeMap = () => this.backToMenu();
     this.hud.onMapSelect = (id) => this.selectMap(id);
     this.hud.onMute = (m) => this.sfx.setMuted(m);
+    this.hud.onValleyTime = () => {
+      if (this.map && this.map.id === 'valley') this.map.handleTimeRequest(VALLEY_TIME.CYCLE);
+    };
     // 点武器槽：槽位带角色，点了就是切到那一格（空格子什么都不做）
     this.hud.onSlotSelect = (role, pos) => {
       if (this.state !== 'playing') return;
@@ -457,6 +461,26 @@ export class Game {
     this.map = map;
     this.mapId = map.id;
     this.ctx.map = map;
+    // 彩绘山谷：渲染栈懒构建（假渲染器 / jsdom 下自动空转），并把远裁面放大到村庄之外。
+    if (typeof map.attachRenderer === 'function') {
+      const building = map.attachRenderer(this.renderer, this.camera, () => {
+        if (this.mapId === 'valley') this.hud.setDuoStatus('正在绘制山谷…', 'wait');
+      });
+      if (building && typeof building.then === 'function') {
+        building.then(() => { if (this.mapId === 'valley') this.hud.setDuoStatus('', 'idle'); });
+      }
+    }
+    const far = map.cameraFar || 240;
+    const near = map.cameraNear || 0.05;
+    if (this.camera.far !== far || this.camera.near !== near) {
+      this.camera.near = near;
+      this.camera.far = far;
+      this.camera.updateProjectionMatrix();
+    }
+    if (map.id === 'valley') {
+      map.onHourChange = (name) => this.hud.setValleyTime(name);
+      this.hud.setValleyTime(map.timeName);
+    }
     // UI 主题跟着地图走：CSS 用 [data-map="cyber"] 这套选择器接管配色。
     // 放在 body 而不是某个容器上，是因为 HUD/暂停/结算/菜单的根节点各不相同，
     // 只有 body 是它们的公共祖先。切图必须跟着变，否则退出赛博空间后 HUD 还是黑的。
@@ -499,7 +523,7 @@ export class Game {
     this.hud.setMapSelection(map.id);
     this.hud.setStartLabel(map.startLabel);
     if (this.pickups) this.pickups.setMap(map);
-    this.sunOrbs.setMap(map.id);
+    this.sunOrbs.setMap(map.id, map);
     this.weapons.setMapAppearance(map.id);
     // 公共钟冷却跟着地图走：换图后不该带着上一张图的冷却进新局。
     if (this.cloud) this.cloud.reset();
@@ -1800,6 +1824,10 @@ export class Game {
     this.player.setCrouch(this.controls.crouching);
     this.player.updateStance(dt, this.controls);
     this.player.update(dt, this.controls, this.map, this.zombies.zombies);
+    // 山谷的草甸用 uWalker 画一枚干净的影子；其它地图没有这个 uniform。
+    if (this.map && this.map.id === 'valley' && this.map.setWalker) {
+      this.map.setWalker(this.player.pos.x, this.player.pos.z);
+    }
     this.player.applyCamera(this.camera);
     // 机瞄/下蹲会改 fov：基值由 resize 按宽高比定，这里只叠姿态修正。
     this.applyStanceFov();
@@ -1907,6 +1935,12 @@ export class Game {
     if (this.hitStopT > 0) this.hitStopT = Math.max(0, this.hitStopT - raw);
     const dt = Math.min(0.05, raw) * scale;
 
+    // 彩绘山谷：时段键（T / 0 / , / .）由 Controls 记请求，这里按当前地图消费。
+    if (this.controls && this.controls.consumeValleyTimeRequest) {
+      const req = this.controls.consumeValleyTimeRequest();
+      if (req && this.map && this.map.id === 'valley') this.map.handleTimeRequest(req);
+    }
+
     if (this.state === 'playing') {
       this.update(dt);
       this.map.update(dt);
@@ -1930,8 +1964,17 @@ export class Game {
 
     this.trackPerformance(raw);
     // 后期管线；任何一级失败（能力探测不过 / GL 出错 / 档位为 0）都退回直出。
-    if (!this.post.render(this.scene, this.camera)) {
-      this.renderer.render(this.scene, this.camera);
+    // 彩绘山谷是唯一例外：它整帧接管，自己的 frame.render 跑笔触/描边/色调曲线。
+    const vf = this.map && this.map.valleyFrame;
+    if (vf) {
+      // 内置材质不能再被 three 压一次色调，否则山谷的 final pass 会二次提亮。
+      this.renderer.toneMapping = THREE.NoToneMapping;
+      vf.render(this.scene, this.camera);
+    } else {
+      this.renderer.toneMapping = THREE.NeutralToneMapping;
+      if (!this.post.render(this.scene, this.camera)) {
+        this.renderer.render(this.scene, this.camera);
+      }
     }
   }
 
@@ -1940,6 +1983,12 @@ export class Game {
   // 任何一件缺了都会露馅：只有天空没有远景 → 场地边缘是天接地；只有远景没有天气 → 静止得像张画。
   applyAtmosphere(map) {
     const id = (map && map.id) || DEFAULT_MAP;
+    // 彩绘山谷自带天空穹顶 / 云 / 远山 / 植被，全局那套会重影，整组隐掉再按图恢复。
+    const valley = id === 'valley';
+    if (this.sky) this.sky.mesh.visible = !valley;
+    if (this.skyline) this.skyline.group.visible = !valley;
+    if (this.weather) this.weather.group.visible = !valley;
+    if (this.props) this.props.group.visible = !valley;
     if (this.sky) {
       this.sky.setPreset(id);
       // 太阳方向跟着地图的主光走：后院/雪地是正午偏南，摩天街区是低角度黄昏。

@@ -81,6 +81,7 @@ let NightForest;
 let CloudCarnival;
 let Downtown;
 let CyberSpace;
+let PaintedValley;
 let FlowField;
 let PerspectiveCamera;
 
@@ -97,14 +98,15 @@ beforeAll(async () => {
   ({ CloudCarnival } = await import('../../src/world/CloudCarnival.js'));
   ({ Downtown } = await import('../../src/world/Downtown.js'));
   ({ CyberSpace } = await import('../../src/world/CyberSpace.js'));
+  ({ PaintedValley } = await import('../../src/world/PaintedValley.js'));
   ({ FlowField } = await import('../../src/world/FlowField.js'));
   ({ PerspectiveCamera } = THREE);
 }, SECONDS);
 
 describe('地图注册表 maps.js', () => {
   it('MAPS 元数据完整：id 唯一、名字/描述/开始按钮文案就位、create 是工厂函数', () => {
-    expect(MAPS.length).toBe(7);
-    expect(MAPS.map((m) => m.id)).toEqual(['backyard', 'snow', 'dust', 'forest', 'cloud', 'downtown', 'cyber']);
+    expect(MAPS.length).toBe(8);
+    expect(MAPS.map((m) => m.id)).toEqual(['backyard', 'snow', 'dust', 'forest', 'cloud', 'downtown', 'cyber', 'valley']);
     expect(new Set(MAPS.map((m) => m.id)).size).toBe(MAPS.length);
     for (const m of MAPS) {
       expect(typeof m.name).toBe('string');
@@ -125,7 +127,7 @@ describe('地图注册表 maps.js', () => {
   it('createMaps(scene) 建出全部地图，meta/id/startLabel 一一对应，且全部挂在 scene 上', () => {
     const scene = new THREE.Scene();
     const maps = createMaps(scene);
-    expect(maps.length).toBe(7);
+    expect(maps.length).toBe(8);
     maps.forEach((map, i) => {
       expect(map.meta).toBe(MAPS[i]);
       expect(map.id).toBe(MAPS[i].id);
@@ -156,7 +158,7 @@ describe('地图注册表 maps.js', () => {
 
   it('未知地图 id 回落到第一张；Game.setMap 切图后只有当前地图可见', async () => {
     const { game } = await createGame();
-    expect(game.maps.length).toBe(7);
+    expect(game.maps.length).toBe(8);
     game.setMap('nope');
     expect(game.mapId).toBe(MAPS[0].id);
     for (const id of ['snow', 'dust', 'backyard']) {
@@ -180,7 +182,7 @@ async function createGame() {
 
 // describe.each 在收集阶段同步执行；three/maps 只能 await import，
 // 所以用一组静态 id 驱动参数化（下面的“注册表”用例会断言它和 MAPS 完全一致）。
-const MAP_IDS = ['backyard', 'snow', 'dust', 'forest', 'cloud', 'downtown', 'cyber'];
+const MAP_IDS = ['backyard', 'snow', 'dust', 'forest', 'cloud', 'downtown', 'cyber', 'valley'];
 
 describe.each(MAP_IDS)('地图契约：%s', (id) => {
   let scene;
@@ -195,6 +197,7 @@ describe.each(MAP_IDS)('地图契约：%s', (id) => {
       forest: NightForest,
       downtown: Downtown,
       cyber: CyberSpace,
+      valley: PaintedValley,
     };
     scene = new THREE.Scene();
     map = new names[id](scene);
@@ -998,7 +1001,7 @@ describe('materials.js 程序化材质与贴图', () => {
     }
   });
 
-  it('室外环境贴图：五张地图各生成一次 PMREM 贴图并缓存', async () => {
+  it('室外环境贴图：各地图各生成一次 PMREM 贴图并缓存', async () => {
     const { game } = await createGame();
     const renderer = game.renderer;
     const envs = {
@@ -1008,14 +1011,15 @@ describe('materials.js 程序化材质与贴图', () => {
       cloud: materials.outdoorEnvironment(renderer, 'cloud'),
       downtown: materials.outdoorEnvironment(renderer, 'downtown'),
       cyber: materials.outdoorEnvironment(renderer, 'cyber'),
+      valley: materials.outdoorEnvironment(renderer, 'valley'),
     };
-    for (const id of ['backyard', 'snow', 'dust', 'cloud', 'downtown', 'cyber']) {
+    for (const id of ['backyard', 'snow', 'dust', 'cloud', 'downtown', 'cyber', 'valley']) {
       expect(envs[id]).toBeInstanceOf(THREE.Texture);
       // 第二次调用必须返回同一个引用（Game 频率很高地取 env）
       expect(materials.outdoorEnvironment(renderer, id)).toBe(envs[id]);
     }
     // 各地图的环境贴图互不相同
-    expect(new Set(Object.values(envs)).size).toBe(6);
+    expect(new Set(Object.values(envs)).size).toBe(7);
     // 未知 id 落到后院
     expect(materials.outdoorEnvironment(renderer, 'nope')).toBe(envs.backyard);
     expect(materials.outdoorEnvironment(renderer, undefined)).toBe(envs.backyard);
@@ -1110,6 +1114,9 @@ describe('雪 / 沙粒子循环', () => {
     const map = new IceWorld(new THREE.Scene());
     const p = map.snowData;
     expect(p.length).toBe(380 * 3);
+    // 显式给第一片雪花一个半空初值：随机初值可能恰好贴地，第一步就被重播到 13..16 米，
+    // 那条路径由下面 120 帧的循环覆盖，不该让这一条单步断言跟着随机序列漂移。
+    p[1] = 10;
     const y0 = p[1];
     map.update(0.1);
     // 每帧 y 都减小（snowSpeed ∈ [1.5, 3.4]，0.1 秒至少掉 0.15）

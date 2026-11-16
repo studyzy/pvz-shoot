@@ -13,6 +13,9 @@ import {
   CHUNK, SOLID_RADIUS, collect, chunkIndex, ChunkNav,
 } from '../world/cyberChunks.js';
 import MAPDATA from './mapdata.json' with { type: 'json' };
+// 彩绘山谷的地面是起伏地形。高度场是纯函数（无 three / 无 DOM），服务器可以直接读同一份，
+// 否则双人时服务器把玩家/僵尸按在 y=0 平面上，客户端每收到一次快照就被拉回平地。
+import { heightAt as valleyHeightAt, tarnDistance } from '../painted/valley/world.js';
 
 const byId = new Map(MAPDATA.map((m) => [m.id, m]));
 
@@ -29,6 +32,7 @@ export function headlessMap(id) {
   const map = {
     id: d.id,
     bounds: d.bounds || { x: 23, z: 23 },
+    reach: d.reach || 0,
     spawn: d.spawn || { x: 0, z: 13, yaw: 0 },
     colliders: d.colliders.map((c) => ({ x: c.x, z: c.z, r: c.r })),
     platforms: d.platforms.map((p) => ({ x: p.x, z: p.z, w: p.w, d: p.d, h: p.h })),
@@ -37,6 +41,10 @@ export function headlessMap(id) {
     pickupSpots: d.pickupSpots.map((p) => ({ x: p.x, z: p.z })),
     zombieSpawnPoints: d.zombieSpawnPoints.length ? d.zombieSpawnPoints.map((p) => [p.x, p.z]) : null,
     nav: null,
+    // 地形地图（彩绘山谷）：与客户端共用同一份高度场，Player/Zombie 的脚下高度才对得上。
+    heightAt: d.id === 'valley' ? valleyHeightAt : null,
+    // 山谷不能涉水：与客户端同一条判定，否则服务器会把玩家放进水里再拉回岸上。
+    waterAt: d.id === 'valley' ? (x, z) => tarnDistance(x, z) < 0.88 : null,
     // 地图没有流场（如后院）时返回 null，Zombie 会退化成直线追踪 —— 与客户端行为一致
     flowAt: null,
     updateNav: null,

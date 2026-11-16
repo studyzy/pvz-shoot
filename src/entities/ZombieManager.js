@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { Zombie } from './Zombie.js';
 import { zombieModel } from './ZombieModel.js';
 import { ZOMBIES, DUO, BOUNTY, FOREST, DOWNTOWN, bossForWave, wavePlan, duoWavePlan, waveMaxAlive, waveSpawnInterval, waveAirQuota, zombieHpMul, zombieSpeedMul, SKELETON_MAX_ALIVE, SKELETON_MAPS } from '../config.js';
-import { rand, clamp } from '../utils.js';
+import { rand, clamp, TAU } from '../utils.js';
 
 // 无头模拟的空壳：粒子/音效/HUD 都是纯表现，服务器一律不产生
 const NOOP_FX = new Proxy({}, { get: () => () => {} });
@@ -138,6 +138,7 @@ export class ZombieManager {
       this.zombies[i].update(dt, targets || player, colliders);
     }
 
+    this.applyGround();
     this.applySeparation();
 
     for (let i = this.zombies.length - 1; i >= 0; i--) {
@@ -238,6 +239,21 @@ export class ZombieManager {
       }
       this.spawnAt(split.type, split.wave, safe.x, safe.z, split.hpMul, split.speedMul, split.source);
       this.pendingSplits.splice(i, 1);
+    }
+  }
+
+  // 地形地图（彩绘山谷）：每帧把僵尸的脚底贴到 heightAt 上。空中单位（气球 / 飞行技能）
+  // 的 airHeight 是相对地面的高度，加回去才不会被拉回地面。
+  // 只在 host/单人跑：guest 的位置来自快照，快照里的 y 已经是 host 算好的绝对高度。
+  applyGround() {
+    const map = this.ctx.map;
+    if (!map || typeof map.heightAt !== 'function') return;
+    for (let i = 0; i < this.zombies.length; i++) {
+      const z = this.zombies[i];
+      // 死亡下沉由 Zombie 自己控制 y，不要再拉回地面
+      if (z.dying || z.dead) continue;
+      const gh = map.heightAt(z.root.position.x, z.root.position.z);
+      z.root.position.y = gh + (z.airHeight || 0);
     }
   }
 
@@ -344,6 +360,27 @@ export class ZombieManager {
           x = clamp(x, -map.bounds.x + 1.2, map.bounds.x - 1.2);
           z = clamp(z, -map.bounds.z + 1.2, map.bounds.z - 1.2);
         }
+      }
+    } else if (map && map.spawnAroundPlayer) {
+      // 大地图（彩绘山谷）：可玩半径 240 米，敌人不能还按原点 ±21.5 的方框刷 ——
+      // 玩家走远之后就再也遇不到僵尸。改成以玩家为中心的一圈，既能追上又不至于贴脸出现。
+      for (let attempt = 0; attempt < 10; attempt++) {
+        const a = rand(0, TAU);
+        const r = rand(26, 34);
+        x = player.pos.x + Math.cos(a) * r;
+        z = player.pos.z + Math.sin(a) * r;
+        if (map.bounds) {
+          x = clamp(x, -map.bounds.x + 1.2, map.bounds.x - 1.2);
+          z = clamp(z, -map.bounds.z + 1.2, map.bounds.z - 1.2);
+        }
+        // 山谷：不能刷在水里，也不能刷进树干/石头
+        if (map.waterAt && map.waterAt(x, z)) continue;
+        if (map.colliders) {
+          const safe = this.clearOfColliders(x, z, map.colliders);
+          x = safe.x;
+          z = safe.z;
+        }
+        if (Math.hypot(x - player.pos.x, z - player.pos.z) > 16) break;
       }
     } else {
       for (let attempt = 0; attempt < 14; attempt++) {

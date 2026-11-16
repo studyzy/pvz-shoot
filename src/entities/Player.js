@@ -204,6 +204,8 @@ export class Player {
     this.vel.x += (targetX - this.vel.x) * k;
     this.vel.z += (targetZ - this.vel.z) * k;
 
+    const prevX = this.pos.x;
+    const prevZ = this.pos.z;
     this.pos.x += this.vel.x * dt;
     this.pos.z += this.vel.z * dt;
 
@@ -213,6 +215,26 @@ export class Player {
     const halfZ = bounds.z - 0.55;
     this.pos.x = clamp(this.pos.x, -halfX, halfX);
     this.pos.z = clamp(this.pos.z, -halfZ, halfZ);
+    // 圆形行走范围（彩绘山谷 = 原版 REACH）。矩形边界在四角会比视野里的山谷远出一截，
+    // 圆形才是原版 walker 的实际手感：沿半径平均地被挡在树林前。
+    if (terrain && terrain.reach > 0) {
+      const r = Math.hypot(this.pos.x, this.pos.z);
+      if (r > terrain.reach) {
+        const k = terrain.reach / r;
+        this.pos.x *= k;
+        this.pos.z *= k;
+      }
+    }
+    // 不能走进水里（原版：tarnDistance < 0.88 推回）。只挡"从岸上进水"，
+    // 免得在水边正常走动也被反复弹开。
+    if (terrain && typeof terrain.waterAt === 'function'
+      && terrain.waterAt(this.pos.x, this.pos.z)
+      && !terrain.waterAt(prevX, prevZ)) {
+      this.pos.x = prevX;
+      this.pos.z = prevZ;
+      this.vel.x *= 0.5;
+      this.vel.z *= 0.5;
+    }
 
     // playerColliders 是可选覆盖表：显式给了就只吃这一组（雪地/沙城把玩家碰撞交给 platforms，
 // 只留空表给僵尸用），没给就回落到 colliders（后院/森林）。
@@ -271,17 +293,37 @@ export class Player {
         this.grounded = false;
       }
     } else {
+      // 地形地图（彩绘山谷）没有 platforms，但地面不是平的：每帧采样脚下高度。
+      // 其余地图没有 heightAt，groundY 恒为 0，行为与改动前完全一致。
+      const groundY = terrain && typeof terrain.heightAt === 'function'
+        ? terrain.heightAt(this.pos.x, this.pos.z)
+        : 0;
       if (jumpRequested && this.grounded) {
         this.vy = TUNING.jumpSpeed;
         this.grounded = false;
         jumped = true;
       }
-      this.vy -= TUNING.gravity * dt;
-      this.pos.y += this.vy * dt;
-      if (this.pos.y <= 0) {
-        this.pos.y = 0;
-        this.vy = 0;
-        this.grounded = true;
+      if (this.grounded) {
+        // 贴地行走：上下坡都直接跟随地面。落差超过一级台阶（跑出悬崖/跳下高坎）才转入自由落体，
+        // 否则每帧都会先离地再落回，画面抖成楼梯。
+        if (Math.abs(this.pos.y - groundY) <= STEP_HEIGHT) {
+          this.pos.y = groundY;
+          this.vy = 0;
+        } else if (this.pos.y < groundY) {
+          this.pos.y = groundY;
+          this.vy = 0;
+        } else {
+          this.grounded = false;
+        }
+      }
+      if (!this.grounded) {
+        this.vy -= TUNING.gravity * dt;
+        this.pos.y += this.vy * dt;
+        if (this.pos.y <= groundY) {
+          this.pos.y = groundY;
+          this.vy = 0;
+          this.grounded = true;
+        }
       }
     }
 

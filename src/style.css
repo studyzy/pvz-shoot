@@ -2209,3 +2209,32 @@ body[data-map="cyber"] #crosshair.lock .ch {
   background: var(--mg);
   box-shadow: 0 0 8px rgba(255, 45, 149, .95), 0 0 0 1px rgba(0, 0, 0, .6);
 }
+
+/* ---- 彩绘山谷：草地/暖阳的选图卡片与时段按钮 ---- */
+.map-card.map-valley { --art-a: rgba(150, 200, 96, .7); --art-b: rgba(56, 104, 148, .95); --art-c: rgba(255, 246, 216, .95); border-color: rgba(255, 226, 160, .3); background: linear-gradient(180deg, rgba(58, 92, 60, .78), rgba(20, 38, 28, .88)); }
+.map-card.map-valley .map-tag { color: rgba(255, 232, 170, .85); }
+.map-card.map-valley.active { border-color: #ffe2a0; background: linear-gradient(180deg, rgba(92, 130, 70, .86), rgba(28, 52, 34, .92)); box-shadow: 0 0 0 2px rgba(255, 226, 160, .22), 0 0 20px rgba(255, 226, 160, .28); }
+.map-card.map-valley.active::after { background: #ffe2a0; }
+.map-card.map-valley .map-chip { background: rgba(255, 226, 160, .16); color: rgba(255, 240, 200, .9); }
+.map-card.map-valley.active .map-chip { background: rgba(255, 226, 160, .9); color: #2a2006; }
+
+/* 时段按钮默认隐藏，只有山谷地图显示；放在 HUD 右上，不挡准星 */
+.valley-time { display: none; }
+body[data-map="valley"] .valley-time {
+  display: block;
+  position: absolute;
+  top: 62px;
+  right: 12px;
+  z-index: 12;
+  padding: 7px 12px;
+  border: 1px solid rgba(255, 232, 170, .55);
+  border-radius: 10px;
+  background: rgba(24, 44, 30, .72);
+  color: #fff2cf;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: .04em;
+  pointer-events: auto;
+  cursor: pointer;
+}
+body[data-map="valley"] .valley-time:active { transform: translateY(1px); }

@@ -785,7 +785,7 @@ export function duskSkyTexture() {
 let _envs = null;
 // 程序化户外环境贴图（PMREM）：只给 PBR 材质提供反射与高光，不参与场景雾/背景。
 export function outdoorEnvironment(renderer, mapId) {
-  const key = mapId === 'snow' ? 'snow' : mapId === 'dust' ? 'dust' : mapId === 'forest' ? 'forest' : mapId === 'cloud' ? 'cloud' : mapId === 'downtown' ? 'downtown' : mapId === 'cyber' ? 'cyber' : 'backyard';
+  const key = mapId === 'snow' ? 'snow' : mapId === 'dust' ? 'dust' : mapId === 'forest' ? 'forest' : mapId === 'cloud' ? 'cloud' : mapId === 'downtown' ? 'downtown' : mapId === 'cyber' ? 'cyber' : mapId === 'valley' ? 'valley' : 'backyard';
   if (_envs && _envs[key]) return _envs[key];
   if (!_envs) _envs = {};
 
@@ -822,6 +822,12 @@ export function outdoorEnvironment(renderer, mapId) {
     sky.addColorStop(0.5, '#3a2c50');
     sky.addColorStop(0.82, '#c06e40');
     sky.addColorStop(1, '#f0a85e');
+  } else if (key === 'valley') {
+    // 彩绘山谷：晴日草甸的粉蓝天与堆云，反射偏暖，配 cel 角色。
+    sky.addColorStop(0, '#2c6fc4');
+    sky.addColorStop(0.5, '#8fc6ea');
+    sky.addColorStop(0.8, '#e7e2c4');
+    sky.addColorStop(1, '#f4e6c0');
   } else if (key === 'cyber') {
     // 赛博空间：赛博朋克夜空的光污染。
     // 这张 envMap 现在同时服务三处：玻璃幕墙的反射、湿沥青地面的倒影、
@@ -858,6 +864,9 @@ export function outdoorEnvironment(renderer, mapId) {
   } else if (key === 'downtown') {
     ground.addColorStop(0, '#54485c');
     ground.addColorStop(1, '#221a30');
+  } else if (key === 'valley') {
+    ground.addColorStop(0, '#7ea33f');
+    ground.addColorStop(1, '#4a6a24');
   } else if (key === 'cyber') {
     // 地面反射：湿沥青映着上方的霓虹，所以是深紫蓝而不是黑
     ground.addColorStop(0, '#140a24');

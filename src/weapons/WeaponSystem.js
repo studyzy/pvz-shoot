@@ -1098,7 +1098,10 @@ export class WeaponSystem {
       const range = this.groundRange(tmpAim);
       const lock = this.assist;
       if (lock && lock.zombie.alive && !lock.zombie.dying) {
-        tmpAim.set(lock.zombie.root.position.x, 0, lock.zombie.root.position.z);
+        const zx = lock.zombie.root.position.x;
+        const zz = lock.zombie.root.position.z;
+        tmpAim.set(zx, this.groundAt(zx, zz), zz);
+        range.y = tmpAim.y;
         range.dist = clamp(Math.hypot(tmpAim.x - this.camera.position.x, tmpAim.z - this.camera.position.z), 2, 22);
       }
       this.ctx.projectiles.throwCherry(tmpMuzzle, tmpAim, def, range);
@@ -1177,7 +1180,9 @@ export class WeaponSystem {
       0,
       this.camera.position.z + (tmpFwd.z / flat) * dist
     );
-    this.ctx.projectiles.throwCherry(tmpMuzzle, tmpAim, def, { dist, y: 0, point: tmpAim });
+    // 地形地图：手雷落点的地面高度不是 0，投掷解算要按真实地面收尾。
+    tmpAim.y = this.groundAt(tmpAim.x, tmpAim.z);
+    this.ctx.projectiles.throwCherry(tmpMuzzle, tmpAim, def, { dist, y: tmpAim.y, point: tmpAim });
     this.ctx.sfx.throwCherry();
 
     this.recoil = Math.min(1.6, this.recoil + 0.9);
@@ -1300,14 +1305,29 @@ export class WeaponSystem {
   // 投掷物的落点：准星正前方那片地。
   // 视线水平或朝上时与地面永不相交，退化成「准星指向的前方 16 米，最多 22 米」。
   // 返回 { dist：离相机的水平距离, y：落点地面高度 }，落点本身写进 out。
+  // 地形地图（彩绘山谷）的地面高度；其余地图恒为 0。
+  groundAt(x, z) {
+    const map = this.ctx.map;
+    return map && typeof map.heightAt === 'function' ? map.heightAt(x, z) : 0;
+  }
+
   groundRange(out) {
     this.camera.getWorldDirection(tmpFwd);
     tmpOrigin.copy(this.camera.position);
+    const map = this.ctx.map;
+    const heightAt = map && typeof map.heightAt === 'function' ? map.heightAt : null;
     const flat = Math.hypot(tmpFwd.x, tmpFwd.z);
-    let horiz = tmpFwd.y < -0.02 ? (tmpOrigin.y * flat) / -tmpFwd.y : 16;
+    // 视线与地面的交点按**相机相对脚下的高度**算；地形地图的相机绝对 y 含山坡高程，
+    // 直接用 y 会让坡上/坡下的落点整体偏近或偏远。
+    const camGround = heightAt ? heightAt(tmpOrigin.x, tmpOrigin.z) : 0;
+    const eyeHeight = Math.max(0.4, tmpOrigin.y - camGround);
+    let horiz = tmpFwd.y < -0.02 ? (eyeHeight * flat) / -tmpFwd.y : 16;
     horiz = clamp(horiz, 2, 22);
-    out.set(tmpOrigin.x + (tmpFwd.x / flat) * horiz, 0, tmpOrigin.z + (tmpFwd.z / flat) * horiz);
-    return { dist: horiz, y: 0, point: out };
+    const x = tmpOrigin.x + (tmpFwd.x / flat) * horiz;
+    const z = tmpOrigin.z + (tmpFwd.z / flat) * horiz;
+    const gy = heightAt ? heightAt(x, z) : 0;
+    out.set(x, gy, z);
+    return { dist: horiz, y: gy, point: out };
   }
 
   findAimTarget(def) {

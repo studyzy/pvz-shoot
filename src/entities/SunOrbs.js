@@ -26,12 +26,15 @@ export class SunOrbs {
     this.onCollect = null;
     this.nextId = 1;
     this.claimT = 0;
+    this.heightAt = null;
   }
 
-  setMap(id) {
+  setMap(id, map) {
     const forest = id === 'forest';
     this.mat.color.setHex(forest ? 0xffdc8a : 0xffd83f);
     this.glowMat.color.setHex(forest ? 0x80d9dd : 0xffffff);
+    // 地形地图（彩绘山谷）：阳光球要落在真实地面上，不能穿到坡里或悬在半空。
+    this.heightAt = map && typeof map.heightAt === 'function' ? map.heightAt : null;
   }
 
   // 双人击杀密度 ×1.5，池子 40（单人 28）。只增不减，切换模式不会回收已建对象。
@@ -82,7 +85,9 @@ export class SunOrbs {
     orb.age = 0;
     orb.magnet = false;
     orb.sky = true;
-    orb.pos.set(x, SUN_SKY.height, z);
+    // 落点高度相对地面：地形地图的地面不是 0，从 y=0 平面往下落会从地下开始。
+    const gY = this.heightAt ? this.heightAt(x, z) : 0;
+    orb.pos.set(x, gY + SUN_SKY.height, z);
     orb.vel.set(0, -FALL_SPEED, 0);
     orb.phase = rand(0, TAU);
     orb.group.visible = true;
@@ -98,7 +103,8 @@ export class SunOrbs {
       const o = this.orbs[i];
       if (!o.active) continue;
       o.age += dt;
-
+      // 地形地图：地面高度随位置变；其余地图恒为 0（与改动前一致）。
+      const gY = this.heightAt ? this.heightAt(o.pos.x, o.pos.z) : 0;
       const dx = px - o.pos.x;
       const dz = pz - o.pos.z;
       const dy = eyeY - o.pos.y;
@@ -125,8 +131,8 @@ export class SunOrbs {
         // 天降阶段：匀速下落（速度由 spawnSky 设好，靠下面的 addScaledVector 积分），
         // 不弹跳、不受重力，落地后转为普通阳光
         o.vel.set(0, -FALL_SPEED, 0);
-        if (o.pos.y <= 0.5) {
-          o.pos.y = 0.5;
+        if (o.pos.y <= gY + 0.5) {
+          o.pos.y = gY + 0.5;
           o.vel.set(0, 0, 0);
           o.sky = false;
         }
@@ -134,15 +140,15 @@ export class SunOrbs {
         o.vel.y -= 7.5 * dt;
         o.vel.x *= 1 - Math.min(0.9, 1.6 * dt);
         o.vel.z *= 1 - Math.min(0.9, 1.6 * dt);
-        if (o.pos.y < 0.5) {
-          o.pos.y = 0.5;
+        if (o.pos.y < gY + 0.5) {
+          o.pos.y = gY + 0.5;
           o.vel.y = Math.abs(o.vel.y) * 0.34;
           if (o.vel.y < 0.4) o.vel.y = 0;
         }
       }
 
       o.pos.addScaledVector(o.vel, dt);
-      if (o.pos.y < 0.4) o.pos.y = 0.4;
+      if (o.pos.y < gY + 0.4) o.pos.y = gY + 0.4;
 
       o.phase += dt * 2.6;
       o.group.position.set(o.pos.x, o.pos.y + Math.sin(o.phase) * 0.09, o.pos.z);

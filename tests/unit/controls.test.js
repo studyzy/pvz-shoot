@@ -3,6 +3,7 @@ import { mountIndexHtml, installPointerLock, installGlobals } from '../helpers/e
 import { HUD } from '../../src/ui/HUD.js';
 import { Controls } from '../../src/input/Controls.js';
 import { WEAPONS, SLOT_KEYS } from '../../src/config.js';
+import { VALLEY_TIME } from '../../src/world/valleyHours.js';
 
 // jsdom 没有 PointerEvent：手工构造带 pointerId / pointerType / clientX 的事件。
 function pointerEvent(type, props) {
@@ -541,6 +542,36 @@ describe('Controls', () => {
       expect(c.lookId).toBe(null);
       touchMove({ pointerId: 11, clientX: 800, clientY: 100 });
       expect(c.lookX).toBe(0);
+    });
+  });
+
+  describe('彩绘山谷时段键', () => {
+    it('T / 0 / , / . 分别请求循环、漂移、前后微调，且不占用武器槽', () => {
+      const c = make();
+      keydown('KeyT');
+      expect(c.consumeValleyTimeRequest()).toBe(VALLEY_TIME.CYCLE);
+      expect(c.consumeSlotRequest()).toBe(-1);
+      keyup('KeyT');
+
+      keydown('Digit0');
+      expect(c.consumeValleyTimeRequest()).toBe(VALLEY_TIME.DRIFT);
+      expect(c.consumeSlotRequest()).toBe(-1);
+      keyup('Digit0');
+
+      keydown('Comma');
+      expect(c.consumeValleyTimeRequest()).toBe(VALLEY_TIME.EARLIER);
+      keyup('Comma');
+      keydown('Period');
+      expect(c.consumeValleyTimeRequest()).toBe(VALLEY_TIME.LATER);
+      keyup('Period');
+      expect(c.consumeValleyTimeRequest()).toBe(VALLEY_TIME.NONE);
+    });
+
+    it('禁用输入时清空未消费的时段请求', () => {
+      const c = make();
+      keydown('KeyT');
+      c.setEnabled(false);
+      expect(c.consumeValleyTimeRequest()).toBe(VALLEY_TIME.NONE);
     });
   });
 });

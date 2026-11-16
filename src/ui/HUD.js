@@ -35,6 +35,7 @@ const MAP_ART = {
   cloud: '<svg viewBox="0 0 120 80" preserveAspectRatio="none"><g fill="var(--art-b)"><circle cx="22" cy="56" r="12"/><circle cx="38" cy="60" r="9"/><circle cx="96" cy="58" r="11"/><circle cx="80" cy="62" r="8"/></g><path d="M34 52h52v5H34z" fill="var(--art-c)"/><g fill="var(--art-c)"><rect x="56" y="20" width="9" height="32" rx="2"/><circle cx="60.5" cy="18" r="5"/></g></svg>',
   downtown: '<svg viewBox="0 0 120 80" preserveAspectRatio="none"><g fill="var(--art-b)"><rect x="10" y="30" width="20" height="42"/><rect x="34" y="18" width="24" height="54"/><rect x="62" y="36" width="18" height="36"/><rect x="84" y="24" width="26" height="48"/></g><g fill="var(--art-c)"><rect x="15" y="36" width="3" height="3"/><rect x="22" y="36" width="3" height="3"/><rect x="40" y="24" width="3" height="3"/><rect x="49" y="24" width="3" height="3"/><rect x="40" y="34" width="3" height="3"/><rect x="49" y="34" width="3" height="3"/><rect x="67" y="44" width="3" height="3"/><rect x="90" y="32" width="3" height="3"/><rect x="100" y="32" width="3" height="3"/><rect x="90" y="42" width="3" height="3"/></g><path d="M0 72h120v8H0z" fill="var(--art-a)"/></svg>',
 cyber: '<svg viewBox="0 0 120 80" preserveAspectRatio="none"><g fill="var(--art-b)"><rect x="8" y="26" width="16" height="46"/><rect x="28" y="14" width="20" height="58"/><rect x="52" y="32" width="14" height="40"/><rect x="70" y="20" width="18" height="52"/><rect x="92" y="34" width="20" height="38"/></g><g fill="var(--art-c)"><rect x="11" y="30" width="2" height="40"/><rect x="23" y="30" width="2" height="40"/><rect x="31" y="18" width="2" height="52"/><rect x="45" y="18" width="2" height="52"/><rect x="55" y="36" width="2" height="34"/><rect x="74" y="24" width="2" height="46"/><rect x="86" y="24" width="2" height="46"/><rect x="95" y="38" width="2" height="32"/></g><path d="M0 72h120v8H0z" fill="var(--art-a)"/><g fill="var(--art-c)" opacity=".6"><rect x="14" y="40" width="4" height="2"/><rect x="35" y="30" width="5" height="2"/><rect x="78" y="36" width="5" height="2"/></g></svg>',
+  valley: '<svg viewBox="0 0 120 80" preserveAspectRatio="none"><path d="M0 40L22 18l16 14 18-22 20 24 16-12 28 18v40H0z" fill="var(--art-b)"/><path d="M0 58c18-8 30 6 48-2s34-12 72 2v22H0z" fill="var(--art-a)"/><g fill="var(--art-c)"><circle cx="24" cy="18" r="7"/><circle cx="34" cy="15" r="9"/><circle cx="44" cy="19" r="6"/></g><g fill="var(--art-b)"><rect x="70" y="52" width="14" height="12"/><path d="M68 52l9-8 9 8z" fill="var(--art-c)"/></g><path d="M0 70h120v10H0z" fill="var(--art-a)"/></svg>',
 };
 
 function escapeHtml(text) {
@@ -213,6 +214,12 @@ export class HUD {
     if (mapBtn) mapBtn.addEventListener('click', () => { if (this.onChangeMap) this.onChangeMap(); });
     const pauseMapBtn = document.getElementById('pauseMapBtn');
     if (pauseMapBtn) pauseMapBtn.addEventListener('click', () => { if (this.onChangeMap) this.onChangeMap(); });
+    // 彩绘山谷：时段按钮（CSS 只在 body[data-map="valley"] 下显示）
+    const valleyTimeBtn = document.getElementById('valleyTimeBtn');
+    if (valleyTimeBtn) valleyTimeBtn.addEventListener('click', (e) => {
+      e.preventDefault(); e.stopPropagation();
+      if (this.onValleyTime) this.onValleyTime();
+    });
     if (this.muteBtn) {
       this.muteBtn.addEventListener('click', () => {
         this.muted = !this.muted;
@@ -263,6 +270,11 @@ export class HUD {
 
   setStartLabel(text) {
     if (this.startBtn) this.startBtn.textContent = text;
+  }
+
+  setValleyTime(name) {
+    const btn = document.getElementById('valleyTimeBtn');
+    if (btn) btn.textContent = '时段 · ' + name;
   }
 
   // 首页加载面板。summary 来自 src/assets/LoadProgress.js 的 loadSummary()。

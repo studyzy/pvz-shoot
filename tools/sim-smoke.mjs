@@ -4,7 +4,8 @@ import { MatchSim } from '../src/sim/MatchSim.js';
 import { headlessMap, duoStartSpawns } from '../src/sim/headlessMap.js';
 
 const seconds = Number(process.argv[2] || 30);
-const MAPS = ['backyard', 'snow', 'dust', 'forest', 'cloud', 'downtown'];
+// 赛博空间是无限地图（按区块生成），不在这份固定场地冒烟里；其余地图都跑一遍。
+const MAPS = ['backyard', 'snow', 'dust', 'forest', 'cloud', 'downtown', 'valley'];
 let failed = 0;
 
 for (const id of MAPS) {

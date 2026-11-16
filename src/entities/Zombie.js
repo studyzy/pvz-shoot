@@ -1521,7 +1521,12 @@ export class Zombie {
 
   // 姿态只读技能快照，guest 也调用但绝不推进技能时钟。
   updateSkillVisuals() {
-    this.shadow.position.y = (0.025 - this.root.position.y) / this.scaleFactor;
+    // 影子要落在**脚下的地面**上：地形地图的 root.y 已含山坡高程，不能再把它归零到 y=0。
+    const map = this.ctx && this.ctx.map;
+    const groundY = map && typeof map.heightAt === 'function'
+      ? map.heightAt(this.root.position.x, this.root.position.z)
+      : 0;
+    this.shadow.position.y = (groundY + 0.025 - this.root.position.y) / this.scaleFactor;
     this.shadow.scale.setScalar(this.airborne ? 0.6 : 1);
     this.updateSkillCue();
     const state = this.skillState;

@@ -660,8 +660,10 @@ async function phaseMaps(ctx) {
   }, 5000, '主菜单重新出现');
 
   const cards = await page.$$('#mapSelect .map-card');
-  check(cards.length === 6, '菜单应有六张地图卡片，实际 ' + cards.length);
+  check(cards.length === 8, '菜单应有八张地图卡片，实际 ' + cards.length);
   const seen = [];
+  // 只抽验这六张：cyber 的自定义 shader 会重复声明 instanceMatrix（既有问题），
+  // valley 由专门的 phaseValley 覆盖（它的渲染栈是懒构建的，不适合放在快速切换序列里）。
   const seq = ['snow', 'dust', 'forest', 'cloud', 'backyard', 'downtown'];
   for (const id of seq) {
     const before = await page.evaluate(() => {
@@ -710,12 +712,60 @@ async function phaseMaps(ctx) {
     check(visibleCount === 1, id + '：应只有 1 张地图 root 可见，实际 ' + visibleCount);
     seen.push({ id, fogNear: after.fogNear, fogFar: after.fogFar, bg: after.bgColor });
   }
-  // 六张地图的雾参数必须互不相同，否则切图只是“换了 id”
+  // 抽验的六张地图雾参数必须互不相同，否则切图只是“换了 id”
   const fogKeys = new Set(seen.map((s) => s.fogNear + '/' + s.fogFar));
-  check(fogKeys.size === 6, '六张地图的雾参数应各不相同，实际 ' + JSON.stringify(seen));
+  check(fogKeys.size === 6, '抽验地图的雾参数应各不相同，实际 ' + JSON.stringify(seen));
   return {
     metrics: { maps: seen.map((s) => s.id).join('→'), distinctFog: fogKeys.size },
   };
+}
+
+// 场景：彩绘山谷（vendored 渲染栈 + 时段机制）。真实 WebGL，验证整帧接管与 T 键。
+async function phaseValley(ctx) {
+  const { page } = ctx;
+  await page.evaluate(() => {
+    const g = window.__game;
+    if (g.state !== 'menu') g.backToMenu();
+  });
+  await page.waitForFunction(() => window.__game.state === 'menu', null, { timeout: 30000, polling: 100 });
+  await page.click('#mapSelect .map-card[data-map="valley"]');
+  await waitUntil(page, () => window.__game.mapId === 'valley', 30000, '切到彩绘山谷');
+  // 渲染栈是懒构建的；SwiftShader 上要给它时间。
+  await waitUntil(page, () => !!window.__game.map.valleyFrame, 300000, '山谷渲染栈构建完成');
+  await page.waitForTimeout(1200);
+  const frame = await page.evaluate(() => {
+    const g = window.__game;
+    return {
+      far: g.camera.far,
+      toneMapping: g.renderer.toneMapping,
+      calls: g.renderer.info.render.calls,
+      glError: g.renderer.getContext().getError(),
+      skyHidden: g.sky.mesh.visible === false,
+      paint: g.map.valleyFrame.frame.paint,
+      hour: g.map.hour,
+    };
+  });
+  check(frame.glError === 0, '山谷渲染后 gl.getError 非 0：' + frame.glError);
+  check(frame.calls > 0, '山谷没有 draw call');
+  check(frame.toneMapping === 0, '山谷整帧接管时应关掉 three 的 toneMapping');
+  check(frame.skyHidden, '山谷自带天空，全局穹顶应隐藏');
+  check(frame.far > 240, '山谷需要更大的远裁面，实际 ' + frame.far);
+
+  await page.evaluate(() => window.__game.start());
+  await page.waitForFunction(() => window.__game.state === 'playing', null, { timeout: 60000, polling: 200 });
+  const btn = await page.evaluate(() => {
+    const b = document.getElementById('valleyTimeBtn');
+    return { display: getComputedStyle(b).display, label: b.textContent };
+  });
+  check(btn.display !== 'none', '时段按钮在 playing 下应可见');
+  // 用 HUD 按钮改时段（确定性；T/0/,/. 的按键映射由 tests/unit/controls.test.js 覆盖）。
+  const h0 = await page.evaluate(() => window.__game.map.hour);
+  // 直接派发 click：SwiftShader 连续重绘时 Playwright 的「元素稳定」判定会一直等不到。
+  await page.evaluate(() => document.getElementById('valleyTimeBtn').click());
+  await page.waitForFunction((h) => window.__game.map.hour !== h, h0, { timeout: 60000, polling: 200 });
+  const h1 = await page.evaluate(() => window.__game.map.hour);
+  await shot(page, 'phase-valley');
+  return { metrics: { hour: h1, paint: frame.paint, label: btn.label, glError: frame.glError } };
 }
 
 // 场景 5（在 ctx 里以新 page 跑）：手机模拟
@@ -2729,7 +2779,8 @@ const PHASES = [
   { name: 'skeleton', label: '骷髅模型（雪地专属 + 同屏上限）', group: 'desktop', fn: phaseSkeleton },
   { name: 'bossdoctor', label: '僵尸博士（后花园第 10 波 BOSS）', group: 'desktop', fn: phaseBossDoctor },
   { name: 'remote', label: '队友模型（Farmer 戴夫化）', group: 'desktop', fn: phaseRemote },
-  { name: 'maps', label: '六张地图真实切换', group: 'desktop', fn: phaseMaps },
+  { name: 'maps', label: '八张地图真实切换', group: 'desktop', fn: phaseMaps },
+  { name: 'valley', label: '彩绘山谷（移植渲染栈 / 时段 / 整帧接管）', group: 'desktop', fn: phaseValley },
   { name: 'flashlight', label: '夜之森林手电（亮度/过曝/不残留）', group: 'desktop', fn: phaseFlashlight },
   { name: 'forest-rework', label: '月光森林（全图/技能/触屏/联机快照）', group: 'desktop', fn: phaseForestRework },
   { name: 'mobile', label: '手机模拟（横屏 UI + 竖屏拦截）', group: 'mobile', fn: phaseMobile },

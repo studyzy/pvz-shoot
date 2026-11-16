@@ -1,4 +1,5 @@
 import { SLOT_KEYS, SLOT_KEY_BASE } from '../config.js';
+import { VALLEY_TIME } from '../world/valleyHours.js';
 
 export class Controls {
   constructor(canvas, hud) {
@@ -15,6 +16,8 @@ export class Controls {
     this.slotRequest = -1;
     this.dropSlotRequest = false;
     this.slotCycle = 0;
+    // 彩绘山谷的时段请求：VALLEY_TIME.* 的数值，0 表示没有请求。
+    this.valleyTimeRequest = 0;
     this.enabled = false;
     const mq = window.matchMedia ? window.matchMedia('(pointer: coarse)').matches : false;
     const noHover = window.matchMedia ? window.matchMedia('(hover: none)').matches : false;
@@ -47,6 +50,7 @@ export class Controls {
       this.slotRequest = -1;
       this.dropSlotRequest = false;
         this.slotCycle = 0;
+      this.valleyTimeRequest = 0;
       this.joyId = null;
       this.lookId = null;
       this.move.x = 0;
@@ -97,6 +101,13 @@ export class Controls {
   consumeDropRequest() {
     const v = this.dropSlotRequest;
     this.dropSlotRequest = false;
+    return v;
+  }
+
+  // 彩绘山谷：T 循环时段、0 恢复自动漂移、, / . 微调 ±0.25 小时。
+  consumeValleyTimeRequest() {
+    const v = this.valleyTimeRequest;
+    this.valleyTimeRequest = 0;
     return v;
   }
 
@@ -264,6 +275,12 @@ export class Controls {
         if (sIdx >= 0 && sIdx < SLOT_KEYS.length) this.slotRequest = sIdx;
       }
       if (e.code === 'KeyQ') this.lootRequest = true;
+      // 彩绘山谷的时段键：只在这张图上由 Game 消费，其它图忽略。
+      // 1-4 是武器槽，绝不复用；T/0/,/. 与现有键位不冲突。
+      if (!e.repeat && e.code === 'KeyT') this.valleyTimeRequest = VALLEY_TIME.CYCLE;
+      if (!e.repeat && e.code === 'Digit0') this.valleyTimeRequest = VALLEY_TIME.DRIFT;
+      if (!e.repeat && e.code === 'Comma') this.valleyTimeRequest = VALLEY_TIME.EARLIER;
+      if (!e.repeat && e.code === 'Period') this.valleyTimeRequest = VALLEY_TIME.LATER;
       if (e.code === 'Tab') {
         e.preventDefault();
         this.slotCycle = e.shiftKey ? -1 : 1;

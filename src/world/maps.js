@@ -5,6 +5,7 @@ import { NightForest } from './NightForest.js';
 import { CloudCarnival } from './CloudCarnival.js';
 import { Downtown } from './Downtown.js';
 import { CyberSpace } from './CyberSpace.js';
+import { PaintedValley } from './PaintedValley.js';
 
 export const MAPS = [
   {
@@ -77,6 +78,17 @@ export const MAPS = [
     desc: '没有边界的数据都市：楼群按坐标实时生长，走多远都不会到头',
     startLabel: '接入无尽的赛博空间',
     create: (scene) => new CyberSpace(scene),
+  },
+  {
+    id: 'valley',
+    mode: '昼光渐变',
+    name: '彩绘山谷',
+    short: '山谷',
+    tag: 'PAINTED VALLEY',
+    desc: '手绘的夏日山谷：草甸、红瓦村庄、堆云与远山，光从正午走到日落',
+    startLabel: '走进彩绘山谷',
+    // 渲染栈在 attachRenderer(renderer, camera) 里懒构建，构造函数不碰 WebGL。
+    create: (scene) => new PaintedValley(scene),
   },
 ];
 

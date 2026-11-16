@@ -291,7 +291,7 @@ export class WeaponPickups {
 
   // 空投：提前 5 秒在落点竖一根光柱；真正落地时再 spawnAir。
   beamAt(x, z, dur = 5) {
-    this.beam.position.set(x, 7, z);
+    this.beam.position.set(x, 7 + this.groundAt(x, z), z);
     this.beam.visible = true;
     this.beamT = dur;
   }
@@ -307,7 +307,7 @@ export class WeaponPickups {
     item.active = true;
     item.id = this.nextId++;
     this.paint(item, index);
-    item.group.position.set(x, 0, z);
+    item.group.position.set(x, this.groundAt(x, z), z);
     item.group.visible = true;
     item.phase = rand(0, TAU);
     item.pickCooldown = 0.8;
@@ -383,7 +383,7 @@ export class WeaponPickups {
       item.pickCooldown = 0;
       item.claimT = 0;
       if (changed) this.paint(item, e.i);
-      item.group.position.set(e.x, 0, e.z);
+      item.group.position.set(e.x, this.groundAt(e.x, e.z), e.z);
       item.group.visible = true;
     }
   }
@@ -408,7 +408,7 @@ export class WeaponPickups {
     item.active = true;
     item.id = this.nextId++;
     this.paint(item, index);
-    item.group.position.set(x, 0, z);
+    item.group.position.set(x, this.groundAt(x, z), z);
     item.group.visible = true;
     // 刚丢下的枪立刻可捡会形成"丢→捡"循环，给 1 秒的冷却
     item.phase = rand(0, TAU);
@@ -440,11 +440,17 @@ export class WeaponPickups {
     item.active = true;
     item.id = this.nextId++;
     this.paint(item, item.index);
-    item.group.position.set(item.spot[0], 0, item.spot[1]);
+    item.group.position.set(item.spot[0], this.groundAt(item.spot[0], item.spot[1]), item.spot[1]);
     item.phase = rand(0, TAU);
     item.group.visible = true;
     this.notify();
     return true;
+  }
+
+  // 地形地图（彩绘山谷）：道具要摆在真实地面上；其余地图恒为 0。
+  groundAt(x, z) {
+    const map = this.map;
+    return map && typeof map.heightAt === 'function' ? map.heightAt(x, z) : 0;
   }
 
   setMap(map) {
