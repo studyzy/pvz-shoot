@@ -138,7 +138,7 @@ export class ZombieManager {
       this.zombies[i].update(dt, targets || player, colliders);
     }
 
-    this.applyGround();
+    this.applyGround(dt, targets || player);
     this.applySeparation();
 
     for (let i = this.zombies.length - 1; i >= 0; i--) {
@@ -245,15 +245,55 @@ export class ZombieManager {
   // 地形地图（彩绘山谷）：每帧把僵尸的脚底贴到 heightAt 上。空中单位（气球 / 飞行技能）
   // 的 airHeight 是相对地面的高度，加回去才不会被拉回地面。
   // 只在 host/单人跑：guest 的位置来自快照，快照里的 y 已经是 host 算好的绝对高度。
-  applyGround() {
+  applyGround(dt, player) {
     const map = this.ctx.map;
-    if (!map || typeof map.heightAt !== 'function') return;
+    if (!map) return;
+    // 立体地图（海底）：没有海床贴地这回事，僵尸改成"游"到玩家所在深度，
+    // 并用场景的距离场把它们从岩石里推出来。
+    if (map.swim) { this.floatSwim(dt, player); return; }
+    if (typeof map.heightAt !== 'function') return;
     for (let i = 0; i < this.zombies.length; i++) {
       const z = this.zombies[i];
       // 死亡下沉由 Zombie 自己控制 y，不要再拉回地面
       if (z.dying || z.dead) continue;
       const gh = map.heightAt(z.root.position.x, z.root.position.z);
       z.root.position.y = gh + (z.airHeight || 0);
+    }
+  }
+
+  // 海底：僵尸漂在玩家所在深度附近，带一点上下起伏；整群一次丢给距离场推出。
+  floatSwim(dt, player) {
+    const map = this.ctx.map;
+    const list = this.zombies;
+    const pts = this._swimPts || (this._swimPts = new Float32Array(3 * 64));
+    const p = player && player.pos;
+    let n = 0;
+    for (let i = 0; i < list.length; i++) {
+      const z = list[i];
+      if (z.dying || z.dead) continue;
+      const sc = z.scaleFactor || 1;
+      const bob = Math.sin((z.age || 0) * 1.4 + z.root.position.x * 0.3) * 0.7 * sc;
+      const want = p ? clamp(p.y + 0.5, -49.5, -3.5) + bob : -26;
+      z.root.position.y += (want - z.root.position.y) * Math.min(1, dt * 1.8);
+      if (n < 64) {
+        pts[n * 3] = z.root.position.x;
+        pts[n * 3 + 1] = z.root.position.y + 0.5 * sc;
+        pts[n * 3 + 2] = z.root.position.z;
+        n++;
+      }
+    }
+    if (n > 0 && typeof map.resolveMany === 'function') {
+      map.resolveMany(pts, n, 0.55);
+      let j = 0;
+      for (let i = 0; i < list.length && j < n; i++) {
+        const z = list[i];
+        if (z.dying || z.dead) continue;
+        const sc = z.scaleFactor || 1;
+        z.root.position.x = pts[j * 3];
+        z.root.position.y = pts[j * 3 + 1] - 0.5 * sc;
+        z.root.position.z = pts[j * 3 + 2];
+        j++;
+      }
     }
   }
 

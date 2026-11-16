@@ -82,6 +82,7 @@ let CloudCarnival;
 let Downtown;
 let CyberSpace;
 let PaintedValley;
+let AbyssalGarden;
 let FlowField;
 let PerspectiveCamera;
 
@@ -99,14 +100,15 @@ beforeAll(async () => {
   ({ Downtown } = await import('../../src/world/Downtown.js'));
   ({ CyberSpace } = await import('../../src/world/CyberSpace.js'));
   ({ PaintedValley } = await import('../../src/world/PaintedValley.js'));
+  ({ AbyssalGarden } = await import('../../src/world/AbyssalGarden.js'));
   ({ FlowField } = await import('../../src/world/FlowField.js'));
   ({ PerspectiveCamera } = THREE);
 }, SECONDS);
 
 describe('地图注册表 maps.js', () => {
   it('MAPS 元数据完整：id 唯一、名字/描述/开始按钮文案就位、create 是工厂函数', () => {
-    expect(MAPS.length).toBe(8);
-    expect(MAPS.map((m) => m.id)).toEqual(['backyard', 'snow', 'dust', 'forest', 'cloud', 'downtown', 'cyber', 'valley']);
+    expect(MAPS.length).toBe(9);
+    expect(MAPS.map((m) => m.id)).toEqual(['backyard', 'snow', 'dust', 'forest', 'cloud', 'downtown', 'cyber', 'valley', 'abyss']);
     expect(new Set(MAPS.map((m) => m.id)).size).toBe(MAPS.length);
     for (const m of MAPS) {
       expect(typeof m.name).toBe('string');
@@ -127,7 +129,7 @@ describe('地图注册表 maps.js', () => {
   it('createMaps(scene) 建出全部地图，meta/id/startLabel 一一对应，且全部挂在 scene 上', () => {
     const scene = new THREE.Scene();
     const maps = createMaps(scene);
-    expect(maps.length).toBe(8);
+    expect(maps.length).toBe(9);
     maps.forEach((map, i) => {
       expect(map.meta).toBe(MAPS[i]);
       expect(map.id).toBe(MAPS[i].id);
@@ -158,7 +160,7 @@ describe('地图注册表 maps.js', () => {
 
   it('未知地图 id 回落到第一张；Game.setMap 切图后只有当前地图可见', async () => {
     const { game } = await createGame();
-    expect(game.maps.length).toBe(8);
+    expect(game.maps.length).toBe(9);
     game.setMap('nope');
     expect(game.mapId).toBe(MAPS[0].id);
     for (const id of ['snow', 'dust', 'backyard']) {
@@ -182,7 +184,7 @@ async function createGame() {
 
 // describe.each 在收集阶段同步执行；three/maps 只能 await import，
 // 所以用一组静态 id 驱动参数化（下面的“注册表”用例会断言它和 MAPS 完全一致）。
-const MAP_IDS = ['backyard', 'snow', 'dust', 'forest', 'cloud', 'downtown', 'cyber', 'valley'];
+const MAP_IDS = ['backyard', 'snow', 'dust', 'forest', 'cloud', 'downtown', 'cyber', 'valley', 'abyss'];
 
 describe.each(MAP_IDS)('地图契约：%s', (id) => {
   let scene;
@@ -198,6 +200,7 @@ describe.each(MAP_IDS)('地图契约：%s', (id) => {
       downtown: Downtown,
       cyber: CyberSpace,
       valley: PaintedValley,
+      abyss: AbyssalGarden,
     };
     scene = new THREE.Scene();
     map = new names[id](scene);
@@ -259,6 +262,12 @@ describe.each(MAP_IDS)('地图契约：%s', (id) => {
   });
 
   it('碰撞体有效：{x,z,r} 有限、r>0，且每个球附近 3 米内确实有可以碰撞的物体', () => {
+    // 立体图（海底）没有圆柱碰撞体表：岩石是场景里的距离场，玩家/僵尸都走 map.resolve()。
+    if (map.swim) {
+      expect(typeof map.resolve).toBe('function');
+      expect(typeof map.heightAt).toBe('function');
+      return;
+    }
     expect(map.colliders.length).toBeGreaterThan(0);
     const solids = map.walls.filter(isBox).concat(map.walls.filter(isColumn));
     // 纯装饰件（后院招牌）只拦僵尸、不拦投掷物：它没有对应的反弹体是设计如此。
@@ -284,6 +293,11 @@ describe.each(MAP_IDS)('地图契约：%s', (id) => {
   });
 
   it('walls 反弹体：每项要么是 OBB 盒（c²+s²≈1）要么是立地圆柱', () => {
+    // 海底的岩石由距离场统一处理，子弹撞岩石走地图自己的采样，没有圆柱表。
+    if (map.swim) {
+      expect(map.walls.length).toBe(0);
+      return;
+    }
     expect(map.walls.length).toBeGreaterThan(0);
     for (const w of map.walls) {
       expect(isFiniteNum(w.x) && isFiniteNum(w.z)).toBe(true);
@@ -306,11 +320,17 @@ describe.each(MAP_IDS)('地图契约：%s', (id) => {
     const target = all.find((m) => m.id === id);
     target.activate(local);
 
-    expect(local.background).toBeTruthy();
+    // 海底图的背景是 iframe 里的 WebGPU 场景，因此 background 由 backdrop 标志代替；
+    // 雾改用 FogExp2（海水的吸收是指数衰减，不是线性近远平面）。
+    expect(local.background || target.backdrop).toBeTruthy();
     expect(local.fog).toBeTruthy();
     expect(local.fog.isFog || local.fog.isFogExp2).toBe(true);
-    expect(local.fog.near).toBeGreaterThan(0);
-    expect(local.fog.far).toBeGreaterThan(local.fog.near);
+    if (local.fog.isFogExp2) {
+      expect(local.fog.density).toBeGreaterThan(0);
+    } else {
+      expect(local.fog.near).toBeGreaterThan(0);
+      expect(local.fog.far).toBeGreaterThan(local.fog.near);
+    }
     expect(target.root.visible).toBe(true);
     for (const other of all) {
       if (other !== target) expect(other.root.visible).toBe(false);
@@ -338,7 +358,8 @@ describe.each(MAP_IDS)('地图契约：%s', (id) => {
     const toCenter = new THREE.Vector3();
     const samples = [0, 3, 11, 26].map((t) => {
       map.menuCamera(cam, t);
-      expect(cam.position.y).toBeGreaterThan(0);
+      // 平面图的机位在水面以上；海底图的机位本来就在水下（y 为负）。
+      expect(cam.position.y).toBeGreaterThan(map.swim ? -52 : 0);
       expect(Number.isFinite(cam.position.x) && Number.isFinite(cam.position.z)).toBe(true);
       const horiz = Math.hypot(cam.position.x, cam.position.z);
       // 在场地附近盘旋：既不在场地正中，也不会飞到无限远

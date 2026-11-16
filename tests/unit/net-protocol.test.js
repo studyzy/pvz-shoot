@@ -86,10 +86,13 @@ describe('地图清单一致性（新增地图必查）', () => {
     const { MAP_IDS } = await import('../../src/net/protocol.js');
     const { MAPS } = await import('../../src/world/maps.js');
     const mapdata = (await import('../../src/sim/headlessMap.js')).HEADLESS_MAP_IDS;
-    const registry = MAPS.map((m) => m.id);
+    // 明确标了 duo:false 的地图（海底）是单人图：不进联机白名单，也不导出到 mapdata.json。
+    const registry = MAPS.filter((m) => m.duo !== false).map((m) => m.id);
+    const soloOnly = MAPS.filter((m) => m.duo === false).map((m) => m.id);
     const whitelist = [...MAP_IDS];
     const exported = [...mapdata];
     expect(whitelist.sort()).toEqual(registry.sort());
     expect(exported.sort()).toEqual(registry.sort());
+    for (const id of soloOnly) expect(whitelist).not.toContain(id);
   });
 });

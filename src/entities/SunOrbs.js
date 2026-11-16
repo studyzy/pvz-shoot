@@ -35,6 +35,8 @@ export class SunOrbs {
     this.glowMat.color.setHex(forest ? 0x80d9dd : 0xffffff);
     // 地形地图（彩绘山谷）：阳光球要落在真实地面上，不能穿到坡里或悬在半空。
     this.heightAt = map && typeof map.heightAt === 'function' ? map.heightAt : null;
+    // 立体地图（海底）：没有"地面"可落，阳光改成浮在玩家下方 4 米，稍微下潜就能吸到。
+    this.swim = !!(map && map.swim);
   }
 
   // 双人击杀密度 ×1.5，池子 40（单人 28）。只增不减，切换模式不会回收已建对象。
@@ -86,7 +88,7 @@ export class SunOrbs {
     orb.magnet = false;
     orb.sky = true;
     // 落点高度相对地面：地形地图的地面不是 0，从 y=0 平面往下落会从地下开始。
-    const gY = this.heightAt ? this.heightAt(x, z) : 0;
+    const gY = this.swim ? -18 : this.heightAt ? this.heightAt(x, z) : 0;
     orb.pos.set(x, gY + SUN_SKY.height, z);
     orb.vel.set(0, -FALL_SPEED, 0);
     orb.phase = rand(0, TAU);
@@ -104,7 +106,8 @@ export class SunOrbs {
       if (!o.active) continue;
       o.age += dt;
       // 地形地图：地面高度随位置变；其余地图恒为 0（与改动前一致）。
-      const gY = this.heightAt ? this.heightAt(o.pos.x, o.pos.z) : 0;
+      // 海底：把"落地面"挂在玩家下方 4 米，阳光跟人走，不用每次都潜到海床捡。
+      const gY = this.swim ? player.pos.y - 4 : this.heightAt ? this.heightAt(o.pos.x, o.pos.z) : 0;
       const dx = px - o.pos.x;
       const dz = pz - o.pos.z;
       const dy = eyeY - o.pos.y;

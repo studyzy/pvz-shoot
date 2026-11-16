@@ -10,6 +10,7 @@ const AIR_ACCEL = 12;
 const RISE_MARGIN = 0.02;
 // 双人倒地时的镜头侧倾（弧度，约 14°）：只有自己 downed 的时候才生效。
 const DOWN_ROLL = 0.24;
+const EMPTY_KEYS = new Set();
 
 export class Player {
   constructor(sfx) {
@@ -48,7 +49,8 @@ export class Player {
 
   reset(spawn) {
     const s = spawn || { x: 0, z: TUNING.startZ, yaw: 0 };
-    this.pos.set(s.x ?? 0, 0, s.z ?? TUNING.startZ);
+    // 立体地图（海底）的出生点带 y；平面图没有 y，仍是 0。
+    this.pos.set(s.x ?? 0, s.y ?? 0, s.z ?? TUNING.startZ);
     this.vel.set(0, 0, 0);
     this.yaw = s.yaw ?? 0;
     this.pitch = 0;
@@ -148,6 +150,11 @@ export class Player {
 
   update(dt, controls, terrain, zombies) {
     if (this.dead) return;
+    // 立体地图（海底）：没有重力与地面，玩家在三维空间里游动，碰撞交给地图的距离场。
+    if (terrain && terrain.swim) {
+      this.updateSwim(dt, controls, terrain, zombies);
+      return;
+    }
     if (this.downed) {
       const look = controls.consumeLook();
       this.lastLook.x = look.x;
@@ -377,6 +384,116 @@ export class Player {
       look: { x: look.x, y: look.y },
       jump: jumped,
     };
+  }
+
+
+  // ---------------------------------------------------------------- 立体地图：游泳
+  // 海底图没有地面：眼睛就是 pos，WASD 沿视线水平推进，Space 上浮、Ctrl/C 下潜、Shift 加速；
+  // 水里阻尼大（惯性明显），岩石用地图的 SDF 推出，所以能贴着礁石滑过去而不是卡住。
+  updateSwim(dt, controls, terrain, zombies) {
+    const look = controls.consumeLook();
+    this.lastLook.x = look.x;
+    this.lastLook.y = look.y;
+    this.yaw -= look.x;
+    this.pitch = clamp(this.pitch - look.y, -1.42, 1.42);
+
+    this.invuln = Math.max(0, this.invuln - dt);
+    this.sinceDamage += dt;
+    if (this.sinceDamage > TUNING.regenDelay && this.hp < this.maxHp) {
+      this.hp = Math.min(this.maxHp, this.hp + TUNING.regenRate * dt);
+    }
+
+    let ix = controls.move.x;
+    let iz = controls.move.y;
+    const inLen = Math.hypot(ix, iz);
+    if (inLen > 1) { ix /= inLen; iz /= inLen; }
+
+    const keys = controls.keys || EMPTY_KEYS;
+    const up = keys.has('Space') ? 1 : 0;
+    const down = keys.has('ControlLeft') || keys.has('ControlRight') || keys.has('KeyC') ? 1 : 0;
+    const boost = keys.has('ShiftLeft') || keys.has('ShiftRight') ? 1.75 : 1;
+
+    const sin = Math.sin(this.yaw);
+    const cos = Math.cos(this.yaw);
+    const wishX = -sin * iz + cos * ix;
+    const wishZ = -cos * iz - sin * ix;
+    const wishY = up - down;
+    const speed = 6.0 * boost;
+
+    // 水下惯性：加速度不大，松手后还会滑一段。
+    const k = 1 - Math.exp(-3.4 * dt);
+    this.vel.x += (wishX * speed - this.vel.x) * k;
+    this.vel.z += (wishZ * speed - this.vel.z) * k;
+    this.vel.y += (wishY * speed * 0.85 - this.vel.y) * k;
+
+    this.pos.x += this.vel.x * dt;
+    this.pos.y += this.vel.y * dt;
+    this.pos.z += this.vel.z * dt;
+
+    // 场景边界：半径 150 的圆柱、水面以下 2 米到海床以下一点。
+    const reach = terrain.reach || 148;
+    const rad = Math.hypot(this.pos.x, this.pos.z);
+    if (rad > reach) {
+      const s = reach / rad;
+      this.pos.x *= s;
+      this.pos.z *= s;
+      this.vel.x *= 0.4;
+      this.vel.z *= 0.4;
+    }
+    const yMin = -51.5;
+    const yMax = -2.0;
+    if (this.pos.y < yMin) { this.pos.y = yMin; if (this.vel.y < 0) this.vel.y = 0; }
+    if (this.pos.y > yMax) { this.pos.y = yMax; if (this.vel.y > 0) this.vel.y = 0; }
+
+    // 岩石：推出并把指向岩石内部的速度去掉（沿岩壁滑行）。
+    if (typeof terrain.resolve === 'function') {
+      const r = terrain.resolve(this.pos.x, this.pos.y, this.pos.z, TUNING.playerRadius);
+      if (r.hit) {
+        const dx = r.x - this.pos.x;
+        const dy = r.y - this.pos.y;
+        const dz = r.z - this.pos.z;
+        const len = Math.hypot(dx, dy, dz);
+        this.pos.set(r.x, r.y, r.z);
+        if (len > 1e-5) {
+          const nx = dx / len, ny = dy / len, nz = dz / len;
+          const vn = this.vel.x * nx + this.vel.y * ny + this.vel.z * nz;
+          if (vn < 0) {
+            this.vel.x -= nx * vn;
+            this.vel.y -= ny * vn;
+            this.vel.z -= nz * vn;
+          }
+        }
+      }
+    }
+
+    // 与僵尸的推挤改成立体距离。
+    for (let i = 0; i < zombies.length; i++) {
+      const z = zombies[i];
+      if (z.dying || z.dead) continue;
+      const dx = this.pos.x - z.root.position.x;
+      const dy = this.pos.y - (z.root.position.y + 0.4);
+      const dz = this.pos.z - z.root.position.z;
+      const d = Math.hypot(dx, dy, dz);
+      const min = z.radius + TUNING.playerRadius;
+      if (d < min && d > 0.0001) {
+        const push = ((min - d) / d) * 0.85;
+        this.pos.x += dx * push;
+        this.pos.y += dy * push;
+        this.pos.z += dz * push;
+      }
+    }
+
+    this.grounded = false;
+    this.vy = 0;
+    this.bob = 0;
+    this.moveAmt = Math.min(1, Math.hypot(ix, iz) + Math.abs(wishY));
+    this.roll = damp(this.roll, 0, 6, dt);
+    this.recoil *= Math.exp(-dt * 9);
+    // 游泳时视野固定（与海底场景的 TANH=0.6 对齐，否则背景和僵尸会错位）。
+    this.cameraFov = terrain.cameraFov || 62;
+    // 眼睛就是身体位置：水里没有"站高"。
+    this.eye.copy(this.pos);
+    this.lastInput = { move: { x: ix, y: iz }, look: { x: look.x, y: look.y }, jump: false };
   }
 
   supportHeight(platforms, x, z, feetY) {

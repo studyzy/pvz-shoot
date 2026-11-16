@@ -171,7 +171,8 @@ function infiniteMap(d) {
 export function duoSpawn(map, seat) {
   const s = (map && map.spawn) || { x: 0, z: 0, yaw: 0 };
   const side = seat === 0 ? -1 : 1;
-  return { x: (s.x || 0) + side * 1.8, z: s.z || 0, yaw: s.yaw || 0 };
+  // 立体图（海底）的出生点带 y；平面图 y 为 0/undefined，行为与之前一致。
+  return { x: (s.x || 0) + side * 1.8, y: s.y, z: s.z || 0, yaw: s.yaw || 0 };
 }
 
 export function duoStartSpawns(map) {

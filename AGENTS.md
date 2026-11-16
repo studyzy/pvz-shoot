@@ -8,7 +8,7 @@
 ## 1. 项目速览
 
 - 纯 Web 的 3D 第一人称射击：玩家是戴夫，手持植物打僵尸；iPhone / iPad / 桌面浏览器均可玩。
-- 进入游戏先选地图，共八张无尽地图：**后院**（经典草地）、**雪地**（致敬 CS 的 fy_iceworld）、**沙城**（de_dust2 动线）、**夜之森林**（手电夜景）、**云上发条游乐园**（云海奇幻）、**摩天街区**（黄昏 CBD 高楼巷战）、**无尽的赛博空间**（无限区块）与**彩绘山谷**（移植 painted-valley 渲染栈 + 时段变化）；部分地图上散落着可拾取的植物武器。
+- 进入游戏先选地图，共八张无尽地图：**后院**（经典草地）、**雪地**（致敬 CS 的 fy_iceworld）、**沙城**（de_dust2 动线）、**夜之森林**（手电夜景）、**云上发条游乐园**（云海奇幻）、**摩天街区**（黄昏 CBD 高楼巷战）、**无尽的赛博空间**（无限区块）、**彩绘山谷**（移植 painted-valley 渲染栈 + 时段变化）与**深渊花园**（WebGPU 立体海底，可上下游动）；部分地图上散落着可拾取的植物武器。
 - 技术栈：Vite 8.3 + Three.js 0.169，原生 ES Module，**没有 TypeScript、没有外部 CDN**。单人模式是纯静态站；双人模式额外跑一个 Node WebSocket 服务器（`server/`，只做配对/中继/重连）。
 - 入口：`index.html` → `src/main.js` → `src/Game.js`。所有系统在 `Game` 构造函数里组装。
 - 运行：
@@ -317,6 +317,7 @@ npm run duo       # build 后直接起双人服务器
 - **地面刷新池排除豌豆和坚果**（`WeaponPickups.lootIndices`）：豌豆常驻枪槽，坚果靠阳光充能，都不该出现在地上。
 - 新增拾取植物必须给 `model`（视图模型分支）、`ammo`、`color`，并在 `WeaponSystem.buildViewModels` 的 `builders` 里有对应构建函数。
 - **彩绘山谷（`valley`）是唯一的例外地图**：它用 `src/painted/` 里 vendored 的 painted-valley 渲染栈自己渲一整帧（Kuwahara 笔触 + cel 描边），不走 `postfx`。构造函数**只产出数据面**，WebGL 相关的东西全部在 `attachRenderer(renderer, camera)` 里用动态 `import()` 懒构建（`canAttachValleyRenderer` 会挡掉假渲染器 / jsdom，保证 `extract:maps` 和单测可用）。`Game.renderFrame` 靠 `map.valleyFrame` 是否就绪来分支；未就绪时仍走 `post.render` 兜底。它自带天空/云/远山/植被，所以 `applyAtmosphere` 会隐藏全局 `sky/skyline/weather/props`；`camera.far` 按 `map.cameraFar` 提到 3000。改它之前先看 [docs/plans/2026-11-16-painted-valley.md](docs/plans/2026-11-16-painted-valley.md)。
+- **深渊花园（`abyss`）是唯一的立体地图**：`src/world/AbyssalGarden.js` 只搭 three 这一层（灯 + 空 root），真正的地形/海带/光束在 `public/abyssal/index.html` 的 WebGPU 程序里（由 `../abyssal-garden/source` 用 `node build.mjs` 构建后复制过来，源码改动请改那份源码再重建，不要手改产物）。嵌入协议：`?embed=1` 时不装输入、不开自己的 rAF、不显示菜单，相机每帧从 `window.__ABYSS_CAM` 读，`__ABYSS.step()` 由 `map.update(dt)` 驱动。合成方式：iframe 在 `#app` 最底层，three canvas `alpha:true` + `setClearAlpha(0)` 叠在上面——改渲染器创建参数或 `Game.renderFrame` 的分支时别把这一层弄丢。碰撞是场景里压缩距离场（CI/CG）的球体推出：`map.resolve(x,y,z,r)` / `map.resolveMany(pts,n,r)`；`heightAt` 是向下步进找到的海床（2 米网格缓存）。`Player.updateSwim` 负责三维移动，`ZombieManager.floatSwim` 负责僵尸漂浮与推出。没有 WebGPU 时 `gpuOk=false`，`backdrop` 变 false，退回深蓝兜底；45 秒没喂出第一帧也会自动回落。双人不支持（`duo: false`，协议白名单与 mapdata 都不含它）。
 - **地形高度只走 `map.heightAt`**：彩绘山谷在 `src/painted/valley/world.js` 里把出生点 28 米内压平到 `y=0`，外侧渐变回真山丘；`PaintedValley.heightAt` 暴露这份高度场，`Player`（无 platforms 分支）、`ZombieManager.applyGround`、`ProjectileSystem`、`SunOrbs`、`WeaponPickups`、`WeaponSystem.groundAt/groundRange` 都按它取地面。其它地图没有 `heightAt`，口径仍是 y=0 平地。新增任何「脚下有地面」的系统时一律写 `map.heightAt ? map.heightAt(x, z) : 0`，不要再硬编码 0；`headlessMap` 必须给同一张图同一份函数，否则服务器快照会把玩家按回平地。可走范围要跟原型一致：`REACH = 地面烘焙 extent/2 - 110`（当前 1280 → 530 米圆），`Player` 读 `map.reach` 做圆形钳位、`map.waterAt` 挡水塘；`bounds` 只是给子弹/刷怪的矩形包络，不是玩家能感觉到的墙。树与石头的碰撞由 `src/world/valleyProps.js` 生成，与 `trees.js` / `dressing.js` 的画面共用同一份数据，`extract-map-data.mjs` 也读它，双人才不会撞到空气。
 
 ---
@@ -566,7 +567,7 @@ CI（`.github/workflows/ci.yml`）在每次 push 到 main 和每个 PR 上跑三
 
 ## 8. 已知限制（是设计取舍，不要当 bug 修）
 
-- 后院 / 雪地 / 沙城 / 夜之森林 / 云上发条游乐园 / 摩天街区 / 无尽的赛博空间 / 彩绘山谷八张无尽地图，没有关卡章节/剧情。
+- 后院 / 雪地 / 沙城 / 夜之森林 / 云上发条游乐园 / 摩天街区 / 无尽的赛博空间 / 彩绘山谷 / 深渊花园九张无尽地图，没有关卡章节/剧情。
 - 没有通用地形/斜坡系统：地图只有轴对齐的平顶平台（雪地的田字四柱/矮墙/砖台、沙城的 A/B 点观景台），靠 `platforms` 采样支撑；没有斜坡、楼梯、可破坏物。
 - **僵尸不会跳**：能站上去的高台必须给僵尸留活路——沙城观景台只有 0.4 米且不挂 `colliders`；`FlowField.blockPlatforms` 的阈值统一用 `config.js` 的 `PLAYER_PERCH = 0.6`（= 跳跃能上的最高台阶 0.42 + 余量），低于它的平台不封流场，玩家跳上去也还是能被打到。**改这个阈值前先确认没有新的可站平台低于它。**
 - 拾取植物是弹匣制（打空用阳光续弹），但**没有手动换弹键**；豌豆常驻 1 号槽、坚果常驻 5 号槽，其它植物靠捡、打完用阳光续。

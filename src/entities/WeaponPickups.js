@@ -448,9 +448,12 @@ export class WeaponPickups {
   }
 
   // 地形地图（彩绘山谷）：道具要摆在真实地面上；其余地图恒为 0。
+  // 海底（立体）：悬浮在海床上方 6 米，游过就能捡，不用每次潜到最底下。
   groundAt(x, z) {
     const map = this.map;
-    return map && typeof map.heightAt === 'function' ? map.heightAt(x, z) : 0;
+    if (!map) return 0;
+    if (typeof map.heightAt !== 'function') return 0;
+    return map.heightAt(x, z) + (map.swim ? 6 : 0);
   }
 
   setMap(map) {

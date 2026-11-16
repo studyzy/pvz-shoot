@@ -120,7 +120,9 @@ export class Game {
       canvas,
       antialias: true,
       powerPreference: 'high-performance',
-      alpha: false,
+      // 海底图的背景是 iframe 里的 WebGPU 场景，three 这一层必须能清成透明才透得出来。
+      // 其它地图照旧不透明（clearAlpha=1），观感与之前一致。
+      alpha: true,
     });
     renderer.setPixelRatio(this.pixelRatio);
     renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -457,6 +459,8 @@ export class Game {
     if (!map) map = this.maps[0];
     for (let i = 0; i < this.maps.length; i++) {
       this.maps[i].root.visible = false;
+      // 海底图要把 iframe 背景层停掉，不然切走后还在后台烧 GPU。
+      if (typeof this.maps[i].deactivate === 'function') this.maps[i].deactivate();
     }
     this.map = map;
     this.mapId = map.id;
@@ -480,6 +484,11 @@ export class Game {
     if (map.id === 'valley') {
       map.onHourChange = (name) => this.hud.setValleyTime(name);
       this.hud.setValleyTime(map.timeName);
+    }
+    // 海底场景是 WebGPU 现生成的：首次进图要几十秒，给个状态行，别让人对着深蓝发愣。
+    if (map.id === 'abyss') {
+      map.onReady = () => { if (this.mapId === 'abyss') this.hud.setDuoStatus('', 'idle'); };
+      this.hud.setDuoStatus('正在生成海底世界…', 'wait');
     }
     // UI 主题跟着地图走：CSS 用 [data-map="cyber"] 这套选择器接管配色。
     // 放在 body 而不是某个容器上，是因为 HUD/暂停/结算/菜单的根节点各不相同，
@@ -743,6 +752,8 @@ export class Game {
 
   startDuo({ mapId, seat, peerName, seed, t0 }) {
     if (this.state !== 'menu' || this.duo) return;
+    // 海底图依赖 WebGPU 背景与场景距离场，服务端的无头地图没有这份数据：双人暂不支持，回落后院。
+    if (mapId === 'abyss') mapId = 'backyard';
     this.duo = { seat, peerName, seed, t0 };
     this.seat = seat;
     this.setMap(mapId);
@@ -1966,6 +1977,14 @@ export class Game {
     // 后期管线；任何一级失败（能力探测不过 / GL 出错 / 档位为 0）都退回直出。
     // 彩绘山谷是唯一例外：它整帧接管，自己的 frame.render 跑笔触/描边/色调曲线。
     const vf = this.map && this.map.valleyFrame;
+    // 海底图：three 只画游戏物体（僵尸/武器/阳光），清屏透明，背景是 iframe 的 WebGPU 场景。
+    if (this.map && this.map.backdrop) {
+      this.renderer.toneMapping = THREE.NoToneMapping;
+      this.renderer.setClearAlpha(0);
+      this.renderer.render(this.scene, this.camera);
+      this.renderer.setClearAlpha(1);
+      return;
+    }
     if (vf) {
       // 内置材质不能再被 three 压一次色调，否则山谷的 final pass 会二次提亮。
       this.renderer.toneMapping = THREE.NoToneMapping;
@@ -1985,10 +2004,17 @@ export class Game {
     const id = (map && map.id) || DEFAULT_MAP;
     // 彩绘山谷自带天空穹顶 / 云 / 远山 / 植被，全局那套会重影，整组隐掉再按图恢复。
     const valley = id === 'valley';
-    if (this.sky) this.sky.mesh.visible = !valley;
-    if (this.skyline) this.skyline.group.visible = !valley;
-    if (this.weather) this.weather.group.visible = !valley;
-    if (this.props) this.props.group.visible = !valley;
+    // 海底图自带水面/光束/悬浮微粒，全局那套天空与远景同样要整组隐掉。
+    const sea = id === 'abyss';
+    const ownBackdrop = valley || sea;
+    if (this.sky) this.sky.mesh.visible = !ownBackdrop;
+    if (this.skyline) this.skyline.group.visible = !ownBackdrop;
+    if (this.weather) this.weather.group.visible = !ownBackdrop;
+    if (this.props) this.props.group.visible = !ownBackdrop;
+    if (sea) {
+      // 未知 preset 没有配方，全部跳过，只留下 scene.fog（AbyssalGarden.activate 里设的）。
+      return;
+    }
     if (this.sky) {
       this.sky.setPreset(id);
       // 太阳方向跟着地图的主光走：后院/雪地是正午偏南，摩天街区是低角度黄昏。
@@ -2024,6 +2050,16 @@ export class Game {
   // resize() 按宽高比定基值（73/84/90），这里只做「机瞄收窄 + 下蹲略收」的修正。
   // 分开算的原因：窗口尺寸与姿态是两件独立的事，混在一起会让 resize 把机瞄状态抹掉。
   applyStanceFov() {
+    // 海底图的视野必须钉死成 abyssal 场景的 TANH=0.6（约 61.9°）：
+    // 两边视角一旦不同，僵尸和背景的透视就对不上，看起来像贴纸。
+    if (this.map && this.map.backdrop) {
+      const f = this.map.cameraFov || 62;
+      if (Math.abs(this.camera.fov - f) > 0.01) {
+        this.camera.fov = f;
+        this.camera.updateProjectionMatrix();
+      }
+      return;
+    }
     const base = this.baseFov || 73;
     const want = base - 21 * (this.player.adsT || 0) - 6 * (this.player.crouchT || 0);
     if (Math.abs(this.camera.fov - want) > 0.01) {
@@ -2129,5 +2165,6 @@ export class Game {
 function duoSpawn(map, seat) {
   const s = (map && map.spawn) || { x: 0, z: 0, yaw: 0 };
   const side = seat === 0 ? -1 : 1;
-  return { x: (s.x || 0) + side * 1.8, z: s.z || 0, yaw: s.yaw || 0 };
+  // 立体图（海底）的出生点带 y；平面图 y 为 0/undefined，行为与之前一致。
+  return { x: (s.x || 0) + side * 1.8, y: s.y, z: s.z || 0, yaw: s.yaw || 0 };
 }

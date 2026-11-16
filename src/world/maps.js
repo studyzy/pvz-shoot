@@ -6,6 +6,7 @@ import { CloudCarnival } from './CloudCarnival.js';
 import { Downtown } from './Downtown.js';
 import { CyberSpace } from './CyberSpace.js';
 import { PaintedValley } from './PaintedValley.js';
+import { AbyssalGarden } from './AbyssalGarden.js';
 
 export const MAPS = [
   {
@@ -89,6 +90,19 @@ export const MAPS = [
     startLabel: '走进彩绘山谷',
     // 渲染栈在 attachRenderer(renderer, camera) 里懒构建，构造函数不碰 WebGL。
     create: (scene) => new PaintedValley(scene),
+  },
+  {
+    id: 'abyss',
+    mode: '立体潜泳',
+    name: '深渊花园',
+    short: '海底',
+    tag: 'ABYSSAL GARDEN',
+    desc: '可以直接上下游的立体海域：海带林、沉船、石鲸尾、蝠鲼与紫色洞窟',
+    startLabel: '潜入深渊花园',
+    // 双人不支持：服务端无头地图没有 WebGPU 背景与场景距离场，硬跑会两边位置对不上。
+    duo: false,
+    // 场景是 iframe 里的 WebGPU 程序，构造函数只搭 three 这一层（灯 + 空的 root）。
+    create: (scene) => new AbyssalGarden(scene),
   },
 ];
 
