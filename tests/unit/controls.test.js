@@ -574,4 +574,44 @@ describe('Controls', () => {
       expect(c.consumeValleyTimeRequest()).toBe(VALLEY_TIME.NONE);
     });
   });
+
+  describe('海底：上浮 / 下潜', () => {
+    it('虚拟按钮按住与松手各自独立', () => {
+      const c = make();
+      expect(c.swimUp).toBe(false);
+      expect(c.swimDown).toBe(false);
+      c.setSwimButton(true, false);
+      expect(c.swimUp).toBe(true);
+      expect(c.swimDown).toBe(false);
+      c.setSwimButton(false, true);
+      expect(c.swimUp).toBe(false);
+      expect(c.swimDown).toBe(true);
+      c.setSwimButton(false, false);
+      expect(c.swimUp || c.swimDown).toBe(false);
+    });
+
+    it('E / C 键进入 keys（Player 用它们判断上浮与下潜）', () => {
+      const c = make();
+      keydown('KeyE');
+      expect(c.keys.has('KeyE')).toBe(true);
+      keyup('KeyE');
+      expect(c.keys.has('KeyE')).toBe(false);
+      keydown('KeyC');
+      expect(c.keys.has('KeyC')).toBe(true);
+      keyup('KeyC');
+      expect(c.keys.has('KeyC')).toBe(false);
+    });
+
+    it('禁用输入 / 失焦都会清掉按住的按钮状态', () => {
+      const c = make();
+      c.setSwimButton(true, true);
+      c.setEnabled(false);
+      expect(c.swimUp).toBe(false);
+      expect(c.swimDown).toBe(false);
+      c.setSwimButton(true, true);
+      window.dispatchEvent(new Event('blur'));
+      expect(c.swimUp).toBe(false);
+      expect(c.swimDown).toBe(false);
+    });
+  });
 });

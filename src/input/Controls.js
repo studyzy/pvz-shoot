@@ -25,6 +25,9 @@ export class Controls {
     // ---- M6：冲刺 / 下蹲 / 机瞄（ADS）----
     this.sprinting = false;
     this.crouching = false;
+    // 海底图的上浮/下沉：键盘走 keys（E / C / Space / Ctrl），这两个字段是虚拟按钮按住的语义。
+    this.swimUp = false;
+    this.swimDown = false;
     this.ads = false;
     this.adsT = 0;
     this.onModeChange = null;
@@ -56,6 +59,8 @@ export class Controls {
       this.move.x = 0;
       this.move.y = 0;
       this.mouseDragging = false;
+      this.swimUp = false;
+      this.swimDown = false;
       this.hud.hideJoystick();
     }
   }
@@ -303,8 +308,16 @@ export class Controls {
       // 失焦时必须清掉按住类状态：否则 alt-tab 回来会一直冲刺/下蹲
       this.sprinting = false;
       this.crouching = false;
+      this.swimUp = false;
+      this.swimDown = false;
       this.ads = false;
     });
+  }
+
+  /** 海底图的虚拟按钮：按住=true，松手=false（两个按钮共用同一份状态）。 */
+  setSwimButton(up, down) {
+    this.swimUp = !!up;
+    this.swimDown = !!down;
   }
 
   update() {

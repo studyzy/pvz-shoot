@@ -364,6 +364,33 @@ export class Game {
     fireBtn.addEventListener('pointerleave', release);
     fireBtn.addEventListener('contextmenu', (e) => e.preventDefault());
 
+    // 海底图的上浮 / 下潜：两个按钮共用一个按住状态，各自松手只清自己那一位。
+    const swim = { up: false, down: false };
+    const applySwim = () => this.controls.setSwimButton(swim.up, swim.down);
+    const bindSwim = (btn, key) => {
+      if (!btn) return;
+      const on = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        swim[key] = true;
+        applySwim();
+        btn.classList.add('pressed');
+        this.hud.fadeTutorial();
+      };
+      const off = () => {
+        swim[key] = false;
+        applySwim();
+        btn.classList.remove('pressed');
+      };
+      btn.addEventListener('pointerdown', on);
+      btn.addEventListener('pointerup', off);
+      btn.addEventListener('pointercancel', off);
+      btn.addEventListener('pointerleave', off);
+      btn.addEventListener('contextmenu', (e) => e.preventDefault());
+    };
+    bindSwim(this.hud.swimUpBtn, 'up');
+    bindSwim(this.hud.swimDownBtn, 'down');
+
     const jumpBtn = this.hud.jumpBtn;
     jumpBtn.addEventListener('pointerdown', (e) => {
       e.preventDefault();
@@ -494,6 +521,8 @@ export class Game {
     // 放在 body 而不是某个容器上，是因为 HUD/暂停/结算/菜单的根节点各不相同，
     // 只有 body 是它们的公共祖先。切图必须跟着变，否则退出赛博空间后 HUD 还是黑的。
     document.body.dataset.map = map.id;
+    // 离开海底图时别把「正在上浮」带进下一张图（按钮可能还按着）。
+    if (this.controls) this.controls.setSwimButton(false, false);
     this.ctx.env = outdoorEnvironment(this.renderer, map.id);
     // 地图可选 setEnv：把 PMREM 环境贴图挂给地图自带的单例材质（摩天街区玻璃幕墙反射）。
     // NightForest.setFlash 同款「按地图开关」先例；重复 setMap 幂等，材质不重建。

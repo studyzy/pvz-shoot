@@ -738,6 +738,37 @@ body.touch .slot-btn.role-shield .wkey { color: rgba(255, 225, 140, .9); }
   letter-spacing: 1px;
 }
 .jump-btn svg { width: 26px; height: 26px; }
+
+/* 海底图的上浮 / 下潜按钮：只在 body[data-map="abyss"] 里出现。
+   桌面上默认隐藏整排动作按钮（跳跃用键盘），海底图例外——鼠标也得能按住上浮。 */
+.swim-btn {
+  pointer-events: auto;
+  display: none;
+  width: 54px;
+  height: 54px;
+  padding: 8px 0 5px;
+  border-radius: 50%;
+  border: 2px solid rgba(180, 235, 255, .38);
+  background: linear-gradient(180deg, rgba(30, 96, 122, .82), rgba(10, 40, 58, .85));
+  box-shadow: 0 4px 0 rgba(3, 14, 22, .55), inset 0 2px 0 rgba(190, 240, 255, .22);
+  cursor: pointer;
+  transition: transform .07s;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  color: #dff4ff;
+  font-family: inherit;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 1px;
+}
+.swim-btn svg { width: 24px; height: 24px; }
+.swim-btn:active, .swim-btn.pressed { transform: translateY(3px); box-shadow: 0 1px 0 rgba(3, 14, 22, .55); }
+body[data-map="abyss"] .swim-btn { display: flex; }
+/* 海底：整排动作按钮在桌面也显示（跳跃键换成上浮/下潜），触屏则并排三个。 */
+body[data-map="abyss"] .action-row { display: flex; }
+body.desktop[data-map="abyss"] .jump-btn { display: none; }
 .jump-btn:active { transform: translateY(3px); box-shadow: 0 1px 0 rgba(8,16,2,.5); }
 
 .fire-btn {

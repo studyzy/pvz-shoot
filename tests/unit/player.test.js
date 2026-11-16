@@ -1107,3 +1107,80 @@ describe('duoDown 倒地', () => {
     expect(cam.rotation.z).toBeCloseTo(0);
   });
 });
+
+/**
+ * 立体地图（海底）：没有重力与地面，上浮/下潜是独立的竖直输入。
+ * 键位：E / 空格 上浮，C / Ctrl 下潜；虚拟按钮走 controls.swimUp / swimDown。
+ */
+describe('Player · 海底游泳', () => {
+  const seaMap = () => ({
+    swim: true,
+    reach: 148,
+    cameraFov: 62,
+    resolve: (x, y, z) => ({ x, y, z, hit: false }),
+    heightAt: () => -46,
+  });
+
+  const seaControls = (keys = []) => {
+    const c = makeControls();
+    c.keys = new Set(keys);
+    c.swimUp = false;
+    c.swimDown = false;
+    return c;
+  };
+
+  const climb = (player, controls, map, frames = 60) => {
+    const y0 = player.pos.y;
+    for (let i = 0; i < frames; i++) player.update(1 / 60, controls, map, []);
+    return player.pos.y - y0;
+  };
+
+  it('E 上浮、C 下潜，方向相反且都不改变水平位置', () => {
+    const p = new Player(makeSfx());
+    p.reset({ x: 0, y: -30, z: 0, yaw: 0 });
+    const map = seaMap();
+
+    const up = climb(p, seaControls(['KeyE']), map);
+    expect(up).toBeGreaterThan(3);
+    expect(p.pos.x).toBeCloseTo(0, 6);
+    expect(p.pos.z).toBeCloseTo(0, 6);
+
+    const down = climb(p, seaControls(['KeyC']), map, 90);
+    expect(down).toBeLessThan(-3);
+  });
+
+  it('空格 / Ctrl 是备选键位，虚拟按钮同样有效', () => {
+    const p = new Player(makeSfx());
+    p.reset({ x: 0, y: -30, z: 0, yaw: 0 });
+    const map = seaMap();
+    expect(climb(p, seaControls(['Space']), map, 60)).toBeGreaterThan(1.5);
+    expect(climb(p, seaControls(['ControlLeft']), map, 60)).toBeLessThan(-1.5);
+
+    const c = seaControls();
+    c.swimUp = true;
+    expect(climb(p, c, map, 60)).toBeGreaterThan(1.5);
+    c.swimUp = false;
+    c.swimDown = true;
+    expect(climb(p, c, map, 60)).toBeLessThan(-1.5);
+  });
+
+  it('纵向有上下限：出水面上方 2 米、海床以下不穿出场景', () => {
+    const p = new Player(makeSfx());
+    p.reset({ x: 0, y: -30, z: 0, yaw: 0 });
+    const map = seaMap();
+    climb(p, seaControls(['KeyE']), map, 900);
+    expect(p.pos.y).toBeLessThanOrEqual(-2.0 + 1e-6);
+    climb(p, seaControls(['KeyC']), map, 900);
+    expect(p.pos.y).toBeGreaterThanOrEqual(-51.5 - 1e-6);
+  });
+
+  it('视野固定成场景的 61.9°，且眼睛跟着身体走', () => {
+    const p = new Player(makeSfx());
+    p.reset({ x: 4, y: -26, z: 64, yaw: 0.35 });
+    p.update(1 / 60, seaControls(), seaMap(), []);
+    expect(p.cameraFov).toBeCloseTo(62, 5);
+    expect(p.eye.y).toBeCloseTo(p.pos.y, 6);
+    expect(p.grounded).toBe(false);
+    expect(p.vy).toBe(0);
+  });
+});

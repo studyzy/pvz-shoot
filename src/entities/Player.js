@@ -409,8 +409,9 @@ export class Player {
     if (inLen > 1) { ix /= inLen; iz /= inLen; }
 
     const keys = controls.keys || EMPTY_KEYS;
-    const up = keys.has('Space') ? 1 : 0;
-    const down = keys.has('ControlLeft') || keys.has('ControlRight') || keys.has('KeyC') ? 1 : 0;
+    // 上浮：E（新键）/ 空格；下潜：C（新键）/ Ctrl。虚拟按钮按住时走 controls.swimUp/Down。
+    const up = controls.swimUp || keys.has('KeyE') || keys.has('Space') ? 1 : 0;
+    const down = controls.swimDown || keys.has('KeyC') || keys.has('ControlLeft') || keys.has('ControlRight') ? 1 : 0;
     const boost = keys.has('ShiftLeft') || keys.has('ShiftRight') ? 1.75 : 1;
 
     const sin = Math.sin(this.yaw);

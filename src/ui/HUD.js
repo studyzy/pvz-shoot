@@ -99,6 +99,9 @@ export class HUD {
     this.muteBtn = document.getElementById('muteBtn');
     this.fireBtn = document.getElementById('fireBtn');
     this.jumpBtn = document.getElementById('jumpBtn');
+    // 海底图专用：上浮 / 下潜（只有 body[data-map="abyss"] 下显示）
+    this.swimUpBtn = document.getElementById('swimUpBtn');
+    this.swimDownBtn = document.getElementById('swimDownBtn');
     this.desktopHint = document.getElementById('desktopHint');
     this.isTouch = true;
 
